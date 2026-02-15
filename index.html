@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Granular Sampler</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <header id="top-bar">
+            <h1>Granular Sampler</h1>
+            <div id="file-controls">
+                <button id="load-sample-btn" type="button">Load Sample</button>
+                <input type="file" id="file-input" accept="audio/*" hidden>
+                <span id="sample-name">No sample loaded</span>
+            </div>
+        </header>
+
+        <main id="main-area">
+            <div id="waveform-container">
+                <canvas id="waveform-canvas"></canvas>
+               
+            </div>
+
+            <div id="transport-bar">
+                <button id="btn-record" type="button" title="Record">
+                    <span class="icon record-icon"></span>
+                </button>
+                <button id="btn-play" type="button" title="Play" disabled>
+                    <span class="icon play-icon"></span>
+                </button>
+                <button id="btn-stop" type="button" title="Stop" disabled>
+                    <span class="icon stop-icon"></span>
+                </button>
+                <button id="btn-loop" type="button" title="Loop" disabled>
+                    <span class="icon loop-icon"></span>
+                </button>
+                <span id="time-display">00:00.000</span>
+            </div>
+
+            <div id="parameter-panel">
+                <div class="param-group">
+                    <label for="param-grain-size">Grain Size <span class="param-value" id="val-grain-size">50 ms</span></label>
+                    <input type="range" id="param-grain-size" min="1" max="500" value="50" step="1">
+                </div>
+                <div class="param-group">
+                    <label for="param-density">Density <span class="param-value" id="val-density">30 ms</span></label>
+                    <input type="range" id="param-density" min="5" max="200" value="30" step="1">
+                </div>
+                <div class="param-group">
+                    <label for="param-pitch">Pitch <span class="param-value" id="val-pitch">1.00</span></label>
+                    <input type="range" id="param-pitch" min="0.25" max="4.0" value="1.0" step="0.01">
+                </div>
+                <div class="param-group">
+                    <label for="param-spread">Spread <span class="param-value" id="val-spread">0.00</span></label>
+                    <input type="range" id="param-spread" min="0" max="1" value="0" step="0.01">
+                </div>
+                <div class="param-group">
+                    <label for="param-pan">Pan <span class="param-value" id="val-pan">0.00</span></label>
+                    <input type="range" id="param-pan" min="-1" max="1" value="0" step="0.01">
+                </div>
+                <div class="param-group">
+                    <label for="param-volume">Volume <span class="param-value" id="val-volume">0.70</span></label>
+                    <input type="range" id="param-volume" min="0" max="1" value="0.7" step="0.01">
+                </div>
+                <div class="param-group">
+                    <label for="param-envelope">Envelope</label>
+                    <select id="param-envelope">
+                        <option value="hann" selected>Hann</option>
+                        <option value="tukey">Tukey</option>
+                        <option value="triangle">Triangle</option>
+                    </select>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script type="module" src="src/main.js"></script>
+</body>
+</html>

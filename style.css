@@ -1,0 +1,329 @@
+/* === Reset & Base === */
+*, *::before, *::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:root {
+    --bg-primary: #111117;
+    --bg-secondary: #1a1a24;
+    --bg-surface: #22222e;
+    --text-primary: #e0e0e8;
+    --text-secondary: #888899;
+    --accent: #00c8ff;
+    --accent-dim: #006680;
+    --record-red: #ff3344;
+    --play-green: #33cc66;
+    --border: #333344;
+    --slider-track: #333344;
+    --slider-thumb: #00c8ff;
+}
+
+html, body {
+    height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    overflow: hidden;
+    -webkit-text-size-adjust: 100%;
+}
+
+/* === App Layout === */
+#app {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+/* === Top Bar === */
+#top-bar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 8px 16px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+#top-bar h1 {
+    font-size: 16px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+#file-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+#load-sample-btn {
+    padding: 6px 14px;
+    font-size: 13px;
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+#load-sample-btn:hover {
+    background: var(--border);
+}
+
+#sample-name {
+    font-size: 13px;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 200px;
+}
+
+/* === Main Area === */
+#main-area {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+
+/* === Waveform === */
+#waveform-container {
+    position: relative;
+    flex: 1;
+    min-height: 150px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+}
+
+#waveform-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    touch-action: none;
+    cursor: crosshair;
+}
+
+#drop-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 200, 255, 0.08);
+    border: 2px dashed var(--accent);
+    color: var(--accent);
+    font-size: 18px;
+    font-weight: 600;
+    pointer-events: none;
+    z-index: 10;
+}
+
+/* === Transport Bar === */
+#transport-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+#transport-bar button {
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--text-primary);
+}
+
+#transport-bar button:hover:not(:disabled) {
+    background: var(--border);
+}
+
+#transport-bar button:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+/* Transport icons */
+.icon {
+    display: block;
+}
+
+.record-icon {
+    width: 14px;
+    height: 14px;
+    background: var(--record-red);
+    border-radius: 50%;
+}
+
+.play-icon {
+    width: 0;
+    height: 0;
+    border-style: solid;
+    border-width: 8px 0 8px 14px;
+    border-color: transparent transparent transparent var(--play-green);
+}
+
+.stop-icon {
+    width: 14px;
+    height: 14px;
+    background: var(--text-secondary);
+    border-radius: 2px;
+}
+
+.loop-icon {
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--text-secondary);
+    border-radius: 50%;
+    position: relative;
+}
+
+.loop-icon::after {
+    content: "";
+    position: absolute;
+    top: -4px;
+    right: -2px;
+    width: 0;
+    height: 0;
+    border-style: solid;
+    border-width: 4px 0 4px 6px;
+    border-color: transparent transparent transparent var(--text-secondary);
+}
+
+#time-display {
+    font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+    font-size: 14px;
+    color: var(--text-secondary);
+    margin-left: auto;
+    white-space: nowrap;
+}
+
+/* === Parameter Panel === */
+#parameter-panel {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px;
+    padding: 12px 16px;
+    background: var(--bg-primary);
+    flex-shrink: 0;
+    overflow-y: auto;
+}
+
+.param-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.param-group label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--text-secondary);
+    user-select: none;
+}
+
+.param-value {
+    color: var(--accent);
+    font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+}
+
+/* Slider styling */
+.param-group input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 44px;
+    background: transparent;
+    cursor: pointer;
+}
+
+.param-group input[type="range"]::-webkit-slider-runnable-track {
+    height: 4px;
+    background: var(--slider-track);
+    border-radius: 2px;
+}
+
+.param-group input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    background: var(--slider-thumb);
+    border-radius: 50%;
+    border: none;
+    margin-top: -7px;
+}
+
+.param-group input[type="range"]::-moz-range-track {
+    height: 4px;
+    background: var(--slider-track);
+    border-radius: 2px;
+    border: none;
+}
+
+.param-group input[type="range"]::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    background: var(--slider-thumb);
+    border-radius: 50%;
+    border: none;
+}
+
+/* Select styling */
+.param-group select {
+    height: 44px;
+    padding: 0 10px;
+    font-size: 13px;
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+/* === Responsive: narrow screens === */
+@media (max-width: 600px) {
+    #top-bar {
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 6px 10px;
+    }
+
+    #top-bar h1 {
+        font-size: 14px;
+    }
+
+    #sample-name {
+        max-width: 120px;
+    }
+
+    #parameter-panel {
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        padding: 8px 10px;
+    }
+
+    #transport-bar {
+        padding: 6px 10px;
+    }
+}
+
+@media (max-width: 380px) {
+    #parameter-panel {
+        grid-template-columns: 1fr;
+    }
+}
