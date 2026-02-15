@@ -100,7 +100,7 @@ Build the core grain creation function and the envelope system, independently te
 
 ---
 
-### Step 1.5 — Grain Scheduler & Voice
+### Step 1.5 — Grain Scheduler & Voice [DONE]
 
 Implement the continuous grain stream and the Voice abstraction.
 
@@ -125,7 +125,7 @@ Implement the continuous grain stream and the Voice abstraction.
 
 ---
 
-### Step 1.6 — Anti-Clipping Chain
+### Step 1.6 — Anti-Clipping Chain [DONE]
 
 Wire up the multi-layer protection against clipping.
 
@@ -140,7 +140,7 @@ Wire up the multi-layer protection against clipping.
 
 ---
 
-### Step 1.7 — Pointer Input (Single Touch/Mouse)
+### Step 1.7 — Pointer Input (Single Touch/Mouse) [DONE]
 
 Connect pointer interaction to the voice.
 
@@ -157,7 +157,7 @@ Connect pointer interaction to the voice.
 
 ---
 
-### Step 1.8 — Parameter Controls
+### Step 1.8 — Parameter Controls [DONE]
 
 Build the UI panel for global grain parameters.
 
@@ -174,7 +174,7 @@ Build the UI panel for global grain parameters.
 
 ---
 
-### Step 1.9 — Grain Visualization
+### Step 1.9 — Grain Visualization [DONE]
 
 Add visual feedback showing individual grains on the waveform.
 
@@ -202,8 +202,9 @@ Final Phase 1 pass: test everything together, fix edge cases, polish the experie
 - Add a simple level meter (horizontal bar) driven by the `AnalyserNode` to give the user feedback on output level.
 - Performance check: open DevTools Performance tab, verify no excessive GC pauses or dropped frames during normal use.
 - Responsive check: test on a narrow viewport (phone-width) — controls should stack vertically, canvas should fill available width.
+- **Experiment: custom ADSR envelope widget** — Replace the envelope dropdown with an interactive ADSR editor. A small canvas or SVG widget where the user can drag control points to shape Attack, Decay, Sustain level, and Release visually. The widget generates a `Float32Array` curve that is passed to the grain factory in place of the preset window functions. This allows fine-grained control over grain shape beyond the built-in presets (Hann, Gaussian, Sigmoid, etc.). Start with a simple 4-point polyline (A/D/S/R), evaluate whether curves (bezier segments) or additional breakpoints are needed.
 
-**Deliverable**: A solid, reliable single-voice granular sampler. Clean sound, responsive UI, no crashes or audio glitches under normal use. This is the foundation for everything that follows.
+**Deliverable**: A solid, reliable single-voice granular sampler. Clean sound, responsive UI, no crashes or audio glitches under normal use. Custom ADSR widget prototype for envelope shaping. This is the foundation for everything that follows.
 
 ---
 

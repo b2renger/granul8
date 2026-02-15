@@ -2,6 +2,9 @@
 
 import { GranularEngine } from './audio/GranularEngine.js';
 import { WaveformDisplay } from './ui/WaveformDisplay.js';
+import { GrainOverlay } from './ui/GrainOverlay.js';
+import { ParameterPanel } from './ui/ParameterPanel.js';
+import { PointerHandler } from './input/PointerHandler.js';
 import { setupDragAndDrop, setupFilePicker } from './utils/fileLoader.js';
 
 // --- DOM references ---
@@ -16,6 +19,11 @@ const dropOverlay = document.getElementById('drop-overlay');
 // --- Engine ---
 
 const engine = new GranularEngine();
+
+// --- Grain overlay (visualization of individual grains) ---
+
+const grainOverlay = new GrainOverlay();
+engine.onGrain = (info) => grainOverlay.addGrain(info);
 
 // --- Waveform display ---
 
@@ -61,96 +69,52 @@ setupDragAndDrop(container, dropOverlay, handleFile);
 setupFilePicker(loadBtn, fileInput, handleFile);
 
 // Auto-load demo sample (if available)
+const DEMO_SAMPLE_PATH = 'samples/Soni_Ventorum_Wind_Quintet_-_08_-_Danzi_Wind_Quintet_Op_67_No_3_In_E-Flat_Major_4_Allegretto.mp3';
+const DEMO_SAMPLE_NAME = 'Danzi Wind Quintet Op.67 No.3 — Allegretto';
+
 async function loadDemoSample() {
     try {
-        const buffer = await engine.loadSample('samples/texture_pad.wav');
+        const buffer = await engine.loadSample(DEMO_SAMPLE_PATH);
         waveform.setBuffer(buffer);
-        sampleNameEl.textContent = 'texture_pad.wav';
+        sampleNameEl.textContent = DEMO_SAMPLE_NAME;
         console.log(`Demo loaded: ${buffer.duration.toFixed(2)}s, ${buffer.sampleRate}Hz`);
     } catch (err) {
         // No demo sample available — that's fine, user will load their own
-        console.log('No demo sample found at samples/texture_pad.wav — drag or pick an audio file.');
+        console.log('No demo sample found — drag or pick an audio file.');
     }
 }
 
 loadDemoSample();
 
-// --- Helper: read current global params from sliders ---
+// --- Parameter panel ---
 
-function getSliderParams() {
-    return {
-        grainSize: parseFloat(document.getElementById('param-grain-size').value) / 1000,
-        interOnset: parseFloat(document.getElementById('param-density').value) / 1000,
-        pitch: parseFloat(document.getElementById('param-pitch').value),
-        spread: parseFloat(document.getElementById('param-spread').value),
-        pan: parseFloat(document.getElementById('param-pan').value),
-        envelope: document.getElementById('param-envelope').value,
-    };
-}
+const params = new ParameterPanel(document.getElementById('parameter-panel'), {
+    onChange(p) { engine.updateVoice(p); },
+    onVolumeChange(v) { engine.setMasterVolume(v); },
+});
 
-// --- Parameter sliders ---
-
-const paramSliders = [
-    { id: 'param-grain-size', valId: 'val-grain-size', format: v => `${v} ms` },
-    { id: 'param-density', valId: 'val-density', format: v => `${v} ms` },
-    { id: 'param-pitch', valId: 'val-pitch', format: v => parseFloat(v).toFixed(2) },
-    { id: 'param-spread', valId: 'val-spread', format: v => parseFloat(v).toFixed(2) },
-    { id: 'param-pan', valId: 'val-pan', format: v => parseFloat(v).toFixed(2) },
-    { id: 'param-volume', valId: 'val-volume', format: v => parseFloat(v).toFixed(2) },
-];
-
-for (const { id, valId, format } of paramSliders) {
-    const slider = document.getElementById(id);
-    const display = document.getElementById(valId);
-    slider.addEventListener('input', () => {
-        display.textContent = format(slider.value);
-
-        // Master volume is wired directly to the engine
-        if (id === 'param-volume') {
-            engine.setMasterVolume(parseFloat(slider.value));
-        }
-
-        // Forward slider changes to active voice in real time
-        engine.updateVoice(getSliderParams());
-    });
-}
-
-// --- Pointer interaction: pointerdown/move/up → voice start/update/stop ---
+// --- Pointer interaction via PointerHandler ---
 // Single pointer for now (Phase 2 adds multi-touch via VoiceAllocator)
 
-canvas.addEventListener('pointerdown', (e) => {
-    if (!engine.sourceBuffer) return;
+/** Convert normalized Y (0=top, 1=bottom) to playback rate via octaves. */
+function yToPitch(y) {
+    // top → +2 octaves (4×), center → 0 (1×), bottom → −2 octaves (0.25×)
+    const octaves = 2 - 4 * y;
+    return Math.pow(2, octaves);
+}
 
-    engine.resume();
-    canvas.setPointerCapture(e.pointerId);
-
-    const rect = canvas.getBoundingClientRect();
-    const position = (e.clientX - rect.left) / rect.width;
-    const amplitude = (e.clientY - rect.top) / rect.height; // push down = louder
-
-    engine.startVoice({
-        position,
-        amplitude,
-        ...getSliderParams(),
-    });
-});
-
-canvas.addEventListener('pointermove', (e) => {
-    if (!canvas.hasPointerCapture(e.pointerId)) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const position = (e.clientX - rect.left) / rect.width;
-    const amplitude = (e.clientY - rect.top) / rect.height;
-
-    engine.updateVoice({ position, amplitude });
-});
-
-canvas.addEventListener('pointerup', (e) => {
-    engine.stopVoice();
-});
-
-canvas.addEventListener('pointercancel', (e) => {
-    engine.stopVoice();
+const pointer = new PointerHandler(canvas, {
+    onStart({ position, amplitude: y }) {
+        if (!engine.sourceBuffer) return;
+        engine.resume();
+        engine.startVoice({ position, pitch: yToPitch(y), amplitude: 0.8, ...params.getParams() });
+    },
+    onMove({ position, amplitude: y }) {
+        engine.updateVoice({ position, pitch: yToPitch(y) });
+    },
+    onStop() {
+        engine.stopVoice();
+    },
 });
 
 // --- Render loop ---
@@ -159,8 +123,11 @@ function render() {
     // Waveform draws its own background + cached waveform image
     waveform.draw();
 
-    // TODO (Step 1.9): draw grain overlay
-    // TODO (Step 1.7): draw pointer indicators
+    // Grain overlay (fading rectangles showing individual grains)
+    grainOverlay.draw(waveform.ctx, canvas.width, canvas.height, engine.audioContext.currentTime);
+
+    // Pointer indicator (circle + vertical line at touch/click position)
+    pointer.drawIndicator(waveform.ctx, canvas.width, canvas.height);
 
     requestAnimationFrame(render);
 }

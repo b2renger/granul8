@@ -41,16 +41,12 @@
 
             <div id="parameter-panel">
                 <div class="param-group">
-                    <label for="param-grain-size">Grain Size <span class="param-value" id="val-grain-size">50 ms</span></label>
-                    <input type="range" id="param-grain-size" min="1" max="500" value="50" step="1">
+                    <label for="param-grain-size">Grain Size <span class="param-value" id="val-grain-size">400 ms</span></label>
+                    <input type="range" id="param-grain-size" min="1" max="1000" value="400" step="1">
                 </div>
                 <div class="param-group">
-                    <label for="param-density">Density <span class="param-value" id="val-density">30 ms</span></label>
-                    <input type="range" id="param-density" min="5" max="200" value="30" step="1">
-                </div>
-                <div class="param-group">
-                    <label for="param-pitch">Pitch <span class="param-value" id="val-pitch">1.00</span></label>
-                    <input type="range" id="param-pitch" min="0.25" max="4.0" value="1.0" step="0.01">
+                    <label for="param-density">Density <span class="param-value" id="val-density">100 ms</span></label>
+                    <input type="range" id="param-density" min="5" max="500" value="100" step="1">
                 </div>
                 <div class="param-group">
                     <label for="param-spread">Spread <span class="param-value" id="val-spread">0.00</span></label>
@@ -70,6 +66,11 @@
                         <option value="hann" selected>Hann</option>
                         <option value="tukey">Tukey</option>
                         <option value="triangle">Triangle</option>
+                        <option value="gaussian">Gaussian</option>
+                        <option value="sigmoid">Sigmoid</option>
+                        <option value="blackman">Blackman</option>
+                        <option value="expodec">Expo Decay</option>
+                        <option value="rexpodec">Reverse Expo</option>
                     </select>
                 </div>
             </div>

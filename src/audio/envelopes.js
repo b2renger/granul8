@@ -1,4 +1,4 @@
-// envelopes.js — Window functions: Hann, Tukey, Triangle
+// envelopes.js — Window functions for grain amplitude shaping.
 // Returns Float32Array curves for use with GainNode.setValueCurveAtTime()
 
 /**
@@ -14,6 +14,11 @@ for (const len of COMMON_LENGTHS) {
     cache.set(`hann:${len}`, _computeHann(len));
     cache.set(`tukey:${len}`, _computeTukey(len, 0.5));
     cache.set(`triangle:${len}`, _computeTriangle(len));
+    cache.set(`gaussian:${len}`, _computeGaussian(len));
+    cache.set(`sigmoid:${len}`, _computeSigmoid(len));
+    cache.set(`blackman:${len}`, _computeBlackman(len));
+    cache.set(`expodec:${len}`, _computeExpodec(len));
+    cache.set(`rexpodec:${len}`, _computeRexpodec(len));
 }
 
 /**
@@ -71,7 +76,7 @@ export function triangleWindow(length) {
 /**
  * Get an envelope by name.
  *
- * @param {'hann'|'tukey'|'triangle'} type
+ * @param {'hann'|'tukey'|'triangle'|'gaussian'|'sigmoid'|'blackman'|'expodec'|'rexpodec'} type
  * @param {number} length
  * @returns {Float32Array}
  */
@@ -79,9 +84,31 @@ export function getEnvelope(type, length) {
     switch (type) {
         case 'tukey':    return tukeyWindow(length);
         case 'triangle': return triangleWindow(length);
+        case 'gaussian':  return _getCached('gaussian', length, _computeGaussian);
+        case 'sigmoid':   return _getCached('sigmoid', length, _computeSigmoid);
+        case 'blackman':  return _getCached('blackman', length, _computeBlackman);
+        case 'expodec':   return _getCached('expodec', length, _computeExpodec);
+        case 'rexpodec':  return _getCached('rexpodec', length, _computeRexpodec);
         case 'hann':
-        default:         return hannWindow(length);
+        default:          return hannWindow(length);
     }
+}
+
+/**
+ * Generic cache lookup + compute helper.
+ * @param {string} type
+ * @param {number} length
+ * @param {(length: number) => Float32Array} computeFn
+ * @returns {Float32Array}
+ */
+function _getCached(type, length, computeFn) {
+    const key = `${type}:${length}`;
+    let curve = cache.get(key);
+    if (!curve) {
+        curve = computeFn(length);
+        cache.set(key, curve);
+    }
+    return curve;
 }
 
 // --- Internal computation functions ---
@@ -132,6 +159,94 @@ function _computeTriangle(length) {
     const mid = (length - 1) / 2;
     for (let i = 0; i < length; i++) {
         curve[i] = 1.0 - Math.abs((i - mid) / mid);
+    }
+    return curve;
+}
+
+/**
+ * Gaussian bell curve — smooth, concentrated energy in the center.
+ * sigma controls width; 0.4 gives a nice taper to near-zero at edges.
+ * @param {number} length
+ * @returns {Float32Array}
+ */
+function _computeGaussian(length) {
+    const curve = new Float32Array(length);
+    const sigma = 0.4;
+    const mid = (length - 1) / 2;
+    for (let i = 0; i < length; i++) {
+        const t = (i - mid) / mid; // -1 to 1
+        curve[i] = Math.exp(-0.5 * (t / sigma) ** 2);
+    }
+    return curve;
+}
+
+/**
+ * Sigmoid — smooth S-curve attack and mirrored S-curve decay.
+ * Steeper transitions than Hann, flatter sustain in the middle.
+ * @param {number} length
+ * @returns {Float32Array}
+ */
+function _computeSigmoid(length) {
+    const curve = new Float32Array(length);
+    const steepness = 7;
+    const mid = (length - 1) / 2;
+    for (let i = 0; i < length; i++) {
+        const t = (i - mid) / mid; // -1 to 1
+        // Sigmoid: 1/(1+e^(-k*t)), normalized so edges → 0, center → 1
+        const sig = 1 / (1 + Math.exp(-steepness * t));
+        // Mirror around center: rise then fall
+        if (i <= mid) {
+            curve[i] = 1 / (1 + Math.exp(-steepness * (2 * i / mid - 1)));
+        } else {
+            curve[i] = 1 / (1 + Math.exp(-steepness * (2 * (length - 1 - i) / mid - 1)));
+        }
+    }
+    return curve;
+}
+
+/**
+ * Blackman window — narrower main lobe than Hann, better sidelobe suppression.
+ * @param {number} length
+ * @returns {Float32Array}
+ */
+function _computeBlackman(length) {
+    const curve = new Float32Array(length);
+    const N = length - 1;
+    for (let i = 0; i < length; i++) {
+        curve[i] = 0.42 - 0.5 * Math.cos(2 * Math.PI * i / N)
+                        + 0.08 * Math.cos(4 * Math.PI * i / N);
+    }
+    return curve;
+}
+
+/**
+ * Exponential decay — percussive attack, gradual tail.
+ * Starts at 1, decays exponentially to near-zero.
+ * @param {number} length
+ * @returns {Float32Array}
+ */
+function _computeExpodec(length) {
+    const curve = new Float32Array(length);
+    const decay = 5; // higher = faster decay
+    for (let i = 0; i < length; i++) {
+        const t = i / (length - 1);
+        curve[i] = Math.exp(-decay * t);
+    }
+    return curve;
+}
+
+/**
+ * Reverse exponential — slow build, sharp cutoff.
+ * Mirror of expodec: near-zero at start, peaks at end.
+ * @param {number} length
+ * @returns {Float32Array}
+ */
+function _computeRexpodec(length) {
+    const curve = new Float32Array(length);
+    const decay = 5;
+    for (let i = 0; i < length; i++) {
+        const t = (length - 1 - i) / (length - 1);
+        curve[i] = Math.exp(-decay * t);
     }
     return curve;
 }
