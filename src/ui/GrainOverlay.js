@@ -1,6 +1,8 @@
 // GrainOverlay.js — Visualizes individual grains as fading rectangles on the waveform canvas.
 // Maintains a ring buffer of recent grain events and draws them each frame.
 
+import { getVoiceColor } from './voiceColors.js';
+
 /** Maximum number of grains stored (ring buffer capacity) */
 const MAX_GRAINS = 100;
 
@@ -12,16 +14,6 @@ const FADE_DURATION = 0.35;
 
 /** Total lifespan before a grain visual is discarded */
 const TOTAL_LIFESPAN = VISIBLE_DURATION + FADE_DURATION;
-
-/** Per-voice colors (Phase 1 uses index 0 only; Phase 2 will use more) */
-const VOICE_COLORS = [
-    [0, 200, 255],   // cyan
-    [255, 100, 200],  // pink
-    [100, 255, 150],  // green
-    [255, 200, 60],   // amber
-    [180, 120, 255],  // purple
-    [255, 130, 80],   // orange
-];
 
 export class GrainOverlay {
     constructor() {
@@ -80,7 +72,7 @@ export class GrainOverlay {
             const w = Math.max(3, g.duration * canvasWidth * 0.1);
 
             // Color by voice
-            const color = VOICE_COLORS[g.voiceId % VOICE_COLORS.length];
+            const color = getVoiceColor(g.voiceId);
 
             // Draw grain rectangle (centered on position, full canvas height)
             ctx.fillStyle = `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${opacity * 0.3})`;

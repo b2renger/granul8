@@ -1,6 +1,6 @@
 // GranularEngine.js — Top-level: AudioContext, master bus, limiter, voice pool
 
-import { Voice } from './Voice.js';
+import { VoiceAllocator } from '../input/VoiceAllocator.js';
 
 export class GranularEngine {
     constructor() {
@@ -38,17 +38,14 @@ export class GranularEngine {
         this.softClipper.connect(this.analyser);
         this.analyser.connect(this.audioContext.destination);
 
-        // --- Voice (single for now — Phase 2 adds pool of 6) ---
-        this._voice = new Voice(0, this.audioContext, this.masterGain);
+        // --- Voice pool (6 voices, mapped by pointer ID) ---
+        this._allocator = new VoiceAllocator(this.audioContext, this.masterGain);
 
-        /** Number of currently active voices (for gain scaling) */
-        this._activeVoiceCount = 0;
-
-        // Grain event callback (forwarded from voice, for visualization)
+        // Grain event callback (forwarded from all voices, for visualization)
         /** @type {((info: {voiceId: number, position: number, duration: number, amplitude: number, when: number}) => void)|null} */
         this.onGrain = null;
 
-        this._voice.onGrain = (info) => {
+        this._allocator.onGrain = (info) => {
             if (this.onGrain) this.onGrain(info);
         };
     }
@@ -60,11 +57,10 @@ export class GranularEngine {
      * @private
      */
     _updateVoiceGains() {
+        const count = this._allocator.activeCount;
         const baseLevel = 0.4;
-        const scale = this._activeVoiceCount > 0
-            ? baseLevel / Math.sqrt(this._activeVoiceCount)
-            : 0;
-        this._voice.setGainLevel(scale);
+        const scale = count > 0 ? baseLevel / Math.sqrt(count) : 0;
+        this._allocator.setGainLevel(scale);
     }
 
     /**
@@ -94,45 +90,62 @@ export class GranularEngine {
      * @returns {Promise<AudioBuffer>}
      */
     async _decodeAndStore(arrayBuffer) {
-        // Stop any active voice before replacing the buffer
-        this.stopVoice();
+        // Stop all active voices before replacing the buffer
+        this._allocator.releaseAll();
 
         const buffer = await this.audioContext.decodeAudioData(arrayBuffer);
         this.sourceBuffer = buffer;
-        this._voice.setBuffer(buffer);
+        this._allocator.setBuffer(buffer);
 
         return buffer;
     }
 
     /**
-     * Start the voice with given parameters.
+     * Start a voice for the given pointer ID.
+     * @param {number} pointerId
      * @param {Object} params - { position, amplitude, grainSize, interOnset, pitch, spread, pan, envelope }
+     * @returns {number|undefined} The voice slot id, or undefined if allocation failed.
      */
-    startVoice(params) {
-        if (!this.sourceBuffer) return;
-        this._activeVoiceCount++;
+    startVoice(pointerId, params) {
+        if (!this.sourceBuffer) return undefined;
+
+        const voice = this._allocator.allocate(pointerId);
+        if (!voice) return undefined;
+
+        voice.start(params);
         this._updateVoiceGains();
-        this._voice.start(params);
+        return voice.id;
     }
 
     /**
-     * Update the active voice parameters.
+     * Update the voice mapped to the given pointer ID.
+     * @param {number} pointerId
      * @param {Object} params - Partial params to merge
      */
-    updateVoice(params) {
-        if (!this._voice.active) return;
-        this._voice.update(params);
+    updateVoice(pointerId, params) {
+        const voice = this._allocator.getVoice(pointerId);
+        if (voice && voice.active) {
+            voice.update(params);
+        }
     }
 
     /**
-     * Stop the active voice.
+     * Update all active voices (e.g. when a global parameter like envelope changes).
+     * @param {Object} params - Partial params to merge
      */
-    stopVoice() {
-        if (this._voice.active) {
-            this._activeVoiceCount = Math.max(0, this._activeVoiceCount - 1);
-            this._updateVoiceGains();
+    updateAllVoices(params) {
+        for (const voice of this._allocator.voices) {
+            if (voice.active) voice.update(params);
         }
-        this._voice.stop();
+    }
+
+    /**
+     * Stop the voice mapped to the given pointer ID.
+     * @param {number} pointerId
+     */
+    stopVoice(pointerId) {
+        this._allocator.release(pointerId);
+        this._updateVoiceGains();
     }
 
     /**
@@ -183,7 +196,7 @@ export class GranularEngine {
      * Clean up all resources.
      */
     dispose() {
-        this._voice.dispose();
+        this._allocator.dispose();
         this.audioContext.close();
     }
 }

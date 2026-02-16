@@ -36,6 +36,9 @@
                 <button id="btn-loop" type="button" title="Loop" disabled>
                     <span class="icon loop-icon"></span>
                 </button>
+                <div id="level-meter" title="Output Level">
+                    <div class="level-meter-fill"></div>
+                </div>
                 <span id="time-display">00:00.000</span>
             </div>
 
@@ -71,7 +74,12 @@
                         <option value="blackman">Blackman</option>
                         <option value="expodec">Expo Decay</option>
                         <option value="rexpodec">Reverse Expo</option>
+                        <option value="custom">Custom (ADSR)</option>
                     </select>
+                </div>
+                <div id="adsr-widget-container" class="param-group" hidden>
+                    <label>ADSR Envelope</label>
+                    <canvas id="adsr-canvas"></canvas>
                 </div>
             </div>
         </main>

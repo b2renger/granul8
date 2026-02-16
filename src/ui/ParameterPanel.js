@@ -1,6 +1,8 @@
 // ParameterPanel.js — Reads grain parameter sliders and envelope select,
 // dispatches onChange callback when any value changes.
 
+import { ADSRWidget } from './ADSRWidget.js';
+
 /**
  * @typedef {Object} GrainParams
  * @property {number} grainSize  - Grain duration in seconds
@@ -45,9 +47,29 @@ export class ParameterPanel {
 
         // Envelope select
         this._envelopeSelect = document.getElementById('param-envelope');
+
+        // ADSR widget (lazy-initialized on first "custom" selection)
+        this._adsrContainer = document.getElementById('adsr-widget-container');
+        this._adsrCanvas = document.getElementById('adsr-canvas');
+        /** @type {ADSRWidget|null} */
+        this._adsrWidget = null;
+
         this._envelopeSelect.addEventListener('change', () => {
+            this._updateADSRVisibility();
             this.callbacks.onChange(this.getParams());
         });
+    }
+
+    /** Show/hide the ADSR canvas editor based on envelope selection. */
+    _updateADSRVisibility() {
+        const isCustom = this._envelopeSelect.value === 'custom';
+        this._adsrContainer.hidden = !isCustom;
+
+        if (isCustom && !this._adsrWidget) {
+            this._adsrWidget = new ADSRWidget(this._adsrCanvas, {
+                onChange: () => this.callbacks.onChange(this.getParams()),
+            });
+        }
     }
 
     /**

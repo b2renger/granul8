@@ -6,7 +6,7 @@ This plan breaks the project into three sequential phases, each building on the 
 
 ---
 
-## Phase 1 — Core Engine & Single-Pointer Interaction
+## Phase 1 — Core Engine & Single-Pointer Interaction [COMPLETE]
 
 **Goal**: A fully functional single-voice granular sampler with waveform display, parameter controls, and clean audio output. This phase establishes the entire foundation — audio engine, rendering pipeline, UI scaffolding — so that Phases 2 and 3 are incremental additions rather than refactors.
 
@@ -190,7 +190,7 @@ Add visual feedback showing individual grains on the waveform.
 
 ---
 
-### Step 1.10 — Integration Testing & Polish
+### Step 1.10 — Integration Testing & Polish [DONE]
 
 Final Phase 1 pass: test everything together, fix edge cases, polish the experience.
 
@@ -216,7 +216,7 @@ Final Phase 1 pass: test everything together, fix edge cases, polish the experie
 
 ---
 
-### Step 2.1 — Voice Pool & Allocator
+### Step 2.1 — Voice Pool & Allocator [DONE]
 
 Expand from one voice to a managed pool.
 
@@ -237,7 +237,7 @@ Expand from one voice to a managed pool.
 
 ---
 
-### Step 2.2 — Multi-Touch Pointer Handling
+### Step 2.2 — Multi-Touch Pointer Handling [DONE]
 
 Upgrade `PointerHandler` to track multiple pointers.
 
@@ -255,7 +255,7 @@ Upgrade `PointerHandler` to track multiple pointers.
 
 ---
 
-### Step 2.3 — Per-Voice Visual Feedback
+### Step 2.3 — Per-Voice Visual Feedback [DONE]
 
 Give each voice a distinct visual identity.
 

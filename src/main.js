@@ -5,6 +5,7 @@ import { WaveformDisplay } from './ui/WaveformDisplay.js';
 import { GrainOverlay } from './ui/GrainOverlay.js';
 import { ParameterPanel } from './ui/ParameterPanel.js';
 import { PointerHandler } from './input/PointerHandler.js';
+import { LevelMeter } from './ui/LevelMeter.js';
 import { setupDragAndDrop, setupFilePicker } from './utils/fileLoader.js';
 
 // --- DOM references ---
@@ -24,6 +25,13 @@ const engine = new GranularEngine();
 
 const grainOverlay = new GrainOverlay();
 engine.onGrain = (info) => grainOverlay.addGrain(info);
+
+// --- Level meter ---
+
+const levelMeter = new LevelMeter(
+    document.getElementById('level-meter'),
+    engine.analyser
+);
 
 // --- Waveform display ---
 
@@ -89,12 +97,12 @@ loadDemoSample();
 // --- Parameter panel ---
 
 const params = new ParameterPanel(document.getElementById('parameter-panel'), {
-    onChange(p) { engine.updateVoice(p); },
+    onChange(p) { engine.updateAllVoices(p); },
     onVolumeChange(v) { engine.setMasterVolume(v); },
 });
 
 // --- Pointer interaction via PointerHandler ---
-// Single pointer for now (Phase 2 adds multi-touch via VoiceAllocator)
+// Multi-touch: each pointer allocates a voice from the pool (up to 10)
 
 /** Convert normalized Y (0=top, 1=bottom) to playback rate via octaves. */
 function yToPitch(y) {
@@ -104,16 +112,16 @@ function yToPitch(y) {
 }
 
 const pointer = new PointerHandler(canvas, {
-    onStart({ position, amplitude: y }) {
-        if (!engine.sourceBuffer) return;
+    onStart({ pointerId, position, amplitude: y }) {
+        if (!engine.sourceBuffer) return undefined;
         engine.resume();
-        engine.startVoice({ position, pitch: yToPitch(y), amplitude: 0.8, ...params.getParams() });
+        return engine.startVoice(pointerId, { position, pitch: yToPitch(y), amplitude: 0.8, ...params.getParams() });
     },
-    onMove({ position, amplitude: y }) {
-        engine.updateVoice({ position, pitch: yToPitch(y) });
+    onMove({ pointerId, position, amplitude: y }) {
+        engine.updateVoice(pointerId, { position, pitch: yToPitch(y) });
     },
-    onStop() {
-        engine.stopVoice();
+    onStop({ pointerId }) {
+        engine.stopVoice(pointerId);
     },
 });
 
@@ -128,6 +136,9 @@ function render() {
 
     // Pointer indicator (circle + vertical line at touch/click position)
     pointer.drawIndicator(waveform.ctx, canvas.width, canvas.height);
+
+    // Level meter
+    levelMeter.update();
 
     requestAnimationFrame(render);
 }

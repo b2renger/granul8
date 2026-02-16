@@ -82,6 +82,7 @@ export function triangleWindow(length) {
  */
 export function getEnvelope(type, length) {
     switch (type) {
+        case 'custom':   return _getCached('custom', length, _computeCustomADSR);
         case 'tukey':    return tukeyWindow(length);
         case 'triangle': return triangleWindow(length);
         case 'gaussian':  return _getCached('gaussian', length, _computeGaussian);
@@ -247,6 +248,66 @@ function _computeRexpodec(length) {
     for (let i = 0; i < length; i++) {
         const t = (length - 1 - i) / (length - 1);
         curve[i] = Math.exp(-decay * t);
+    }
+    return curve;
+}
+
+// --- Custom ADSR envelope ---
+
+/** @type {{a: number, d: number, s: number, r: number}} */
+let _customADSRParams = { a: 0.2, d: 0.15, s: 0.7, r: 0.2 };
+
+/**
+ * Set the custom ADSR parameters. Clears cached custom entries so the next
+ * getEnvelope('custom', ...) recomputes with the new values.
+ * @param {number} a - Attack fraction (0–0.5)
+ * @param {number} d - Decay fraction (0–0.5)
+ * @param {number} s - Sustain level (0–1)
+ * @param {number} r - Release fraction (0–0.5)
+ */
+export function setCustomADSR(a, d, s, r) {
+    _customADSRParams = { a, d, s, r };
+    for (const key of cache.keys()) {
+        if (key.startsWith('custom:')) cache.delete(key);
+    }
+}
+
+/**
+ * Get the current custom ADSR parameters.
+ * @returns {{a: number, d: number, s: number, r: number}}
+ */
+export function getCustomADSR() {
+    return { ..._customADSRParams };
+}
+
+/**
+ * Compute an ADSR polyline envelope.
+ * 0 → 1 over attack, 1 → S over decay, hold S, S → 0 over release.
+ * @param {number} length
+ * @returns {Float32Array}
+ */
+function _computeCustomADSR(length) {
+    const { a, d, s, r } = _customADSRParams;
+    const curve = new Float32Array(length);
+    const N = length - 1;
+
+    const aEnd  = Math.floor(a * N);
+    const dEnd  = Math.floor((a + d) * N);
+    const rStart = Math.floor((1 - r) * N);
+
+    for (let i = 0; i < length; i++) {
+        if (i <= aEnd) {
+            curve[i] = aEnd > 0 ? i / aEnd : 1;
+        } else if (i <= dEnd) {
+            const t = (i - aEnd) / (dEnd - aEnd);
+            curve[i] = 1 - t * (1 - s);
+        } else if (i < rStart) {
+            curve[i] = s;
+        } else {
+            const rLen = N - rStart;
+            const t = rLen > 0 ? (i - rStart) / rLen : 1;
+            curve[i] = s * (1 - t);
+        }
     }
     return curve;
 }
