@@ -116,6 +116,7 @@ export function createGrain(audioContext, buffer, params, destination, when, onG
             position: normalizedPos,
             duration: grainDuration,
             amplitude,
+            pitch,
             when
         });
     }

@@ -7,14 +7,35 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+    <div id="audio-unlock-overlay">
+        <div class="unlock-content">
+            <div class="unlock-icon"></div>
+            <div class="unlock-text">Tap to start</div>
+            <div class="unlock-hint">Audio requires a user gesture</div>
+        </div>
+    </div>
+
     <div id="app">
         <header id="top-bar">
             <h1>Granular Sampler</h1>
             <div id="file-controls">
-                <button id="load-sample-btn" type="button">Load Sample</button>
+                <select id="sample-select">
+                    <option value="">— Select a sample —</option>
+                    <option value="samples/Soni_Ventorum_Wind_Quintet_-_08_-_Danzi_Wind_Quintet_Op_67_No_3_In_E-Flat_Major_4_Allegretto.mp3" selected>Danzi Wind Quintet — Allegretto</option>
+                    <option value="samples/Real Vocal String Quartet - Chorale.mp3">Real Vocal String Quartet — Chorale</option>
+                    <option value="samples/Slaveya Women's Vocal Ensemble - Hey Petrunka.mp3">Slaveya Women's Vocal — Hey Petrunka</option>
+                    <option value="samples/PulseBox - Smooth Jazz.mp3">PulseBox — Smooth Jazz</option>
+                </select>
+                <button id="load-sample-btn" type="button">Load File</button>
                 <input type="file" id="file-input" accept="audio/*" hidden>
                 <span id="sample-name">No sample loaded</span>
             </div>
+            <button id="theme-toggle" type="button" title="Toggle theme">
+                <span class="theme-icon">
+                    <span class="theme-icon-sun"></span>
+                    <span class="theme-icon-moon"></span>
+                </span>
+            </button>
         </header>
 
         <main id="main-area">
@@ -43,44 +64,216 @@
             </div>
 
             <div id="parameter-panel">
-                <div class="param-group">
-                    <label for="param-grain-size">Grain Size <span class="param-value" id="val-grain-size">400 ms</span></label>
-                    <input type="range" id="param-grain-size" min="1" max="1000" value="400" step="1">
-                </div>
-                <div class="param-group">
-                    <label for="param-density">Density <span class="param-value" id="val-density">100 ms</span></label>
-                    <input type="range" id="param-density" min="5" max="500" value="100" step="1">
-                </div>
-                <div class="param-group">
-                    <label for="param-spread">Spread <span class="param-value" id="val-spread">0.00</span></label>
-                    <input type="range" id="param-spread" min="0" max="1" value="0" step="0.01">
-                </div>
-                <div class="param-group">
-                    <label for="param-pan">Pan <span class="param-value" id="val-pan">0.00</span></label>
-                    <input type="range" id="param-pan" min="-1" max="1" value="0" step="0.01">
-                </div>
-                <div class="param-group">
-                    <label for="param-volume">Volume <span class="param-value" id="val-volume">0.70</span></label>
-                    <input type="range" id="param-volume" min="0" max="1" value="0.7" step="0.01">
-                </div>
-                <div class="param-group">
-                    <label for="param-envelope">Envelope</label>
-                    <select id="param-envelope">
-                        <option value="hann" selected>Hann</option>
-                        <option value="tukey">Tukey</option>
-                        <option value="triangle">Triangle</option>
-                        <option value="gaussian">Gaussian</option>
-                        <option value="sigmoid">Sigmoid</option>
-                        <option value="blackman">Blackman</option>
-                        <option value="expodec">Expo Decay</option>
-                        <option value="rexpodec">Reverse Expo</option>
-                        <option value="custom">Custom (ADSR)</option>
-                    </select>
-                </div>
-                <div id="adsr-widget-container" class="param-group" hidden>
-                    <label>ADSR Envelope</label>
-                    <canvas id="adsr-canvas"></canvas>
-                </div>
+                <details class="panel-section" open>
+                    <summary>Sound Engine</summary>
+                    <div class="section-content">
+                        <div class="param-group range-group">
+                            <label>Grain Size</label>
+                            <div class="range-row">
+                                <span class="range-label">Min</span>
+                                <input type="range" id="param-grain-size-min" min="0" max="1" value="0.8674" step="0.001">
+                                <span class="param-value" id="val-grain-size-min">400 ms</span>
+                            </div>
+                            <div class="range-row">
+                                <span class="range-label">Max</span>
+                                <input type="range" id="param-grain-size-max" min="0" max="1" value="0.8674" step="0.001">
+                                <span class="param-value" id="val-grain-size-max">400 ms</span>
+                            </div>
+                            <div class="gesture-indicator" data-param="grainSize"></div>
+                            <div class="random-range-bar" data-param="grainSize"></div>
+                        </div>
+                        <div class="param-group range-group">
+                            <label>Density</label>
+                            <div class="range-row">
+                                <span class="range-label">Min</span>
+                                <input type="range" id="param-density-min" min="0" max="1" value="0.651" step="0.001">
+                                <span class="param-value" id="val-density-min">100 ms</span>
+                            </div>
+                            <div class="range-row">
+                                <span class="range-label">Max</span>
+                                <input type="range" id="param-density-max" min="0" max="1" value="0.651" step="0.001">
+                                <span class="param-value" id="val-density-max">100 ms</span>
+                            </div>
+                            <div class="gesture-indicator" data-param="density"></div>
+                            <div class="random-range-bar" data-param="density"></div>
+                        </div>
+                        <div class="param-group range-group">
+                            <label>Spread</label>
+                            <div class="range-row">
+                                <span class="range-label">Min</span>
+                                <input type="range" id="param-spread-min" min="0" max="1" value="0" step="0.01">
+                                <span class="param-value" id="val-spread-min">0.00</span>
+                            </div>
+                            <div class="range-row">
+                                <span class="range-label">Max</span>
+                                <input type="range" id="param-spread-max" min="0" max="1" value="0" step="0.01">
+                                <span class="param-value" id="val-spread-max">0.00</span>
+                            </div>
+                            <div class="gesture-indicator" data-param="spread"></div>
+                        </div>
+                        <div class="param-group">
+                            <label for="param-pan">Pan <span class="param-value" id="val-pan">0.00</span></label>
+                            <input type="range" id="param-pan" min="-1" max="1" value="0" step="0.01">
+                        </div>
+                        <div class="param-group">
+                            <label for="param-volume">Volume <span class="param-value" id="val-volume">0.70</span></label>
+                            <input type="range" id="param-volume" min="0" max="1" value="0.7" step="0.01">
+                        </div>
+                        <div class="param-group envelope-row" id="envelope-row">
+                            <label for="param-envelope">Envelope</label>
+                            <div class="envelope-inline">
+                                <select id="param-envelope">
+                                    <option value="hann" selected>Hann</option>
+                                    <option value="tukey">Tukey</option>
+                                    <option value="triangle">Triangle</option>
+                                    <option value="gaussian">Gaussian</option>
+                                    <option value="sigmoid">Sigmoid</option>
+                                    <option value="blackman">Blackman</option>
+                                    <option value="expodec">Expo Decay</option>
+                                    <option value="rexpodec">Reverse Expo</option>
+                                    <option value="custom">Custom (ADSR)</option>
+                                </select>
+                                <canvas id="adsr-canvas" class="adsr-hidden"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </details>
+
+                <details class="panel-section" open>
+                    <summary>Musical</summary>
+                    <div class="section-content musical-content">
+                        <div class="param-group">
+                            <label for="param-bpm">BPM <span class="param-value" id="val-bpm">120</span></label>
+                            <div class="bpm-row">
+                                <input type="range" id="param-bpm" min="40" max="300" value="120" step="1">
+                                <button id="tap-tempo" type="button" title="Tap tempo">TAP</button>
+                            </div>
+                        </div>
+                        <div class="param-group">
+                            <label for="param-root-note">Root Note</label>
+                            <select id="param-root-note">
+                                <option value="0" selected>C</option>
+                                <option value="1">C#</option>
+                                <option value="2">D</option>
+                                <option value="3">D#</option>
+                                <option value="4">E</option>
+                                <option value="5">F</option>
+                                <option value="6">F#</option>
+                                <option value="7">G</option>
+                                <option value="8">G#</option>
+                                <option value="9">A</option>
+                                <option value="10">A#</option>
+                                <option value="11">B</option>
+                            </select>
+                        </div>
+                        <div class="param-group">
+                            <label for="param-scale">Scale</label>
+                            <select id="param-scale">
+                                <option value="chromatic" selected>Chromatic</option>
+                                <option value="major">Major</option>
+                                <option value="minor">Minor</option>
+                                <option value="pentatonic">Pentatonic</option>
+                            </select>
+                        </div>
+                        <div class="param-group quantize-toggles">
+                            <label>Quantize</label>
+                            <div class="toggle-row">
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="quantize-grain-size">
+                                    <span class="toggle-switch"></span>
+                                    Grain Size
+                                </label>
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="quantize-density">
+                                    <span class="toggle-switch"></span>
+                                    Density
+                                </label>
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="quantize-pitch">
+                                    <span class="toggle-switch"></span>
+                                    Pitch
+                                </label>
+                            </div>
+                        </div>
+                        <div class="param-group quantize-toggles">
+                            <label>Randomize</label>
+                            <div class="toggle-row">
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="random-grain-size">
+                                    <span class="toggle-switch"></span>
+                                    Grain Size
+                                </label>
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="random-density">
+                                    <span class="toggle-switch"></span>
+                                    Density
+                                </label>
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="random-pitch">
+                                    <span class="toggle-switch"></span>
+                                    Pitch
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </details>
+
+                <details class="panel-section">
+                    <summary>Gesture Mapping</summary>
+                    <div class="section-content">
+                        <div class="param-group gesture-map-group">
+                            <label for="map-pressure">
+                                Pressure
+                                <span class="gesture-status" id="status-pressure">not detected</span>
+                            </label>
+                            <select id="map-pressure">
+                                <option value="none" selected>None</option>
+                                <option value="grainSize">Grain Size</option>
+                                <option value="density">Density</option>
+                                <option value="spread">Spread</option>
+                                <option value="amplitude">Amplitude</option>
+                                <option value="pitch">Pitch</option>
+                            </select>
+                            <div class="gesture-meter">
+                                <div class="gesture-meter-fill" id="meter-pressure"></div>
+                            </div>
+                        </div>
+                        <div class="param-group gesture-map-group">
+                            <label for="map-contact-size">
+                                Contact Size
+                                <span class="gesture-status" id="status-contact-size">not detected</span>
+                            </label>
+                            <select id="map-contact-size">
+                                <option value="none" selected>None</option>
+                                <option value="grainSize">Grain Size</option>
+                                <option value="density">Density</option>
+                                <option value="spread">Spread</option>
+                                <option value="amplitude">Amplitude</option>
+                                <option value="pitch">Pitch</option>
+                            </select>
+                            <div class="gesture-meter">
+                                <div class="gesture-meter-fill" id="meter-contact-size"></div>
+                            </div>
+                        </div>
+                        <div class="param-group gesture-map-group">
+                            <label for="map-velocity">
+                                Velocity
+                                <span class="gesture-status active" id="status-velocity">available</span>
+                            </label>
+                            <select id="map-velocity">
+                                <option value="none" selected>None</option>
+                                <option value="grainSize">Grain Size</option>
+                                <option value="density">Density</option>
+                                <option value="spread">Spread</option>
+                                <option value="amplitude">Amplitude</option>
+                                <option value="pitch">Pitch</option>
+                            </select>
+                            <div class="gesture-meter">
+                                <div class="gesture-meter-fill" id="meter-velocity"></div>
+                            </div>
+                        </div>
+                    </div>
+                </details>
             </div>
         </main>
     </div>

@@ -1,5 +1,7 @@
 // GrainScheduler.js — Look-ahead timer that spawns grains on schedule
 
+import { quantizeDensity } from '../utils/musicalQuantizer.js';
+
 export class GrainScheduler {
     /**
      * @param {AudioContext} audioContext
@@ -17,6 +19,12 @@ export class GrainScheduler {
 
         /** Inter-onset time between grains (seconds) */
         this.interOnset = 0.030;
+
+        /** Random inter-onset range [min, max] in seconds, or null for fixed. */
+        this.interOnsetRange = null;
+
+        /** BPM for per-grain inter-onset quantization, or null for continuous. */
+        this.quantizeBpm = null;
 
         /** @type {number} audioContext.currentTime of the next grain */
         this.nextGrainTime = 0;
@@ -49,11 +57,22 @@ export class GrainScheduler {
     }
 
     /**
-     * Update the inter-onset time (density).
+     * Update the inter-onset time (density). Clears any jitter range.
      * @param {number} ms - Inter-onset time in milliseconds
      */
     setInterOnset(ms) {
         this.interOnset = ms / 1000;
+        this.interOnsetRange = null;
+    }
+
+    /**
+     * Set a random inter-onset range for per-grain jitter.
+     * Each grain picks a random value between min and max.
+     * @param {number} minMs - Minimum inter-onset in milliseconds
+     * @param {number} maxMs - Maximum inter-onset in milliseconds
+     */
+    setInterOnsetRange(minMs, maxMs) {
+        this.interOnsetRange = [minMs / 1000, maxMs / 1000];
     }
 
     /**
@@ -67,7 +86,15 @@ export class GrainScheduler {
 
         while (this.nextGrainTime < deadline) {
             this.onScheduleGrain(this.nextGrainTime);
-            this.nextGrainTime += this.interOnset;
+            // Use random jitter range if set, otherwise fixed interOnset
+            let iot = this.interOnsetRange
+                ? this.interOnsetRange[0] + Math.random() * (this.interOnsetRange[1] - this.interOnsetRange[0])
+                : this.interOnset;
+            // Snap to nearest BPM subdivision when quantization is active
+            if (this.quantizeBpm !== null && this.interOnsetRange) {
+                iot = quantizeDensity(iot, this.quantizeBpm).seconds;
+            }
+            this.nextGrainTime += iot;
         }
 
         this._timerId = setTimeout(() => this._tick(), this.timerInterval);

@@ -39,11 +39,11 @@ export class LevelMeter {
         // Update fill width
         this.fill.style.width = `${this._smoothed * 100}%`;
 
-        // Color: green → yellow → red
+        // Color: sage → amber → warm red (uses CSS variables for theme support)
         if (this._smoothed > 0.9) {
-            this.fill.style.background = 'var(--record-red)';
+            this.fill.style.background = 'var(--accent-warm)';
         } else if (this._smoothed > 0.7) {
-            this.fill.style.background = '#ffaa00';
+            this.fill.style.background = 'var(--accent)';
         } else {
             this.fill.style.background = 'var(--play-green)';
         }

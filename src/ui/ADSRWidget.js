@@ -38,10 +38,28 @@ export class ADSRWidget {
         canvas.addEventListener('pointerup',   this._onPointerUp);
         canvas.addEventListener('pointercancel', this._onPointerUp);
 
+        this._readThemeColors();
+
         this._resizeObserver = new ResizeObserver(() => this.resize());
         this._resizeObserver.observe(canvas);
 
         this.resize();
+    }
+
+    /** Read canvas colors from CSS custom properties. Call after theme change. */
+    _readThemeColors() {
+        const s = getComputedStyle(document.documentElement);
+        this._bgColor = s.getPropertyValue('--canvas-adsr-bg').trim() || '#252220';
+        this._fillColor = s.getPropertyValue('--canvas-adsr-fill').trim() || 'rgba(232, 168, 124, 0.1)';
+        this._strokeColor = s.getPropertyValue('--canvas-adsr-stroke').trim() || '#e8a87c';
+        this._dotColor = s.getPropertyValue('--canvas-adsr-dot').trim() || '#12110f';
+        this._labelColor = s.getPropertyValue('--canvas-adsr-label').trim() || '#8a8078';
+    }
+
+    /** Call when theme changes to refresh colors and redraw. */
+    onThemeChange() {
+        this._readThemeColors();
+        this._draw();
     }
 
     /** Sync canvas buffer size with CSS size (HiDPI-aware), then redraw. */
@@ -163,7 +181,7 @@ export class ADSRWidget {
         ctx.clearRect(0, 0, cw, ch);
 
         // Background
-        ctx.fillStyle = '#22222e';
+        ctx.fillStyle = this._bgColor;
         ctx.fillRect(0, 0, cw, ch);
 
         const pts = this._getPoints();
@@ -180,7 +198,7 @@ export class ADSRWidget {
         ctx.lineTo(cw, ch);
         ctx.lineTo(0, ch);
         ctx.closePath();
-        ctx.fillStyle = 'rgba(0, 200, 255, 0.1)';
+        ctx.fillStyle = this._fillColor;
         ctx.fill();
 
         // Polyline stroke
@@ -189,7 +207,7 @@ export class ADSRWidget {
         for (let i = 1; i < scaled.length; i++) {
             ctx.lineTo(scaled[i].x, scaled[i].y);
         }
-        ctx.strokeStyle = '#00c8ff';
+        ctx.strokeStyle = this._strokeColor;
         ctx.lineWidth = 2 * dpr;
         ctx.lineJoin = 'round';
         ctx.stroke();
@@ -203,18 +221,18 @@ export class ADSRWidget {
             // Outer circle
             ctx.beginPath();
             ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-            ctx.fillStyle = '#00c8ff';
+            ctx.fillStyle = this._strokeColor;
             ctx.fill();
 
             // Inner dot
             ctx.beginPath();
             ctx.arc(p.x, p.y, r * 0.4, 0, Math.PI * 2);
-            ctx.fillStyle = '#111117';
+            ctx.fillStyle = this._dotColor;
             ctx.fill();
 
             // Label
             ctx.font = `${10 * dpr}px -apple-system, BlinkMacSystemFont, sans-serif`;
-            ctx.fillStyle = '#888899';
+            ctx.fillStyle = this._labelColor;
             ctx.textAlign = 'center';
             ctx.fillText(labels[i], p.x, p.y - r - 3 * dpr);
         }
@@ -222,7 +240,7 @@ export class ADSRWidget {
         // Sustain level label
         const sP = scaled[2];
         ctx.font = `${9 * dpr}px monospace`;
-        ctx.fillStyle = '#888899';
+        ctx.fillStyle = this._labelColor;
         ctx.textAlign = 'left';
         ctx.fillText(`S:${this.s.toFixed(2)}`, sP.x + 8 * dpr, sP.y - 2 * dpr);
     }

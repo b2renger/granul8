@@ -1,18 +1,19 @@
 // voiceColors.js — Shared color palette for per-voice visual feedback.
-// 10 distinct, high-contrast colors on a dark background.
+// 10 distinct, high-contrast colors on a warm dark background.
+// Palette: amber / terracotta / sage / cream / rust.
 
 /** @type {[number, number, number][]} RGB triplets indexed by voiceId */
 export const VOICE_COLORS = [
-    [0, 200, 255],     // 0: cyan
-    [255, 100, 200],   // 1: pink
-    [100, 255, 150],   // 2: green
-    [255, 200, 60],    // 3: amber
-    [180, 120, 255],   // 4: purple
-    [255, 130, 80],    // 5: orange
-    [80, 220, 220],    // 6: teal
-    [255, 80, 80],     // 7: red
-    [160, 255, 80],    // 8: lime
-    [220, 160, 255],   // 9: lavender
+    [232, 168, 124],   // 0: warm amber (primary accent)
+    [224, 85, 85],     // 1: warm red
+    [122, 191, 160],   // 2: sage green
+    [240, 200, 140],   // 3: cream gold
+    [200, 110, 90],    // 4: terracotta
+    [160, 200, 140],   // 5: muted olive
+    [230, 140, 100],   // 6: burnt sienna
+    [180, 210, 180],   // 7: pale sage
+    [220, 160, 100],   // 8: caramel
+    [190, 130, 120],   // 9: dusty rose
 ];
 
 /**

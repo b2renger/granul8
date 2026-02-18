@@ -34,3 +34,16 @@ export function mapRange(val, inMin, inMax, outMin, outMax) {
 export function lerp(a, b, t) {
     return a + (b - a) * t;
 }
+
+/**
+ * Exponential mapping: normalized 0–1 → value in [min, max].
+ * Ideal for perceptual audio parameters where low-end resolution matters
+ * more than high-end (e.g. grain durations, frequencies).
+ * @param {number} normalized - 0–1
+ * @param {number} min - Lower bound (must be > 0)
+ * @param {number} max - Upper bound
+ * @returns {number}
+ */
+export function expMap(normalized, min, max) {
+    return min * Math.pow(max / min, normalized);
+}

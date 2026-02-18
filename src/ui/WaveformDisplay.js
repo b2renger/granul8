@@ -28,11 +28,26 @@ export class WaveformDisplay {
         /** @type {Float32Array|null} */
         this.waveformMax = null;
 
-        // Style
-        this.waveformColor = 'rgba(0, 200, 255, 0.6)';
-        this.waveformFillColor = 'rgba(0, 200, 255, 0.15)';
-        this.centerLineColor = '#333344';
-        this.backgroundColor = '#1a1a24';
+        // Colors read from CSS custom properties (theme-aware)
+        this._readThemeColors();
+    }
+
+    /** Read canvas colors from CSS custom properties. Call after theme change. */
+    _readThemeColors() {
+        const s = getComputedStyle(document.documentElement);
+        this.backgroundColor = s.getPropertyValue('--canvas-bg').trim() || '#1a1816';
+        this.waveformColor = s.getPropertyValue('--canvas-waveform').trim() || 'rgba(232, 168, 124, 0.7)';
+        this.waveformFillColor = s.getPropertyValue('--canvas-waveform-fill').trim() || 'rgba(232, 168, 124, 0.12)';
+        this.centerLineColor = s.getPropertyValue('--canvas-centerline').trim() || '#352f2a';
+        this._hintColor = s.getPropertyValue('--canvas-hint').trim() || '#5a5048';
+    }
+
+    /** Call when theme changes to refresh colors and redraw. */
+    onThemeChange() {
+        this._readThemeColors();
+        if (this.buffer) {
+            this._renderCache();
+        }
     }
 
     /**
@@ -209,7 +224,7 @@ export class WaveformDisplay {
         ctx.stroke();
 
         // Hint text
-        ctx.fillStyle = '#555566';
+        ctx.fillStyle = this._hintColor || '#5a5048';
         ctx.font = `${14 * devicePixelRatio}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';

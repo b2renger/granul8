@@ -272,7 +272,7 @@ Give each voice a distinct visual identity.
 
 ---
 
-### Step 2.4 — Extended Gesture Dimensions
+### Step 2.4 — Extended Gesture Dimensions [DONE]
 
 Map additional pointer data to audio parameters where supported.
 
@@ -281,12 +281,21 @@ Map additional pointer data to audio parameters where supported.
 - **Contact size** (`event.width`, `event.height`): if available, map the average contact area to grain spread. A fat finger press spreads grains across a wider buffer region; a precise fingertip focuses them. Normalize by typical ranges (most devices report 20–50px for finger width).
 - **Velocity** (computed from pointer movement speed between frames): map to grain density modulation — fast movement increases inter-onset time (fewer grains, more "scrubby"), slow movement decreases it (denser cloud, more sustained). This makes the instrument feel physically responsive.
 - All mappings should be optional and configurable, with sensible defaults and smooth interpolation (don't jump — lerp toward the new value over a few frames).
+- **Device capability detection**: detect whether the device reports real pressure (not mouse default 0.5) and real contact size (width/height > 1). Show live value meters and "available" / "not detected" badges in the Gesture Mapping UI.
+- **Sample selector dropdown**: added in top bar for switching between bundled demo samples.
 
 **Deliverable**: On supported devices (iPads, Android tablets), the instrument responds to nuanced touch: pressure controls intensity, finger size controls texture width, movement speed controls grain density. On desktop mouse, it degrades gracefully to X/Y only.
 
+**Future refinements** (to revisit later):
+- Fine-tune gesture mapping curves and sensitivity per device type
+- Test and calibrate pressure/contact size ranges on real tablets (iPad, Android)
+- Consider per-voice gesture mappings (different mapping per finger)
+- Explore two-finger distance (pinch/spread) as an additional gesture dimension
+- Add visual feedback of gesture values directly on the waveform canvas (not just in the panel)
+
 ---
 
-### Step 2.5 — Mobile & Tablet Polish
+### Step 2.5 — Mobile & Tablet Polish [DONE]
 
 Optimize the experience for touch-first devices.
 
@@ -302,7 +311,7 @@ Optimize the experience for touch-first devices.
 
 ---
 
-### Step 2.6 — Phase 2 Integration Testing
+### Step 2.6 — Phase 2 Integration Testing [DONE]
 
 **Tasks**:
 - Test with 1, 2, 3, 4, 5, and 6 simultaneous touches. Verify voice allocation and deallocation is clean.
@@ -312,6 +321,86 @@ Optimize the experience for touch-first devices.
 - Cross-browser check: Chrome, Firefox, Safari on desktop; Safari on iOS; Chrome on Android.
 
 **Deliverable**: Robust multi-touch granular instrument ready for expressive performance.
+
+---
+
+### Step 2.7 — Musical Quantization, Randomization & Visual Feedback [DONE]
+
+Make granular parameters musically meaningful by adding optional quantization and randomization modes tied to a global BPM and musical scale system. Each of the three core parameters (grain size, density, pitch) can independently operate in any combination of **free/quantized** and **fixed/randomized** modes. When both quantize and randomize are active on the same parameter, randomization happens per-grain and each random value is snapped to the musical grid.
+
+**Global controls:**
+
+- **BPM** (default 120): a single global tempo reference shared by all quantized parameters. Displayed as a range slider (40–300) with a tap-tempo button (averages the last 4 tap intervals).
+- **Root note** (default C): selectable from C through B (12 options). Used as the tonal center for pitch quantization.
+- **Scale** (default chromatic): selectable from chromatic, major, minor, pentatonic. Determines which pitch degrees are available when pitch quantization is active.
+
+**Per-parameter quantization & randomization (all three follow the same pattern):**
+
+Each parameter supports four independent modes via two toggle checkboxes (Quantize + Randomize):
+
+| Quantize | Randomize | Behavior |
+|----------|-----------|----------|
+| off | off | Continuous value from slider (or gesture mapping) — original behavior |
+| on | off | Snapped to musical grid in `resolveParams()` — one fixed quantized value |
+| off | on | Per-grain continuous random between min/max range — true per-grain jitter |
+| on | on | Per-grain random between min/max, then snapped to nearest grid value — quantized randomization |
+
+1. **Grain Size → BPM subdivisions**
+   - **Free mode**: exponential slider 1–1000ms, continuous.
+   - **Quantized mode**: slider maps to BPM subdivisions via `normalizedToSubdivision()`. Display shows "1/8 (250ms)" format.
+   - **Randomized mode**: each grain picks a random duration between the min/max slider range.
+   - **Quantized + Randomized**: each grain picks a random duration, then snaps to the nearest BPM subdivision. Handled per-grain in `Voice._onScheduleGrain()` via `quantizeDensity()`.
+   - Slider labels refresh when BPM changes (slider, tap tempo).
+
+2. **Density (inter-onset time) → BPM subdivisions**
+   - **Free mode**: exponential slider 5–500ms, continuous.
+   - **Quantized mode**: slider maps to subdivisions. Display shows "1/8 (250ms)".
+   - **Randomized mode**: scheduler picks random inter-onset per grain via `GrainScheduler.interOnsetRange`.
+   - **Quantized + Randomized**: scheduler picks random inter-onset, then snaps to nearest subdivision via `GrainScheduler.quantizeBpm` property and `quantizeDensity()`.
+   - Available subdivisions (10 total, including triplets): 1/1, 1/2, 1/2T, 1/4, 1/4T, 1/8, 1/8T, 1/16, 1/16T, 1/32.
+
+3. **Pitch → Musical scale degrees**
+   - **Free mode**: Y-axis maps to ±2 octaves continuously.
+   - **Quantized mode**: snapped to nearest scale degree via `quantizePitch()` in `resolveParams()`.
+   - **Randomized mode**: each grain picks a random pitch in log2 space (±2 octaves).
+   - **Quantized + Randomized**: each grain picks a random pitch, then snaps to the nearest scale degree. Handled per-grain in `Voice._onScheduleGrain()` via `pitchQuantize` config.
+   - Scale intervals (semitones from root): Chromatic [0–11], Major [0,2,4,5,7,9,11], Minor [0,2,3,5,7,8,10], Pentatonic [0,2,4,7,9].
+
+**Per-grain randomization architecture:**
+
+Randomization runs at the engine level (per-grain), not in `resolveParams()` (per-pointer-event). This ensures grains vary even when the user holds their finger still. `resolveParams()` computes min/max ranges in engine units and passes them to the Voice/Scheduler:
+
+- `randomize.grainSize`: `[min, max]` in seconds, or `null` → Voice picks per-grain
+- `randomize.pitch`: `[-2, 2]` in log2 space, or `null` → Voice picks per-grain
+- `interOnsetRange`: `[min, max]` in seconds, or `null` → Scheduler picks per-grain
+- `grainSizeQuantize`: `{ bpm }` or `null` → Voice snaps after randomization
+- `interOnsetQuantize`: `{ bpm }` or `null` → Scheduler snaps after randomization
+- `pitchQuantize`: `{ scale, rootNote }` or `null` → Voice snaps after randomization
+
+**Visual feedback:**
+
+1. **Canvas (GrainOverlay):** Grains are positioned vertically by pitch (log2 scale: center = unity, top = +2 oct, bottom = −2 oct). Pitch randomization visually scatters grains vertically; quantized pitch clusters them at discrete Y positions (scale degrees). Grain width reflects duration. Voice color coding.
+
+2. **Slider pane (random-range-bar):** When randomization is active on grain size or density, a pulsing bar (CSS `random-pulse` animation, 1.2s cycle, opacity 0.25–0.55) appears between the min and max slider thumbs, showing the randomization range. Positioned dynamically via `ParameterPanel.updateRandomIndicators()` called each frame.
+
+**UI layout:**
+
+- Collapsible `<details>` section titled "Musical" between "Sound Engine" and "Gesture Mapping".
+- Contents: BPM slider + tap-tempo button, Root Note dropdown, Scale dropdown.
+- Quantize toggles row: three checkboxes for Grain Size, Density, Pitch.
+- Randomize toggles row: three checkboxes for Grain Size, Density, Pitch.
+
+**Key files:**
+
+- `src/utils/musicalQuantizer.js` — `SCALES`, `SUBDIVISIONS` (10 entries with triplets), `quantizePitch()`, `quantizeDensity()`, `rateToSemitones()`/`semitonesToRate()`, `normalizedToSubdivision()`, `getSubdivisionSeconds()`
+- `src/ui/ParameterPanel.js` — `getMusicalParams()` returns `{ bpm, rootNote, scale, quantizeGrainSize, quantizeDensity, quantizePitch, randomGrainSize, randomDensity, randomPitch }`. Slider display refresh methods for grain size and density. Random-range-bar indicator logic.
+- `src/main.js` — `resolveParams()` handles all mode combinations, defers per-grain work to engine
+- `src/audio/Voice.js` — `_onScheduleGrain()` applies per-grain grain size randomization + quantization, per-grain pitch randomization + quantization
+- `src/audio/GrainScheduler.js` — `_tick()` applies per-grain density randomization + quantization via `quantizeBpm`
+- `src/audio/grainFactory.js` — `onGrain` callback includes `pitch` for overlay visualization
+- `src/ui/GrainOverlay.js` — pitch-based Y positioning for grain rectangles
+
+**Deliverable**: All three core parameters (grain size, density, pitch) can independently be quantized to a BPM grid or musical scale, randomized per-grain, or both. When combined, randomization picks from the quantized grid. Visual feedback on both the canvas (pitch-as-Y scatter) and the slider pane (pulsing range bars) makes the behavior immediately understandable.
 
 ---
 

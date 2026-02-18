@@ -26,7 +26,7 @@ export class GrainOverlay {
 
     /**
      * Record a grain event. Call this from the engine's onGrain callback.
-     * @param {{voiceId: number, position: number, duration: number, amplitude: number, when: number}} info
+     * @param {{voiceId: number, position: number, duration: number, amplitude: number, pitch: number, when: number}} info
      */
     addGrain(info) {
         if (this._grains.length < MAX_GRAINS) {
@@ -71,17 +71,25 @@ export class GrainOverlay {
             // Use a minimum width so short grains are still visible
             const w = Math.max(3, g.duration * canvasWidth * 0.1);
 
+            // Y position based on pitch (log2 scale):
+            // pitch=1.0 (unity) → center, +2oct (4×) → top, −2oct (0.25×) → bottom
+            const pitchLog = g.pitch ? Math.log2(g.pitch) : 0; // semitone-ish
+            const pitchNorm = pitchLog / 4; // ±2 oct → ±0.5
+            const yCenter = canvasHeight / 2 - pitchNorm * canvasHeight;
+            const grainH = canvasHeight * 0.28;
+
             // Color by voice
             const color = getVoiceColor(g.voiceId);
 
-            // Draw grain rectangle (centered on position, full canvas height)
+            // Draw grain rectangle (centered on pitch-derived Y)
             ctx.fillStyle = `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${opacity * 0.3})`;
-            ctx.fillRect(x - w / 2, 0, w, canvasHeight);
+            ctx.fillRect(x - w / 2, yCenter - grainH / 2, w, grainH);
 
             // Draw a brighter core stripe at the center
             const coreW = Math.max(2, w * 0.3);
+            const coreH = grainH * 0.4;
             ctx.fillStyle = `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${opacity * 0.6})`;
-            ctx.fillRect(x - coreW / 2, 0, coreW, canvasHeight);
+            ctx.fillRect(x - coreW / 2, yCenter - coreH / 2, coreW, coreH);
         }
     }
 }

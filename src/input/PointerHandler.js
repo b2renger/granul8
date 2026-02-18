@@ -1,7 +1,8 @@
 // PointerHandler.js — Maps pointer events on the waveform canvas to voice control.
 // Supports multiple simultaneous pointers (multi-touch) with per-voice colors.
+// Extracts extended gesture dimensions: pressure, contact size, velocity.
 
-import { clamp } from '../utils/math.js';
+import { clamp, lerp } from '../utils/math.js';
 import { getVoiceColor } from '../ui/voiceColors.js';
 
 /** Maximum tracked pointers (matches VoiceAllocator pool size). */
@@ -10,13 +11,22 @@ const MAX_POINTERS = 10;
 /** Fade-out duration in seconds after pointer release. */
 const FADE_OUT_DURATION = 0.3;
 
+/** Speed (in normalized canvas-units/sec) that maps to velocity = 1. */
+const VELOCITY_MAX = 3;
+
+/** Exponential moving average factor for velocity smoothing (0–1, higher = less smooth). */
+const VELOCITY_SMOOTH = 0.3;
+
+/** CSS pixels of contact size that maps to contactSize = 1. */
+const CONTACT_SIZE_MAX = 50;
+
 export class PointerHandler {
     /**
      * @param {HTMLCanvasElement} canvas - The waveform canvas element
      * @param {object} callbacks
-     * @param {(params: {pointerId: number, position: number, amplitude: number}) => number|undefined} callbacks.onStart
+     * @param {(params: {pointerId: number, position: number, amplitude: number, pressure: number, contactSize: number, velocity: number}) => number|undefined} callbacks.onStart
      *        Should return the voiceId (slot index) allocated, or undefined if none.
-     * @param {(params: {pointerId: number, position: number, amplitude: number}) => void} callbacks.onMove
+     * @param {(params: {pointerId: number, position: number, amplitude: number, pressure: number, contactSize: number, velocity: number}) => void} callbacks.onMove
      * @param {(params: {pointerId: number}) => void} callbacks.onStop
      */
     constructor(canvas, callbacks) {
@@ -24,8 +34,8 @@ export class PointerHandler {
         this.callbacks = callbacks;
 
         /**
-         * Active pointers: pointerId → { position, amplitude, voiceId }
-         * @type {Map<number, {position: number, amplitude: number, voiceId: number}>}
+         * Active pointers: pointerId → { position, amplitude, pressure, contactSize, velocity, voiceId }
+         * @type {Map<number, {position: number, amplitude: number, pressure: number, contactSize: number, velocity: number, voiceId: number, _lastTime: number}>}
          */
         this.pointers = new Map();
 
@@ -34,6 +44,27 @@ export class PointerHandler {
          * @type {Array<{position: number, amplitude: number, voiceId: number, releasedAt: number}>}
          */
         this._fading = [];
+
+        /**
+         * Device capability detection — set to true once we observe real values.
+         * Pressure: mouse always reports 0.5, pen/touch report variable values.
+         * ContactSize: mouse reports width=1/height=1, touch reports real area.
+         */
+        this.capabilities = {
+            pressure: false,
+            contactSize: false,
+            velocity: true, // always available (computed)
+        };
+
+        /**
+         * Latest raw gesture values (for live feedback display).
+         * Updated on every pointer event, even when no voice is active.
+         */
+        this.liveGesture = {
+            pressure: 0,
+            contactSize: 0,
+            velocity: 0,
+        };
 
         // Bind listeners
         this._onPointerDown = this._onPointerDown.bind(this);
@@ -47,16 +78,39 @@ export class PointerHandler {
     }
 
     /**
-     * Compute normalized X/Y from a pointer event.
+     * Compute normalized X/Y and extract gesture dimensions from a pointer event.
      * X → position (0–1), Y → amplitude (0–1, top=0 bottom=1).
+     * Pressure: 0–1 (0.5 default for mouse/trackpad).
+     * Contact size: max(width, height) normalized to 0–1.
      * @param {PointerEvent} e
-     * @returns {{position: number, amplitude: number}}
+     * @returns {{position: number, amplitude: number, pressure: number, contactSize: number}}
      */
     _normalizePointer(e) {
         const rect = this.canvas.getBoundingClientRect();
         const position = clamp((e.clientX - rect.left) / rect.width, 0, 1);
         const amplitude = clamp((e.clientY - rect.top) / rect.height, 0, 1);
-        return { position, amplitude };
+        const pressure = clamp(e.pressure, 0, 1);
+        const contactSize = clamp(
+            Math.max(e.width || 0, e.height || 0) / CONTACT_SIZE_MAX,
+            0, 1
+        );
+
+        // Detect real device capabilities:
+        // Pressure: mouse/trackpad always reports exactly 0.5 (or 0 when not pressed).
+        // Real pressure devices (stylus, touch) report variable values.
+        if (!this.capabilities.pressure && e.pressure > 0 && e.pressure !== 0.5) {
+            this.capabilities.pressure = true;
+        }
+        // Contact size: mouse reports width=1, height=1 (or 0).
+        // Real touch reports actual contact area > 1.
+        if (!this.capabilities.contactSize) {
+            const rawSize = Math.max(e.width || 0, e.height || 0);
+            if (rawSize > 1) {
+                this.capabilities.contactSize = true;
+            }
+        }
+
+        return { position, amplitude, pressure, contactSize };
     }
 
     /** @param {PointerEvent} e */
@@ -68,13 +122,29 @@ export class PointerHandler {
 
         this.canvas.setPointerCapture(e.pointerId);
 
-        const { position, amplitude } = this._normalizePointer(e);
+        const { position, amplitude, pressure, contactSize } = this._normalizePointer(e);
 
         // onStart returns the allocated voiceId (or undefined if allocation failed)
-        const voiceId = this.callbacks.onStart({ pointerId: e.pointerId, position, amplitude });
+        const voiceId = this.callbacks.onStart({
+            pointerId: e.pointerId,
+            position, amplitude,
+            pressure, contactSize,
+            velocity: 0,
+        });
+
+        // Update live gesture feedback (always, even if allocation fails)
+        this.liveGesture.pressure = pressure;
+        this.liveGesture.contactSize = contactSize;
+        this.liveGesture.velocity = 0;
 
         if (voiceId != null) {
-            this.pointers.set(e.pointerId, { position, amplitude, voiceId });
+            this.pointers.set(e.pointerId, {
+                position, amplitude,
+                pressure, contactSize,
+                velocity: 0,
+                voiceId,
+                _lastTime: e.timeStamp,
+            });
         }
     }
 
@@ -84,11 +154,35 @@ export class PointerHandler {
         if (!entry) return;
         e.preventDefault();
 
-        const { position, amplitude } = this._normalizePointer(e);
+        const { position, amplitude, pressure, contactSize } = this._normalizePointer(e);
+
+        // Compute velocity from position delta between frames
+        const dt = Math.max(e.timeStamp - entry._lastTime, 1) / 1000;
+        const dx = position - entry.position;
+        const dy = amplitude - entry.amplitude;
+        const speed = Math.sqrt(dx * dx + dy * dy) / dt;
+        const rawVelocity = clamp(speed / VELOCITY_MAX, 0, 1);
+        const velocity = lerp(entry.velocity, rawVelocity, VELOCITY_SMOOTH);
+
+        // Update stored state
         entry.position = position;
         entry.amplitude = amplitude;
+        entry.pressure = pressure;
+        entry.contactSize = contactSize;
+        entry.velocity = velocity;
+        entry._lastTime = e.timeStamp;
 
-        this.callbacks.onMove({ pointerId: e.pointerId, position, amplitude });
+        // Update live gesture feedback
+        this.liveGesture.pressure = pressure;
+        this.liveGesture.contactSize = contactSize;
+        this.liveGesture.velocity = velocity;
+
+        this.callbacks.onMove({
+            pointerId: e.pointerId,
+            position, amplitude,
+            pressure, contactSize,
+            velocity,
+        });
     }
 
     /** @param {PointerEvent} e */

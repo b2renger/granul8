@@ -2,6 +2,7 @@
 
 import { GrainScheduler } from './GrainScheduler.js';
 import { createGrain } from './grainFactory.js';
+import { quantizePitch, rateToSemitones, semitonesToRate, quantizeDensity } from '../utils/musicalQuantizer.js';
 
 export class Voice {
     /**
@@ -33,6 +34,24 @@ export class Voice {
             pan: 0.0,
             envelope: 'hann',
         };
+
+        /**
+         * Per-grain randomization ranges (null entries = no randomization).
+         * @type {{ grainSize: [number,number]|null, pitch: [number,number]|null }}
+         */
+        this.randomize = { grainSize: null, pitch: null };
+
+        /**
+         * Grain size quantization config for per-grain snapping (null = disabled).
+         * @type {{ bpm: number }|null}
+         */
+        this.grainSizeQuantize = null;
+
+        /**
+         * Pitch quantization config for per-grain snapping (null = disabled).
+         * @type {{ scale: number[], rootNote: number }|null}
+         */
+        this.pitchQuantize = null;
 
         // Grain scheduler
         this.scheduler = new GrainScheduler(
@@ -74,8 +93,28 @@ export class Voice {
 
         if (params.interOnset !== undefined) {
             this.params.interOnset = params.interOnset;
+        }
+
+        // Density scheduling: jitter range takes priority over fixed interOnset
+        if (params.interOnsetRange) {
+            this.scheduler.setInterOnsetRange(
+                params.interOnsetRange[0] * 1000,
+                params.interOnsetRange[1] * 1000
+            );
+        } else if (params.interOnset !== undefined) {
             this.scheduler.setInterOnset(params.interOnset * 1000);
         }
+
+        // Inter-onset quantization: pass BPM to scheduler for per-grain snapping
+        if (params.interOnsetQuantize !== undefined) {
+            this.scheduler.quantizeBpm = params.interOnsetQuantize
+                ? params.interOnsetQuantize.bpm : null;
+        }
+
+        // Per-grain randomization ranges
+        if (params.randomize !== undefined) this.randomize = params.randomize;
+        if (params.grainSizeQuantize !== undefined) this.grainSizeQuantize = params.grainSizeQuantize;
+        if (params.pitchQuantize !== undefined) this.pitchQuantize = params.pitchQuantize;
     }
 
     /**
@@ -118,10 +157,38 @@ export class Voice {
 
     /**
      * Called by the scheduler for each grain to create.
+     * Applies per-grain randomization before creating the grain.
      * @param {number} when - audioContext.currentTime to start
      */
     _onScheduleGrain(when) {
         if (!this.buffer || !this.active) return;
+
+        // Start from current params
+        let duration = this.params.grainSize;
+        let pitch = this.params.pitch;
+
+        // Per-grain randomization
+        const rnd = this.randomize;
+        if (rnd.grainSize) {
+            duration = rnd.grainSize[0] + Math.random() * (rnd.grainSize[1] - rnd.grainSize[0]);
+        }
+
+        // Apply grain size quantization (snap to nearest BPM subdivision)
+        if (this.grainSizeQuantize) {
+            duration = quantizeDensity(duration, this.grainSizeQuantize.bpm).seconds;
+        }
+
+        if (rnd.pitch) {
+            // Random pitch in log space: ±2 octaves
+            pitch = Math.pow(2, rnd.pitch[0] + Math.random() * (rnd.pitch[1] - rnd.pitch[0]));
+        }
+
+        // Apply pitch quantization (snap to scale degree)
+        if (this.pitchQuantize) {
+            const semitones = rateToSemitones(pitch);
+            const snapped = quantizePitch(semitones, this.pitchQuantize.scale, this.pitchQuantize.rootNote);
+            pitch = semitonesToRate(snapped);
+        }
 
         createGrain(
             this.audioContext,
@@ -129,9 +196,9 @@ export class Voice {
             {
                 position: this.params.position,
                 amplitude: this.params.amplitude,
-                duration: this.params.grainSize,
+                duration,
                 interOnset: this.params.interOnset,
-                pitch: this.params.pitch,
+                pitch,
                 spread: this.params.spread,
                 pan: this.params.pan,
                 envelope: this.params.envelope,
