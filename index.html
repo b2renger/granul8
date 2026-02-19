@@ -31,6 +31,10 @@
                 <button id="load-sample-btn" type="button">Load File</button>
                 <input type="file" id="file-input" accept="audio/*" hidden>
                 <span id="sample-name">No sample loaded</span>
+                <span class="file-controls-sep"></span>
+                <button id="session-export-btn" type="button" title="Export session as JSON">Export</button>
+                <button id="session-import-btn" type="button" title="Import session from JSON">Import</button>
+                <input type="file" id="session-import-input" accept=".json,application/json" hidden>
             </div>
             <button id="theme-toggle" type="button" title="Toggle theme">
                 <span class="theme-icon">

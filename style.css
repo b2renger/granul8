@@ -136,6 +136,58 @@ html, body {
     max-width: 200px;
 }
 
+.file-controls-sep {
+    width: 1px;
+    height: 20px;
+    background: var(--border);
+    flex-shrink: 0;
+}
+
+#session-export-btn,
+#session-import-btn {
+    padding: 6px 14px;
+    font-size: 13px;
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+#session-export-btn:hover,
+#session-import-btn:hover {
+    background: var(--border);
+}
+
+/* === Session Toast Notification === */
+.session-toast {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    padding: 8px 20px;
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 13px;
+    opacity: 0;
+    transition: opacity 0.3s, transform 0.3s;
+    z-index: 50;
+    pointer-events: none;
+}
+
+.session-toast-visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+.session-toast-error {
+    border-color: var(--accent-warm);
+    color: var(--accent-warm);
+}
+
 /* === Tab Bar === */
 #tab-bar {
     display: flex;

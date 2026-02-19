@@ -176,4 +176,61 @@ export class InstanceManager {
             if (this.onTabsChanged) this.onTabsChanged();
         }
     }
+
+    /**
+     * Replace the entire workspace from a serialized session.
+     * Destroys all current instances, creates new ones from the session data.
+     *
+     * @param {Object} sessionData - Validated session JSON (from validateSession)
+     * @param {(state: InstanceState, entry: Object) => Promise<void>} onInstanceCreated
+     *   - Callback fired for each instance after creation, for sample loading.
+     * @returns {Promise<void>}
+     */
+    async restoreFromSession(sessionData, onInstanceCreated) {
+        // 1. Destroy all existing instances
+        for (const [, entry] of this.instances) {
+            entry.engine.stopAllVoices();
+            entry.engine.dispose();
+        }
+        this.instances.clear();
+        this.activeId = null;
+
+        // 2. Recreate instances from saved state
+        for (const savedState of sessionData.instances) {
+            const state = InstanceState.fromJSON(savedState);
+            const engine = new GranularEngine(
+                this.masterBus.audioContext,
+                this.masterBus.masterGain
+            );
+            const grainOverlay = new GrainOverlay();
+
+            this.instances.set(state.id, { state, engine, grainOverlay, buffer: null });
+        }
+
+        // 3. Determine which tab to activate
+        const targetId = sessionData.activeInstanceId &&
+                         this.instances.has(sessionData.activeInstanceId)
+            ? sessionData.activeInstanceId
+            : this.instances.keys().next().value;
+
+        // 4. Activate the target instance
+        this.activeId = targetId;
+        const target = this.instances.get(targetId);
+        this.panel.setFullState(target.state);
+        target.engine.onGrain = (info) => target.grainOverlay.addGrain(info);
+        this.masterBus.setMasterVolume(target.state.volume);
+
+        // 5. Update counter so new tabs get sensible names
+        this._counter = this.instances.size;
+
+        // 6. Fire callback for sample loading on each instance
+        if (onInstanceCreated) {
+            for (const [, entry] of this.instances) {
+                await onInstanceCreated(entry.state, entry);
+            }
+        }
+
+        // 7. Notify tab bar to re-render
+        if (this.onTabsChanged) this.onTabsChanged();
+    }
 }

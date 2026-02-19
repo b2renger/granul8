@@ -575,7 +575,7 @@ A method `ParameterPanel.updateParamRelevance(musicalParams)` (called each frame
 
 ---
 
-## Phase 3 — Multi-Instance Architecture with Tab UI
+## Phase 3 — Multi-Instance Architecture with Tab UI [COMPLETE]
 
 **Goal**: Refactor the app so each tab is an independent granular instrument with its own sample, parameters, and (eventually) automation. All instances share a single AudioContext and master output chain. Multi-touch resolves to the active tab only. One set of DOM controls, state swapped on tab switch (DAW channel strip pattern).
 
@@ -583,7 +583,7 @@ A method `ParameterPanel.updateParamRelevance(musicalParams)` (called each frame
 
 ---
 
-### Step 3.1 — Refactor GranularEngine for Dependency Injection
+### Step 3.1 — Refactor GranularEngine for Dependency Injection [DONE]
 
 **Goal:** Extract the master output chain so multiple engines can share one AudioContext.
 
@@ -598,7 +598,7 @@ A method `ParameterPanel.updateParamRelevance(musicalParams)` (called each frame
 
 ---
 
-### Step 3.2 — Instance State Model
+### Step 3.2 — Instance State Model [DONE]
 
 **Goal:** Define a serializable state snapshot capturing everything about one sampler instance.
 
@@ -614,7 +614,7 @@ A method `ParameterPanel.updateParamRelevance(musicalParams)` (called each frame
 
 ---
 
-### Step 3.3 — ParameterPanel Save/Restore
+### Step 3.3 — ParameterPanel Save/Restore [DONE]
 
 **Goal:** Add `getFullState()` and `setFullState(state)` methods so the single set of DOM controls can be swapped to reflect any instance's parameters.
 
@@ -629,7 +629,7 @@ A method `ParameterPanel.updateParamRelevance(musicalParams)` (called each frame
 
 ---
 
-### Step 3.4 — InstanceManager
+### Step 3.4 — InstanceManager [DONE]
 
 **Goal:** Central orchestrator for instance lifecycle: create, destroy, switch, route audio.
 
@@ -649,7 +649,7 @@ A method `ParameterPanel.updateParamRelevance(musicalParams)` (called each frame
 
 ---
 
-### Step 3.5 — Tab Bar UI
+### Step 3.5 — Tab Bar UI [DONE]
 
 **Goal:** Horizontal tab strip for creating, switching, renaming, and closing instances.
 
@@ -669,7 +669,7 @@ A method `ParameterPanel.updateParamRelevance(musicalParams)` (called each frame
 
 ---
 
-### Step 3.6 — Wire main.js to InstanceManager
+### Step 3.6 — Wire main.js to InstanceManager [DONE]
 
 **Goal:** Replace global singletons with InstanceManager routing.
 
@@ -691,7 +691,7 @@ A method `ParameterPanel.updateParamRelevance(musicalParams)` (called each frame
 
 ---
 
-### Step 3.7 — Integration Testing
+### Step 3.7 — Integration Testing [DONE]
 
 **Tasks:**
 - Create 3 tabs with different samples and parameters, verify full independence.
@@ -706,7 +706,7 @@ A method `ParameterPanel.updateParamRelevance(musicalParams)` (called each frame
 
 ---
 
-### Step 3.8 — Arpeggiator Enhancement
+### Step 3.8 — Arpeggiator Enhancement [DONE]
 
 **Goal**: Replace the limited 4-pattern arpeggiator (up, down, updown, random) with a permutation-based system inspired by [CodePen jak_e/qNrZyw](https://codepen.io/jak_e/pen/qNrZyw). Expand from 4 scales to 14. Add arp steps, type (straight/looped), and shape (permutation selection with SVG preview).
 
@@ -747,6 +747,45 @@ In `_onScheduleGrain()`, add a new branch before the existing noteTable logic. T
 
 ---
 
+### Step 3.9 — Session Persistence [DONE]
+
+**Goal:** Auto-save the entire workspace to localStorage (survives page reloads) and support JSON file export/import for sharing and backup.
+
+**Design decisions:**
+- **Session scope only** — saves/loads the entire workspace (all tabs), no per-instance presets.
+- **Sample references only** — stores `sampleUrl`/`sampleFileName`, not audio data. Bundled samples auto-reload by URL. User-uploaded files are marked as missing with a ⚠ warning indicator.
+- **Debounced auto-save (500ms)** — avoids excessive writes during slider drags.
+- **`beforeunload` flush** — catches final state on tab close.
+- **Version field** — `version: 1` in JSON envelope for future migration.
+- **`granul8: true` marker** — cheap validation to reject non-Granul8 JSON files.
+
+**Session JSON schema:**
+```json
+{
+    "granul8": true,
+    "version": 1,
+    "savedAt": "2026-02-19T14:30:00Z",
+    "activeInstanceId": "abc-123",
+    "instances": [
+        { /* InstanceState.toJSON() output for each tab */ }
+    ]
+}
+```
+
+**Implementation:**
+
+- **`src/state/SessionSerializer.js`** (new) — `serializeSession(instanceManager, panel)`, `validateSession(json)`, `getBundledSampleUrls(sampleSelectEl)`.
+- **`src/state/SessionPersistence.js`** (new) — `SessionPersistence` class with debounced save, `saveNow()`, `load()`, `disable()`/`enable()`. Plus `exportSessionFile(session)` and `readSessionFile(file)` utilities.
+- **`src/state/InstanceManager.js`** (modified) — Added `restoreFromSession(sessionData, onInstanceCreated)` method.
+- **`src/utils/fileLoader.js`** (modified) — Exported `isAudioFile`, removed audio filter from drop handler to allow JSON routing.
+- **`index.html`** (modified) — Added Export/Import buttons + hidden file input in `#file-controls`.
+- **`style.css`** (modified) — Button styles, `.file-controls-sep` divider, `.session-toast` notification.
+- **`src/main.js`** (modified) — Session init, auto-save triggers in all change callbacks, `beforeunload` handler, restore-or-create on startup, export/import wiring, drag-and-drop file routing (`.json` → import, audio → load), `showNotification()` toast helper.
+
+**Deliverable:** Session state auto-persists across page reloads. Users can export/import sessions as JSON files. Drag-and-drop routes `.json` files to session import and audio files to sample loading.
+
+---
+
 ## Phase 4 — Gesture Recording & Automation Playback
 
 **Goal**: Let users record their multi-touch performances and play them back as automation, enabling composition and layering. Think of it as recording automation lanes in a DAW, but for gestural parameters.
@@ -755,7 +794,7 @@ In `_onScheduleGrain()`, add a new branch before the existing noteTable logic. T
 
 ---
 
-### Step 4.1 — Automation Data Model
+### Step 4.1 — Automation Data Model [DONE]
 
 Define the data structures for recording and playback.
 
@@ -913,12 +952,12 @@ Persist recordings for later use.
 
 ## Summary Table
 
-| Phase | Steps | Key Deliverable | Duration |
+| Phase | Steps | Key Deliverable | Status |
 |---|---|---|---|
-| **Phase 1** | 1.1 – 1.10 | Single-voice granular sampler with waveform display, parameter controls, clean audio | ~3 weeks |
-| **Phase 2** | 2.1 – 2.9 | Multi-touch support (10 voices), per-voice visuals, musical quantization, mobile polish | ~2 weeks |
-| **Phase 3** | 3.1 – 3.7 | Multi-instance architecture with tab UI, shared AudioContext, state save/restore | ~2 weeks |
-| **Phase 4** | 4.1 – 4.8 | Gesture recording, playback, overdub, ghost visualization, save/load | ~2.5 weeks |
+| **Phase 1** | 1.1 – 1.10 | Single-voice granular sampler with waveform display, parameter controls, clean audio | COMPLETE |
+| **Phase 2** | 2.1 – 2.9 | Multi-touch support (10 voices), per-voice visuals, musical quantization, mobile polish | COMPLETE |
+| **Phase 3** | 3.1 – 3.9 | Multi-instance architecture with tab UI, arpeggiator, session persistence | COMPLETE |
+| **Phase 4** | 4.1 – 4.8 | Gesture recording, playback, overdub, ghost visualization, save/load | **IN PROGRESS** (4.1 done) |
 
 ---
 

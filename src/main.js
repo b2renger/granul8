@@ -7,7 +7,9 @@ import { ParameterPanel } from './ui/ParameterPanel.js';
 import { TabBar } from './ui/TabBar.js';
 import { PointerHandler } from './input/PointerHandler.js';
 import { LevelMeter } from './ui/LevelMeter.js';
-import { setupDragAndDrop, setupFilePicker } from './utils/fileLoader.js';
+import { setupDragAndDrop, setupFilePicker, isAudioFile } from './utils/fileLoader.js';
+import { serializeSession, validateSession, getBundledSampleUrls } from './state/SessionSerializer.js';
+import { SessionPersistence, exportSessionFile, readSessionFile } from './state/SessionPersistence.js';
 import { expMap, lerp } from './utils/math.js';
 import {
     SCALES, quantizePitch, rateToSemitones, semitonesToRate,
@@ -267,6 +269,10 @@ function getResolvedNormals(p, g) {
     return normals;
 }
 
+// --- Session persistence (late-binding, initialized after InstanceManager) ---
+
+let persistence = null;
+
 // --- Parameter panel ---
 
 const params = new ParameterPanel(document.getElementById('parameter-panel'), {
@@ -278,8 +284,12 @@ const params = new ParameterPanel(document.getElementById('parameter-panel'), {
             const resolved = resolveParams(p, entry, m);
             active.engine.updateVoice(pointerId, resolved);
         }
+        if (persistence) persistence.scheduleSave();
     },
-    onVolumeChange(v) { masterBus.setMasterVolume(v); },
+    onVolumeChange(v) {
+        masterBus.setMasterVolume(v);
+        if (persistence) persistence.scheduleSave();
+    },
 });
 
 // --- Instance manager ---
@@ -369,12 +379,8 @@ const tabBar = new TabBar(
 
 instanceManager.onTabsChanged = () => {
     tabBar.render(instanceManager.getTabList());
+    if (persistence) persistence.scheduleSave();
 };
-
-// --- Create initial instance and load default sample ---
-
-instanceManager.createInstance('Sampler 1');
-tabBar.render(instanceManager.getTabList());
 
 // --- Sample loading ---
 
@@ -387,13 +393,22 @@ async function handleFile(file) {
         instanceManager.setActiveSample(buffer, file.name, null, file.name);
         waveform.setBuffer(buffer);
         console.log(`Loaded: ${file.name} (${buffer.duration.toFixed(2)}s, ${buffer.sampleRate}Hz, ${buffer.numberOfChannels}ch)`);
+        if (persistence) persistence.scheduleSave();
     } catch (err) {
         console.error('Failed to decode audio file:', err);
         sampleNameEl.textContent = 'Error loading file';
     }
 }
 
-setupDragAndDrop(container, dropOverlay, handleFile);
+function handleDroppedFile(file) {
+    if (file.name.toLowerCase().endsWith('.json')) {
+        importSessionFromFile(file);
+    } else if (isAudioFile(file)) {
+        handleFile(file);
+    }
+}
+
+setupDragAndDrop(container, dropOverlay, handleDroppedFile);
 setupFilePicker(loadBtn, fileInput, handleFile);
 
 // --- Sample selector dropdown ---
@@ -408,6 +423,7 @@ async function loadSampleFromUrl(url, displayName) {
         waveform.setBuffer(buffer);
         sampleNameEl.textContent = displayName;
         console.log(`Loaded: ${displayName} (${buffer.duration.toFixed(2)}s, ${buffer.sampleRate}Hz)`);
+        if (persistence) persistence.scheduleSave();
     } catch (err) {
         console.error('Failed to load sample:', err);
         sampleNameEl.textContent = 'Error loading sample';
@@ -421,10 +437,169 @@ sampleSelect.addEventListener('change', () => {
     loadSampleFromUrl(url, displayName);
 });
 
-// Auto-load the initially selected sample into the first instance
-if (sampleSelect.value) {
-    const displayName = sampleSelect.options[sampleSelect.selectedIndex].textContent;
-    loadSampleFromUrl(sampleSelect.value, displayName);
+// --- Session persistence initialization ---
+
+const bundledSampleUrls = getBundledSampleUrls(sampleSelect);
+
+persistence = new SessionPersistence(
+    () => serializeSession(instanceManager, params)
+);
+
+/**
+ * Load a sample for a restored instance.
+ * Bundled samples auto-fetch; user files are marked as missing.
+ */
+async function restoreSampleForInstance(state, entry) {
+    if (state.sampleUrl && bundledSampleUrls.has(state.sampleUrl)) {
+        try {
+            const buffer = await entry.engine.loadSample(state.sampleUrl);
+            entry.buffer = buffer;
+            if (instanceManager.activeId === state.id) {
+                waveform.setBuffer(buffer);
+                sampleNameEl.textContent = state.sampleDisplayName;
+                sampleSelect.value = state.sampleUrl;
+            }
+        } catch (err) {
+            console.warn(`Failed to reload bundled sample: ${state.sampleUrl}`, err);
+            markSampleMissing(state, entry);
+        }
+    } else if (state.sampleFileName) {
+        markSampleMissing(state, entry);
+    }
+}
+
+function markSampleMissing(state, entry) {
+    state.sampleDisplayName = `\u26A0 ${state.sampleDisplayName || state.sampleFileName} (missing)`;
+    entry.buffer = null;
+    if (instanceManager.activeId === state.id) {
+        waveform.setBuffer(null);
+        sampleNameEl.textContent = state.sampleDisplayName;
+        sampleSelect.value = '';
+    }
+}
+
+function createDefaultSession() {
+    instanceManager.createInstance('Sampler 1');
+    tabBar.render(instanceManager.getTabList());
+    if (sampleSelect.value) {
+        const displayName = sampleSelect.options[sampleSelect.selectedIndex].textContent;
+        loadSampleFromUrl(sampleSelect.value, displayName);
+    }
+}
+
+async function initializeSession() {
+    persistence.disable();
+
+    const savedSession = persistence.load();
+    const validation = savedSession ? validateSession(savedSession) : { valid: false };
+
+    if (validation.valid) {
+        try {
+            await instanceManager.restoreFromSession(validation.data, restoreSampleForInstance);
+            tabBar.render(instanceManager.getTabList());
+
+            const active = instanceManager.getActive();
+            if (active) {
+                sampleNameEl.textContent = active.state.sampleDisplayName;
+                sampleSelect.value = active.state.sampleUrl || '';
+            }
+
+            showNotification('Session restored');
+        } catch (err) {
+            console.error('Session restore failed, starting fresh:', err);
+            persistence.clear();
+            createDefaultSession();
+        }
+    } else {
+        createDefaultSession();
+    }
+
+    persistence.enable();
+}
+
+initializeSession();
+
+// --- Session export / import ---
+
+const exportBtn = document.getElementById('session-export-btn');
+const importBtn = document.getElementById('session-import-btn');
+const importInput = document.getElementById('session-import-input');
+
+exportBtn.addEventListener('click', () => {
+    const session = serializeSession(instanceManager, params);
+    exportSessionFile(session);
+    showNotification('Session exported');
+});
+
+importBtn.addEventListener('click', () => importInput.click());
+
+importInput.addEventListener('change', async () => {
+    const file = importInput.files[0];
+    if (!file) return;
+    importInput.value = '';
+    importSessionFromFile(file);
+});
+
+async function importSessionFromFile(file) {
+    try {
+        const json = await readSessionFile(file);
+        const validation = validateSession(json);
+        if (!validation.valid) {
+            showNotification(`Invalid session: ${validation.error}`, true);
+            return;
+        }
+
+        // Stop all active pointer voices before import
+        const current = instanceManager.getActive();
+        if (current) {
+            for (const [pointerId] of pointer.pointers) {
+                current.engine.stopVoice(pointerId);
+            }
+        }
+        pointer.pointers.clear();
+        pointer._fading = [];
+        params.hideGestureIndicators();
+
+        persistence.disable();
+
+        await instanceManager.restoreFromSession(validation.data, restoreSampleForInstance);
+        tabBar.render(instanceManager.getTabList());
+
+        const active = instanceManager.getActive();
+        if (active) {
+            sampleNameEl.textContent = active.state.sampleDisplayName;
+            sampleSelect.value = active.state.sampleUrl || '';
+        }
+
+        persistence.enable();
+        persistence.scheduleSave();
+        showNotification('Session imported');
+    } catch (err) {
+        console.error('Session import failed:', err);
+        persistence.enable();
+        showNotification('Import failed: ' + err.message, true);
+    }
+}
+
+// Save on page unload to catch pending debounce
+window.addEventListener('beforeunload', () => {
+    persistence.saveNow();
+});
+
+// --- Toast notification ---
+
+function showNotification(message, isError = false) {
+    const el = document.createElement('div');
+    el.className = 'session-toast' + (isError ? ' session-toast-error' : '');
+    el.textContent = message;
+    document.body.appendChild(el);
+    // Trigger reflow for CSS transition
+    el.offsetHeight; // eslint-disable-line no-unused-expressions
+    el.classList.add('session-toast-visible');
+    setTimeout(() => {
+        el.classList.remove('session-toast-visible');
+        setTimeout(() => el.remove(), 300);
+    }, 2000);
 }
 
 // --- Gesture live meters ---

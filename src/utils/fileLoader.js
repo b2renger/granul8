@@ -31,7 +31,7 @@ export function setupDragAndDrop(container, overlay, onFile) {
         overlay.hidden = true;
 
         const file = e.dataTransfer.files[0];
-        if (file && isAudioFile(file)) {
+        if (file) {
             onFile(file);
         }
     });
@@ -62,7 +62,7 @@ export function setupFilePicker(button, input, onFile) {
  * @param {File} file
  * @returns {boolean}
  */
-function isAudioFile(file) {
+export function isAudioFile(file) {
     if (file.type.startsWith('audio/')) return true;
     // Fallback: check extension for common audio formats
     const ext = file.name.split('.').pop().toLowerCase();
