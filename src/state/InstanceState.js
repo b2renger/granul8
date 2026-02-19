@@ -19,7 +19,8 @@ export class InstanceState {
         this.densityMax = 0.651;
         this.spreadMin = 0;
         this.spreadMax = 0;
-        this.pan = 0;
+        this.panMin = 0;
+        this.panMax = 0;
         this.volume = 0.7;
         this.envelope = 'custom';
         this.mappings = {
@@ -38,6 +39,7 @@ export class InstanceState {
         this.randomGrainSize = false;
         this.randomDensity = false;
         this.randomPitch = false;
+        this.randomPan = false;
         this.arpPattern = 'random';   // 'random' or 'arpeggiator'
         this.arpSteps = 4;            // number of notes in arp cycle (3–6)
         this.arpType = 'straight';    // 'straight' or 'looped'
@@ -63,6 +65,12 @@ export class InstanceState {
 
     static fromJSON(data) {
         const state = new InstanceState();
+        // Backward compat: old sessions have single `pan` instead of panMin/panMax
+        if (data.pan !== undefined && data.panMin === undefined) {
+            data.panMin = data.pan;
+            data.panMax = data.pan;
+            delete data.pan;
+        }
         return Object.assign(state, data);
     }
 }

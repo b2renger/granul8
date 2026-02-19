@@ -218,7 +218,15 @@ An `AutomationLane` is an array of these events sorted by time, with `toJSON()` 
 - Uses `requestAnimationFrame` loop.
 - Each frame, compute elapsed time, fetch events in range, dispatch to engine.
 - Playback voices use synthetic pointer IDs (`1000 + voiceIndex`) to coexist with live touches.
-- Supports loop mode (restart from 0 at end) and overdub (merge new events into existing lane).
+- Supports loop mode with configurable start/end points (draggable handles on progress bar).
+- Loop points default to full recording; can be narrowed to sub-ranges.
+
+### BPM & Playback Sync
+
+- **Automation events store absolute values** (grainSize in seconds, interOnset in seconds). Recordings are BPM-independent snapshots.
+- **BPM changes do NOT affect playback.** If you record at 120 BPM with 1/8 note grains, then change BPM to 140, playback still uses the original 120 BPM timing.
+- BPM changes only affect **new live gestures** — the current BPM is used for grain size/density quantization at the moment of performance.
+- This design is simpler and predictable: each recording faithfully reproduces the original performance.
 
 ### Ghost Visualization
 

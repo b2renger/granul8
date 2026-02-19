@@ -133,6 +133,17 @@ export class GranularEngine {
     }
 
     /**
+     * Set per-instance volume (0–1). Each instance has independent volume.
+     * @param {number} value
+     */
+    setInstanceVolume(value) {
+        this.instanceGain.gain.linearRampToValueAtTime(
+            value,
+            this.audioContext.currentTime + 0.02
+        );
+    }
+
+    /**
      * Clean up: disconnect instance gain, dispose allocator.
      */
     dispose() {

@@ -127,7 +127,7 @@ export class Recorder {
  * @returns {Object}
  */
 function extractParams(resolved) {
-    return {
+    const params = {
         position: resolved.position,
         amplitude: resolved.amplitude,
         pitch: resolved.pitch,
@@ -137,4 +137,7 @@ function extractParams(resolved) {
         pan: resolved.pan,
         envelope: resolved.envelope,
     };
+    // Include per-instance ADSR so playback uses the correct envelope shape
+    if (resolved.adsr) params.adsr = resolved.adsr;
+    return params;
 }

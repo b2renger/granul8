@@ -15,7 +15,7 @@ import { expMap, lerp } from './utils/math.js';
 import {
     SCALES, quantizePitch, rateToSemitones, semitonesToRate,
     normalizedToSubdivision, getSubdivisionSeconds, buildNoteTable,
-    selectArpNotes, getPermutations, applyArpType,
+    selectArpNotes, getPermutations, applyArpType, quantizeTimeToGrid,
 } from './utils/musicalQuantizer.js';
 
 // --- Theme toggle (light/dark) ---
@@ -97,6 +97,18 @@ tapTempoBtn.addEventListener('click', () => {
         params.refreshQuantizedDisplays();
         if (persistence) persistence.scheduleSave();
     }
+});
+
+// --- Master volume control (global, affects all instances) ---
+
+const masterVolumeSlider = document.getElementById('master-volume');
+const masterVolumeDisplay = document.getElementById('val-master-volume');
+
+masterVolumeSlider.addEventListener('input', () => {
+    const v = parseFloat(masterVolumeSlider.value);
+    masterBus.setMasterVolume(v);
+    masterVolumeDisplay.textContent = v.toFixed(2);
+    if (persistence) persistence.scheduleSave();
 });
 
 // --- Per-tab automation (recorder & player owned by each instance in InstanceManager) ---
@@ -234,6 +246,9 @@ function resolveParams(p, g, m) {
         pitch: m.randomPitch
             ? [-(m.pitchRange || 2), m.pitchRange || 2]
             : null,
+        pan: m.randomPan
+            ? [p.panMin, p.panMax]
+            : null,
     };
 
     const interOnsetRange = m.randomDensity
@@ -290,8 +305,9 @@ function resolveParams(p, g, m) {
         spread:     spreadNorm,
         amplitude,
         pitch,
-        pan:        p.pan,
+        pan:        p.panMax,
         envelope:   p.envelope,
+        adsr:       p.adsr,
         randomize,
         grainSizeQuantize,
         pitchQuantize,
@@ -336,7 +352,8 @@ const params = new ParameterPanel(document.getElementById('parameter-panel'), {
         if (persistence) persistence.scheduleSave();
     },
     onVolumeChange(v) {
-        masterBus.setMasterVolume(v);
+        const active = instanceManager.getActive();
+        if (active) active.engine.setInstanceVolume(v);
         if (persistence) persistence.scheduleSave();
     },
 });
@@ -529,7 +546,7 @@ sampleSelect.addEventListener('change', () => {
 const bundledSampleUrls = getBundledSampleUrls(sampleSelect);
 
 persistence = new SessionPersistence(
-    () => serializeSession(instanceManager, params, getMasterBpm())
+    () => serializeSession(instanceManager, params, getMasterBpm(), parseFloat(masterVolumeSlider.value))
 );
 
 /**
@@ -587,6 +604,12 @@ async function initializeSession() {
             bpmSlider.value = savedBpm;
             bpmDisplay.textContent = savedBpm;
 
+            // Restore master volume from session (default 0.7 for backward compatibility)
+            const savedMasterVol = validation.data.masterVolume ?? 0.7;
+            masterVolumeSlider.value = savedMasterVol;
+            masterVolumeDisplay.textContent = savedMasterVol.toFixed(2);
+            masterBus.setMasterVolume(savedMasterVol);
+
             await instanceManager.restoreFromSession(validation.data, restoreSampleForInstance);
             tabBar.render(instanceManager.getTabList());
 
@@ -618,7 +641,7 @@ const importBtn = document.getElementById('session-import-btn');
 const importInput = document.getElementById('session-import-input');
 
 exportBtn.addEventListener('click', () => {
-    const session = serializeSession(instanceManager, params, getMasterBpm());
+    const session = serializeSession(instanceManager, params, getMasterBpm(), parseFloat(masterVolumeSlider.value));
     exportSessionFile(session);
     showNotification('Session exported');
 });
@@ -658,6 +681,12 @@ async function importSessionFromFile(file) {
         const importedBpm = validation.data.masterBpm || 120;
         bpmSlider.value = importedBpm;
         bpmDisplay.textContent = importedBpm;
+
+        // Restore master volume from imported session
+        const importedMasterVol = validation.data.masterVolume ?? 0.7;
+        masterVolumeSlider.value = importedMasterVol;
+        masterVolumeDisplay.textContent = importedMasterVol.toFixed(2);
+        masterBus.setMasterVolume(importedMasterVol);
 
         await instanceManager.restoreFromSession(validation.data, restoreSampleForInstance);
         tabBar.render(instanceManager.getTabList());
@@ -792,6 +821,39 @@ transport.onStop = () => {
 transport.onLoopToggle = (looping) => {
     const active = instanceManager.getActive();
     if (active?.player) active.player.setLoop(looping);
+};
+
+// --- Loop snap-to-grid toggle ---
+let loopSnapToGrid = false;
+const snapBtn = document.getElementById('btn-snap-grid');
+snapBtn.addEventListener('click', () => {
+    loopSnapToGrid = !loopSnapToGrid;
+    snapBtn.classList.toggle('snap-active', loopSnapToGrid);
+});
+
+transport.onLoopRangeChange = (startFrac, endFrac) => {
+    const active = instanceManager.getActive();
+    if (!active?.player) return;
+    const duration = active.recorder.getElapsedTime();
+    if (duration <= 0) return;
+
+    let loopStart = startFrac * duration;
+    let loopEnd = endFrac * duration;
+
+    // Snap to BPM grid when enabled
+    if (loopSnapToGrid) {
+        const bpm = getMasterBpm();
+        loopStart = quantizeTimeToGrid(loopStart, bpm);
+        loopEnd = quantizeTimeToGrid(loopEnd, bpm);
+        // Ensure minimum loop length of one beat
+        if (loopEnd <= loopStart) {
+            loopEnd = loopStart + (60 / bpm);
+        }
+        // Update handle positions to reflect snapped values
+        transport.setLoopRange(loopStart / duration, loopEnd / duration);
+    }
+
+    active.player.setLoopRange(loopStart, loopEnd);
 };
 
 // --- Keyboard shortcut: 'R' to arm/disarm/stop recording ---

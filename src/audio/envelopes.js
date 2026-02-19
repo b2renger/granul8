@@ -281,6 +281,59 @@ export function getCustomADSR() {
 }
 
 /**
+ * Compute an ADSR envelope from explicit parameters (for per-instance ADSR).
+ * Includes caching based on rounded ADSR values.
+ * @param {{a: number, d: number, s: number, r: number}} adsr
+ * @param {number} length
+ * @returns {Float32Array}
+ */
+export function computeADSREnvelope(adsr, length) {
+    // Round to 3 decimal places for cache key stability
+    const key = `adsr:${adsr.a.toFixed(3)}:${adsr.d.toFixed(3)}:${adsr.s.toFixed(3)}:${adsr.r.toFixed(3)}:${length}`;
+    let curve = cache.get(key);
+    if (!curve) {
+        curve = _computeADSRFromParams(adsr.a, adsr.d, adsr.s, adsr.r, length);
+        cache.set(key, curve);
+    }
+    return curve;
+}
+
+/**
+ * Compute an ADSR polyline envelope from given values.
+ * 0 → 1 over attack, 1 → S over decay, hold S, S → 0 over release.
+ * @param {number} a - Attack fraction
+ * @param {number} d - Decay fraction
+ * @param {number} s - Sustain level
+ * @param {number} r - Release fraction
+ * @param {number} length
+ * @returns {Float32Array}
+ */
+function _computeADSRFromParams(a, d, s, r, length) {
+    const curve = new Float32Array(length);
+    const N = length - 1;
+
+    const aEnd  = Math.floor(a * N);
+    const dEnd  = Math.floor((a + d) * N);
+    const rStart = Math.floor((1 - r) * N);
+
+    for (let i = 0; i < length; i++) {
+        if (i <= aEnd) {
+            curve[i] = aEnd > 0 ? i / aEnd : 1;
+        } else if (i <= dEnd) {
+            const t = (i - aEnd) / (dEnd - aEnd);
+            curve[i] = 1 - t * (1 - s);
+        } else if (i < rStart) {
+            curve[i] = s;
+        } else {
+            const rLen = N - rStart;
+            const t = rLen > 0 ? (i - rStart) / rLen : 1;
+            curve[i] = s * (1 - t);
+        }
+    }
+    return curve;
+}
+
+/**
  * Compute an ADSR polyline envelope.
  * 0 → 1 over attack, 1 → S over decay, hold S, S → 0 over release.
  * @param {number} length

@@ -21,6 +21,12 @@ export class Player {
         /** @type {boolean} */
         this._loop = false;
 
+        /** @type {number} Loop start time (seconds within recording, 0 = beginning) */
+        this._loopStart = 0;
+
+        /** @type {number} Loop end time (seconds, 0 = use full duration) */
+        this._loopEnd = 0;
+
         /** @type {number} */
         this._startTime = 0;
 
@@ -101,6 +107,28 @@ export class Player {
     }
 
     /**
+     * Set loop start/end points (seconds within the recording).
+     * Use 0/0 to loop the full recording.
+     * @param {number} start - Loop start time (seconds)
+     * @param {number} end - Loop end time (seconds, 0 = use full duration)
+     */
+    setLoopRange(start, end) {
+        this._loopStart = start;
+        this._loopEnd = end;
+    }
+
+    /**
+     * Get the effective loop range.
+     * @returns {{ start: number, end: number }}
+     */
+    getLoopRange() {
+        return {
+            start: this._loopStart,
+            end: this._loopEnd > 0 ? this._loopEnd : this._duration,
+        };
+    }
+
+    /**
      * Get current playback elapsed time.
      * @returns {number}
      */
@@ -114,14 +142,15 @@ export class Player {
         if (!this.isPlaying || !this._lane) return;
 
         const elapsed = this._audioContext.currentTime - this._startTime;
+        const loopEnd = this._loopEnd > 0 ? this._loopEnd : this._duration;
 
-        // Check if playback has reached the end
-        if (elapsed >= this._duration) {
+        // Check if playback has reached the end (or loop end point)
+        if (elapsed >= loopEnd) {
             if (this._loop) {
-                // Stop all active voices, restart from beginning
+                // Stop all active voices, restart from loop start
                 this._stopAllPlaybackVoices();
-                this._startTime = this._audioContext.currentTime;
-                this._lastProcessedTime = 0;
+                this._startTime = this._audioContext.currentTime - this._loopStart;
+                this._lastProcessedTime = this._loopStart;
             } else {
                 // Playback complete
                 this._stopAllPlaybackVoices();

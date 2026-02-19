@@ -34,13 +34,14 @@ export class Voice {
             spread: 0.0,
             pan: 0.0,
             envelope: 'hann',
+            adsr: null,         // per-instance ADSR params {a, d, s, r} (used when envelope === 'custom')
         };
 
         /**
          * Per-grain randomization ranges (null entries = no randomization).
-         * @type {{ grainSize: [number,number]|null, pitch: [number,number]|null }}
+         * @type {{ grainSize: [number,number]|null, pitch: [number,number]|null, pan: [number,number]|null }}
          */
-        this.randomize = { grainSize: null, pitch: null };
+        this.randomize = { grainSize: null, pitch: null, pan: null };
 
         /**
          * Grain size quantization config for per-grain snapping (null = disabled).
@@ -100,6 +101,7 @@ export class Voice {
         if (params.spread !== undefined)    this.params.spread = params.spread;
         if (params.pan !== undefined)       this.params.pan = params.pan;
         if (params.envelope !== undefined)  this.params.envelope = params.envelope;
+        if (params.adsr !== undefined)      this.params.adsr = params.adsr;
 
         if (params.interOnset !== undefined) {
             this.params.interOnset = params.interOnset;
@@ -220,6 +222,13 @@ export class Voice {
             }
         }
 
+        // Per-grain pan randomization
+        let pan = this.params.pan;
+        if (rnd.pan) {
+            pan = rnd.pan[0] + Math.random() * (rnd.pan[1] - rnd.pan[0]);
+            pan = Math.max(-1, Math.min(1, pan));
+        }
+
         createGrain(
             this.audioContext,
             this.buffer,
@@ -230,8 +239,9 @@ export class Voice {
                 interOnset: this.params.interOnset,
                 pitch,
                 spread: this.params.spread,
-                pan: this.params.pan,
+                pan,
                 envelope: this.params.envelope,
+                adsr: this.params.adsr,
             },
             this.gainNode,
             when,

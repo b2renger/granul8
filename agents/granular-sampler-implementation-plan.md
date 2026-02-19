@@ -944,7 +944,217 @@ Allow playback to continue in the background when the user switches tabs. Only r
 
 ---
 
-### Step 4.5 — Ghost Visualization
+### Step 4.5a — Per-Instance Volume (Layer Volume) [DONE]
+
+Each instance/layer should have its own volume control that affects only its audio output. Previously the volume slider controlled `masterBus.setMasterVolume()` which affected ALL instances simultaneously.
+
+**What was implemented:**
+- `GranularEngine.setInstanceVolume(value)` — new method that ramps `instanceGain.gain` with a 20ms `linearRampToValueAtTime`. The `instanceGain` GainNode (which was always 1.0) now carries the per-instance volume.
+- `main.js` `onVolumeChange` — changed from `masterBus.setMasterVolume(v)` to `active.engine.setInstanceVolume(v)`.
+- `InstanceManager.switchTo()` — changed from `this.masterBus.setMasterVolume(target.state.volume)` to `target.engine.setInstanceVolume(target.state.volume)`. Master volume stays untouched across tab switches.
+- `InstanceManager.createInstance()` — applies `engine.setInstanceVolume(state.volume)` on new instances so they start at the correct level.
+- `InstanceManager.restoreFromSession()` — applies `engine.setInstanceVolume(state.volume)` for each restored instance (was using `masterBus.setMasterVolume` before). The active instance line also updated.
+- New **master volume control** (`#master-volume`) added to the top bar in `index.html` with label, range slider (0–1, default 0.7), and value display. Wired in `main.js` to `masterBus.setMasterVolume()`.
+- `SessionSerializer.serializeSession()` — new `masterVolume` parameter. Serialized alongside `masterBpm`.
+- Session restore (`initializeSession`, `importSessionFromFile`) — restores master volume from session data with backward-compatible default of 0.7.
+- Export button passes `masterVolume` to `serializeSession()`.
+
+**CSS:** `#master-volume-control` styles in `style.css` — flex layout with gap, 80px slider, 11px value display, `margin-left: auto` to push it right before the theme toggle.
+
+**Signal flow (after):**
+```
+Per-instance volume slider → engine.instanceGain (per-layer)
+Master volume slider → masterBus.masterGain (global)
+instanceGain → masterGain → limiter → softClipper → analyser → destination
+```
+
+**Files:** `GranularEngine.js`, `main.js`, `InstanceManager.js`, `SessionSerializer.js`, `index.html`, `style.css`
+
+**Deliverable:** Each tab has independent volume. A master volume in the top bar controls the overall output level across all layers.
+
+---
+
+### Step 4.5b — Wire ADSR Envelope to Grain Generation [DONE]
+
+The ADSR widget updated `InstanceState.adsr` and the `ADSRWidget` drew the envelope shape, but the custom ADSR curve was **never passed to `grainFactory.createGrain()`**. Grains always used the preset window functions (Hann/Tukey/Triangle). Additionally, the old approach used a global `setCustomADSR()` module variable, so background instances playing with `envelope: 'custom'` would use the active tab's ADSR, not their own.
+
+**What was implemented:**
+
+The fix passes ADSR values explicitly through the grain params chain, avoiding the global entirely for per-instance correctness:
+
+1. **`envelopes.js`** — New export `computeADSREnvelope(adsr, length)`:
+   - Accepts explicit `{ a, d, s, r }` params (not the global).
+   - Uses a cache keyed by rounded ADSR values (`adsr:0.200:0.150:0.700:0.200:128`) for performance.
+   - Delegates to `_computeADSRFromParams(a, d, s, r, length)` — a standalone ADSR polyline generator.
+   - The global `setCustomADSR()` / `getCustomADSR()` remain for the `ADSRWidget` UI preview but are no longer used for grain generation.
+
+2. **`grainFactory.js`** — Updated `createGrain()`:
+   - Imports `computeADSREnvelope` from `envelopes.js`.
+   - When `envelope === 'custom' && params.adsr`, uses `computeADSREnvelope(params.adsr, ENVELOPE_LENGTH)` instead of `getEnvelope('custom', ...)`.
+   - Falls back to the old `getEnvelope()` path if no ADSR params are provided (backward compat).
+
+3. **`Voice.js`** — Added `adsr` to the params chain:
+   - `this.params.adsr = null` default in constructor.
+   - `update()` stores `params.adsr` when provided.
+   - `_onScheduleGrain()` passes `adsr: this.params.adsr` in the grain params object.
+
+4. **`ParameterPanel.getParams()`** — Now includes `adsr` when `envelope === 'custom'`:
+   - Returns `this._adsrWidget.getState()` (or `null` if not custom).
+
+5. **`main.js` `resolveParams()`** — Passes `adsr: p.adsr` through to the engine.
+
+6. **`Recorder.js` `extractParams()`** — Captures `resolved.adsr` in automation events so playback reproduces the correct ADSR shape.
+
+**Data flow:**
+```
+ParameterPanel.getParams() → resolveParams() → Voice.update() →
+Voice._onScheduleGrain() → createGrain() → computeADSREnvelope()
+```
+
+**Files:** `envelopes.js`, `grainFactory.js`, `Voice.js`, `ParameterPanel.js`, `main.js`, `Recorder.js`
+
+**Deliverable:** The ADSR widget shapes the grain envelope per-instance. Dragging the ADSR control points audibly changes the grain character. Background instances use their own ADSR, not the active tab's.
+
+---
+
+### Step 4.5c — Pan Randomization [DONE]
+
+Grain size, density, and pitch all supported per-grain randomization with optional quantization. Pan did not — it was a single fixed value per instance.
+
+**What was implemented:**
+
+Pan was converted from a single slider to a min/max range following the same pattern as grain size, density, and spread:
+
+1. **`InstanceState.js`** — Replaced `pan` with `panMin: 0` and `panMax: 0`. Added `randomPan: false`. Added backward compat in `fromJSON()`: if old session data has `pan` but no `panMin`, migrates `pan → panMin/panMax`.
+
+2. **`index.html`** — Pan section converted from a single `<input type="range">` to a `.range-group` with Min/Max range rows (matching grainSize/density/spread pattern). Range is -1 to 1 with step 0.01. Added gesture indicator and random-range-bar divs. Added "Pan" toggle label in the Randomize toggles row (`#random-pan`).
+
+3. **`ParameterPanel.js`** — Pan added to `RANGE_PARAMS` array (with display `n => parseFloat(n).toFixed(2)`). Removed `param-pan` from `SIMPLE_SLIDERS`. All range infrastructure (min≤max constraint, display update, gesture indicator, random bar) now handles pan automatically. Specific changes:
+   - `_randomPan` element reference and event listener added.
+   - `_randomBars` and `_randomBars` loop now includes `'pan'`.
+   - `_panMinRow` dimming reference for `updateParamRelevance()`.
+   - `getParams()` returns `panMin` and `panMax` (not `pan`).
+   - `getMusicalParams()` returns `randomPan`.
+   - `setFullState()` restores pan range with backward compat (`state.panMin ?? state.pan ?? 0`).
+   - `updateRandomIndicators()` handles pan with normalized position calculation accounting for the -1 to 1 slider range (normalizes using `sliderMin`/`sliderMax` attributes instead of assuming 0–1).
+   - `updateParamRelevance()` dims pan min row when `!randomPan && !hasMapping('pan')`.
+
+4. **`main.js` `resolveParams()`** — `randomize.pan` set to `[p.panMin, p.panMax]` when `m.randomPan` is true. Return value uses `pan: p.panMax` (max slider is the "primary" value when not randomizing, matching grainSize/density behavior).
+
+5. **`Voice.js`** — `randomize` type updated to include `pan: [number,number]|null`. In `_onScheduleGrain()`, per-grain random pan computed: `rnd.pan[0] + Math.random() * (rnd.pan[1] - rnd.pan[0])`, clamped to [-1, 1]. The resolved `pan` value is passed to `createGrain()` (which already creates a `StereoPannerNode` when pan ≠ 0).
+
+6. **`grainFactory.js`** — No changes needed. The existing spread-based pan variation (`panVariation = spread * 0.5 * random`) is kept as a subtle secondary spatial effect. The explicit per-grain random pan from Voice is the primary pan value.
+
+**Files:** `InstanceState.js`, `ParameterPanel.js`, `main.js`, `Voice.js`, `index.html`
+
+**Deliverable:** Per-grain random panning creates a spatial texture. Grains scatter across the stereo field within the specified pan range. Pan min row dims when not randomizing.
+
+---
+
+### Step 4.5d — Loop Point Editing (Start/End Markers) [DONE]
+
+The Player looped the entire recording from 0 to duration with no way to set a sub-range.
+
+**What was implemented:**
+
+1. **`Player.js`** — Added configurable loop range:
+   - New properties: `_loopStart = 0`, `_loopEnd = 0` (0 means "use full duration").
+   - `setLoopRange(start, end)` — sets the loop boundaries in seconds.
+   - `getLoopRange()` — returns `{ start, end }`, with `end` resolved to `_duration` when 0.
+   - `_tick()` modified: computes `loopEnd = this._loopEnd > 0 ? this._loopEnd : this._duration`. When `elapsed >= loopEnd` and looping, restarts from `_loopStart` by setting `_startTime = currentTime - _loopStart` and `_lastProcessedTime = _loopStart`. Non-looping playback plays the full recording regardless of loop range.
+
+2. **`TransportBar.js`** — Loop handle UI with drag interaction:
+   - New DOM references: `_progressContainer` (parent of progress bar), `_loopRegion`, `_loopStartHandle`, `_loopEndHandle` (from `index.html` elements).
+   - New state: `_loopStartFrac = 0`, `_loopEndFrac = 1`, `_draggingHandle = null`.
+   - New callback: `onLoopRangeChange(startFrac, endFrac)` — fired during handle drag.
+   - Drag methods: `_beginDrag(e)` captures pointer, `_onHandlePointerMove(e)` computes fraction from pointer X relative to progress container width, enforces min 1% gap between handles, updates positions and fires callback. `_onHandlePointerUp()` cleans up.
+   - `_updateLoopHandlePositions()` — sets CSS `left` percentage on handles and `left`/`width` on the loop region overlay.
+   - `getLoopRange()` / `setLoopRange(startFrac, endFrac)` / `resetLoopRange()` — public API for external control (e.g., snap-to-grid adjusting handle positions).
+   - `_updateButtons()` — toggles `loop-handles-visible` class on the progress container when `_hasRecording && looping`.
+
+3. **`index.html`** — Added loop overlay elements inside `#transport-progress`:
+   - `<div id="loop-region">` — colored background showing the active loop range.
+   - `<div id="loop-start-handle" class="loop-handle">` and `<div id="loop-end-handle" class="loop-handle">` — draggable vertical markers.
+
+4. **`style.css`** — Loop handle and region styles:
+   - `#loop-region`: absolute positioned, accent-dim background at 30% opacity, pointer-events none.
+   - `.loop-handle`: 6px wide, 16px tall, `ew-resize` cursor, z-index 3, accent color background with rounded corners.
+   - `.loop-handles-visible` class: shows handles and region (hidden by default via `display: none`).
+
+5. **`main.js`** — Wired `transport.onLoopRangeChange`:
+   - Converts fractional positions to seconds using recording duration.
+   - Calls `active.player.setLoopRange(loopStart, loopEnd)`.
+   - Integrates with snap-to-grid logic (see 4.5f).
+
+**Files:** `Player.js`, `TransportBar.js`, `main.js`, `index.html`, `style.css`
+
+**Deliverable:** User can select a sub-range of their recording to loop via draggable handles on the transport bar. The loop region is visually highlighted. Player respects the configured range.
+
+---
+
+### Step 4.5e — BPM Sync Across Layers (Review & Document) [DONE]
+
+**Decision:** Playback keeps absolute timing — recorded params are replayed as-is. BPM changes only affect new live gestures, not existing recordings. This is simpler and predictable: each recording is a faithful reproduction of the original performance.
+
+**What was implemented:**
+
+This was a design review and documentation step, not a code change. The verification confirmed:
+
+1. **Automation events store absolute values** — `Recorder.extractParams()` captures `grainSize` in seconds, `interOnset` in seconds, `pitch` as a playback rate. No BPM-relative values are stored. Changing BPM after recording has no effect on playback.
+
+2. **Loop quantization uses current BPM** — The snap-to-grid logic in `main.js` `onLoopRangeChange` calls `quantizeTimeToGrid(time, getMasterBpm())`, reading the live global BPM at the moment of adjustment, not a stored per-recording BPM.
+
+3. **`agents/CLAUDE.md`** updated with a "BPM & Playback Sync" section documenting:
+   - Automation events use absolute timing (seconds, not beats).
+   - BPM changes affect only new live gestures, not playback.
+   - Loop quantization (4.5f) uses the current global BPM for snap calculations.
+   - Player.js description updated to mention configurable `_loopStart`/`_loopEnd`.
+
+**Files:** `agents/CLAUDE.md`
+
+**Deliverable:** BPM sync behavior is documented. Absolute timing is the correct design for a gestural instrument where recordings are performance snapshots, not MIDI-like beat sequences.
+
+---
+
+### Step 4.5f — Loop Quantization to BPM Grid [DONE]
+
+Loop points are arbitrary time positions. If multiple layers loop independently at slightly different durations, they drift apart over time. Quantizing loop boundaries to the BPM grid ensures rhythmic sync.
+
+**What was implemented:**
+
+1. **`musicalQuantizer.js`** — New export `quantizeTimeToGrid(time, bpm, divisor = 4)`:
+   - Computes grid size: `(60 / bpm) * (4 / divisor)` — default divisor 4 gives quarter-note grid.
+   - Rounds to nearest grid line: `Math.round(time / gridSize) * gridSize`.
+   - Example: at 120 BPM, quarter-note grid = 0.5s. A time of 3.37s snaps to 3.5s.
+
+2. **`index.html`** — Added snap-to-grid toggle button (`#btn-snap-grid`) in the transport bar, next to the loop button. Label: "⊞" (grid icon).
+
+3. **`style.css`** — `.snap-btn` base style (matches transport button sizing) and `.snap-btn.snap-active` accent state (matching `.loop-active` pattern).
+
+4. **`main.js`** — Snap-to-grid wiring:
+   - `loopSnapToGrid` boolean state, toggled by snap button click.
+   - Button click toggles `snap-active` CSS class.
+   - `transport.onLoopRangeChange` integrates snap logic:
+     ```
+     if (loopSnapToGrid) {
+         loopStart = quantizeTimeToGrid(loopStart, getMasterBpm());
+         loopEnd = quantizeTimeToGrid(loopEnd, getMasterBpm());
+         if (loopEnd <= loopStart) loopEnd = loopStart + (60 / bpm);  // min 1 beat
+         transport.setLoopRange(loopStart / duration, loopEnd / duration);  // update handle positions
+     }
+     ```
+   - When snap is active, dragging loop handles causes them to "jump" to the nearest beat boundary, and the transport handle positions are updated to reflect the snapped values.
+   - Uses `getMasterBpm()` for the current global BPM (not a per-recording value), as decided in 4.5e.
+
+**Multi-layer sync principle:** When all layers have snap-to-grid enabled, their loop lengths become exact multiples of the beat period. At 120 BPM, loops can be 2s (1 bar), 4s (2 bars), 8s (4 bars), etc. — all of which divide evenly, so layers stay in phase indefinitely.
+
+**Files:** `musicalQuantizer.js`, `main.js`, `index.html`, `style.css`
+
+**Deliverable:** Loop boundaries snap to BPM grid when snap-to-grid is active. Handle positions update visually to show the snapped positions. Multi-layer rhythmic sync is achieved through quantized loop lengths.
+
+---
+
+### Step 4.6 — Ghost Visualization
 
 Show recorded gestures as visual traces during playback.
 
@@ -959,7 +1169,7 @@ Show recorded gestures as visual traces during playback.
 
 ---
 
-### Step 4.6 — Overdub Mode
+### Step 4.7 — Overdub Mode
 
 Allow layering new gestures on top of an existing recording.
 
@@ -976,7 +1186,7 @@ Allow layering new gestures on top of an existing recording.
 
 ---
 
-### Step 4.7 — Save & Load Recordings
+### Step 4.8 — Save & Load Recordings
 
 Persist recordings for later use.
 
@@ -990,7 +1200,7 @@ Persist recordings for later use.
 
 ---
 
-### Step 4.8 — Phase 4 Integration Testing & Final Polish
+### Step 4.9 — Phase 4 Integration Testing & Final Polish
 
 **Tasks**:
 - Record a complex multi-touch performance (3+ voices, 15+ seconds). Play it back. Verify timing accuracy — grains should land at the same positions and the overall rhythm should feel identical.
@@ -1013,7 +1223,7 @@ Persist recordings for later use.
 | **Phase 1** | 1.1 – 1.10 | Single-voice granular sampler with waveform display, parameter controls, clean audio | COMPLETE |
 | **Phase 2** | 2.1 – 2.9 | Multi-touch support (10 voices), per-voice visuals, musical quantization, mobile polish | COMPLETE |
 | **Phase 3** | 3.1 – 3.9 | Multi-instance architecture with tab UI, arpeggiator, session persistence | COMPLETE |
-| **Phase 4** | 4.1 – 4.8 | Gesture recording, playback, overdub, ghost visualization, save/load | **IN PROGRESS** (4.1–4.4d done, 4.5 next) |
+| **Phase 4** | 4.1 – 4.9 | Gesture recording, per-instance isolation, loop editing, playback, overdub, ghost visualization, save/load | **IN PROGRESS** (4.1–4.5f done, 4.6 next) |
 
 ---
 

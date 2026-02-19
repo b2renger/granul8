@@ -160,6 +160,34 @@ html, body {
     background: var(--border);
 }
 
+/* === Master Volume Control === */
+#master-volume-control {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+#master-volume-control label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    cursor: default;
+}
+
+#master-volume {
+    width: 80px;
+    accent-color: var(--accent);
+}
+
+#master-volume-control .param-value {
+    font-size: 11px;
+    color: var(--text-secondary);
+    min-width: 28px;
+    text-align: right;
+}
+
 /* === Session Toast Notification === */
 .session-toast {
     position: fixed;
@@ -421,6 +449,18 @@ html, body {
     border-left-color: var(--accent);
 }
 
+.snap-btn {
+    font-size: 14px;
+    opacity: 0.5;
+    padding: 2px 6px;
+}
+
+.snap-btn.snap-active {
+    opacity: 1;
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
 /* Transport progress bar */
 #transport-progress {
     flex: 1;
@@ -428,7 +468,7 @@ html, body {
     height: 4px;
     background: var(--bg-primary);
     border-radius: 2px;
-    overflow: hidden;
+    position: relative;
 }
 
 #transport-progress-fill {
@@ -437,6 +477,44 @@ html, body {
     background: var(--accent);
     border-radius: 2px;
     transition: width 0.05s linear;
+    position: relative;
+    z-index: 2;
+}
+
+/* Loop point markers and region */
+#loop-region {
+    position: absolute;
+    top: -2px;
+    height: 8px;
+    background: var(--accent-dim);
+    opacity: 0.3;
+    border-radius: 2px;
+    pointer-events: none;
+    display: none;
+    z-index: 1;
+}
+
+.loop-handle {
+    position: absolute;
+    top: -6px;
+    width: 6px;
+    height: 16px;
+    background: var(--accent);
+    border-radius: 2px;
+    cursor: ew-resize;
+    display: none;
+    z-index: 3;
+    transform: translateX(-50%);
+}
+
+.loop-handle:hover,
+.loop-handle:active {
+    background: var(--text-primary);
+}
+
+.loop-handles-visible #loop-region,
+.loop-handles-visible .loop-handle {
+    display: block;
 }
 
 .play-icon {

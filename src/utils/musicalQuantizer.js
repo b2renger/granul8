@@ -272,3 +272,17 @@ export function applyArpType(pattern, type) {
     }
     return [...pattern];
 }
+
+/**
+ * Snap a time value (seconds) to the nearest beat boundary at the given BPM.
+ * Used for loop point quantization to keep multi-layer loops in sync.
+ * Snaps to the nearest beat (quarter note) by default.
+ * @param {number} time - Time in seconds
+ * @param {number} bpm - Beats per minute
+ * @param {number} [divisor=4] - Subdivision divisor (4=beat, 8=eighth, 16=sixteenth)
+ * @returns {number} Snapped time in seconds
+ */
+export function quantizeTimeToGrid(time, bpm, divisor = 4) {
+    const gridSize = (60 / bpm) * (4 / divisor); // seconds per grid unit
+    return Math.round(time / gridSize) * gridSize;
+}

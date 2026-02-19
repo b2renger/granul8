@@ -41,11 +41,16 @@ const RANGE_PARAMS = [
         maxId: 'param-spread-max', maxValId: 'val-spread-max',
         display: n => parseFloat(n).toFixed(2),
     },
+    {
+        name: 'pan',
+        minId: 'param-pan-min', minValId: 'val-pan-min',
+        maxId: 'param-pan-max', maxValId: 'val-pan-max',
+        display: n => parseFloat(n).toFixed(2),
+    },
 ];
 
-/** Simple slider descriptors (unchanged from before). */
+/** Simple slider descriptors. */
 const SIMPLE_SLIDERS = [
-    { id: 'param-pan',    valId: 'val-pan',    format: v => parseFloat(v).toFixed(2) },
     { id: 'param-volume', valId: 'val-volume', format: v => parseFloat(v).toFixed(2) },
 ];
 
@@ -139,7 +144,7 @@ export class ParameterPanel {
 
         // --- Randomization range bars (pulsing highlight between min/max) ---
         this._randomBars = {};
-        for (const name of ['grainSize', 'density']) {
+        for (const name of ['grainSize', 'density', 'pan']) {
             this._randomBars[name] = panelEl.querySelector(
                 `.random-range-bar[data-param="${name}"]`
             );
@@ -181,8 +186,9 @@ export class ParameterPanel {
         this._randomGrainSize = document.getElementById('random-grain-size');
         this._randomDensity = document.getElementById('random-density');
         this._randomPitch = document.getElementById('random-pitch');
+        this._randomPan = document.getElementById('random-pan');
 
-        for (const el of [this._randomGrainSize, this._randomDensity, this._randomPitch]) {
+        for (const el of [this._randomGrainSize, this._randomDensity, this._randomPitch, this._randomPan]) {
             el.addEventListener('change', () => {
                 this._updateArpVisibility();
                 this.callbacks.onChange(this.getParams());
@@ -264,6 +270,7 @@ export class ParameterPanel {
         this._grainSizeMinRow = this._ranges.grainSize.minSlider.closest('.range-row');
         this._densityMinRow   = this._ranges.density.minSlider.closest('.range-row');
         this._spreadMinRow    = this._ranges.spread.minSlider.closest('.range-row');
+        this._panMinRow       = this._ranges.pan.minSlider.closest('.range-row');
         // Param groups for musical controls
         this._bpmGroup      = document.getElementById('param-bpm').closest('.param-group');
         this._rootNoteGroup = this._rootNoteSelect.closest('.param-group');
@@ -511,6 +518,7 @@ export class ParameterPanel {
      * @returns {GrainParams}
      */
     getParams() {
+        const envelope = this._envelopeSelect.value;
         return {
             grainSizeMin: parseFloat(this._ranges.grainSize.minSlider.value),
             grainSizeMax: parseFloat(this._ranges.grainSize.maxSlider.value),
@@ -518,8 +526,13 @@ export class ParameterPanel {
             densityMax:   parseFloat(this._ranges.density.maxSlider.value),
             spreadMin:    parseFloat(this._ranges.spread.minSlider.value),
             spreadMax:    parseFloat(this._ranges.spread.maxSlider.value),
-            pan:          parseFloat(this._sliders['param-pan'].slider.value),
-            envelope:     this._envelopeSelect.value,
+            panMin:       parseFloat(this._ranges.pan.minSlider.value),
+            panMax:       parseFloat(this._ranges.pan.maxSlider.value),
+            envelope,
+            // Per-instance ADSR values (used when envelope === 'custom')
+            adsr: (envelope === 'custom' && this._adsrWidget)
+                ? this._adsrWidget.getState()
+                : null,
             mappings: {
                 pressure:    this._mappingSelects.pressure.value,
                 contactSize: this._mappingSelects.contactSize.value,
@@ -543,6 +556,7 @@ export class ParameterPanel {
             randomGrainSize: this._randomGrainSize.checked,
             randomDensity: this._randomDensity.checked,
             randomPitch: this._randomPitch.checked,
+            randomPan: this._randomPan.checked,
             arpPattern: this._arpPatternSelect.value,
             arpSteps: parseInt(this._arpStepsSlider.value, 10),
             arpType: this._arpTypeSelect.value,
@@ -584,10 +598,13 @@ export class ParameterPanel {
         this._ranges.density.maxSlider.value = state.densityMax;
         this._ranges.spread.minSlider.value = state.spreadMin;
         this._ranges.spread.maxSlider.value = state.spreadMax;
+        // Pan range (backward compat: old sessions have single `pan` value)
+        const panMin = state.panMin ?? state.pan ?? 0;
+        const panMax = state.panMax ?? state.pan ?? 0;
+        this._ranges.pan.minSlider.value = panMin;
+        this._ranges.pan.maxSlider.value = panMax;
 
         // --- Simple sliders ---
-        this._sliders['param-pan'].slider.value = state.pan;
-        this._sliders['param-pan'].display.textContent = parseFloat(state.pan).toFixed(2);
         this._sliders['param-volume'].slider.value = state.volume;
         this._sliders['param-volume'].display.textContent = parseFloat(state.volume).toFixed(2);
 
@@ -607,6 +624,7 @@ export class ParameterPanel {
         this._randomGrainSize.checked = state.randomGrainSize;
         this._randomDensity.checked = state.randomDensity;
         this._randomPitch.checked = state.randomPitch;
+        this._randomPan.checked = state.randomPan || false;
 
         // --- Arp + pitch range ---
         // Handle legacy arpPattern values (up/down/updown → arpeggiator)
@@ -652,6 +670,7 @@ export class ParameterPanel {
         this._updateRangeDisplay('grainSize');
         this._updateRangeDisplay('density');
         this._updateRangeDisplay('spread');
+        this._updateRangeDisplay('pan');
     }
 
     /**
@@ -773,9 +792,10 @@ export class ParameterPanel {
         const flags = {
             grainSize: musicalParams.randomGrainSize,
             density: musicalParams.randomDensity,
+            pan: musicalParams.randomPan,
         };
 
-        for (const name of ['grainSize', 'density']) {
+        for (const name of ['grainSize', 'density', 'pan']) {
             const bar = this._randomBars[name];
             if (!bar) continue;
 
@@ -793,8 +813,13 @@ export class ParameterPanel {
             const trackStart = slider.offsetLeft + thumbHalf;
             const trackWidth = slider.offsetWidth - thumbHalf * 2;
 
-            const minVal = parseFloat(r.minSlider.value);
-            const maxVal = parseFloat(r.maxSlider.value);
+            // Normalize values to 0–1 position on the track
+            // (handles both 0–1 range params and -1 to 1 pan range)
+            const sliderMin = parseFloat(r.minSlider.min);
+            const sliderMax = parseFloat(r.minSlider.max);
+            const sliderRange = sliderMax - sliderMin;
+            const minVal = (parseFloat(r.minSlider.value) - sliderMin) / sliderRange;
+            const maxVal = (parseFloat(r.maxSlider.value) - sliderMin) / sliderRange;
 
             const leftPx = trackStart + trackWidth * minVal;
             const rightPx = trackStart + trackWidth * maxVal;
@@ -828,9 +853,12 @@ export class ParameterPanel {
         const denMinActive = m.randomDensity   || hasMapping('density');
         const sprMinActive = hasMapping('spread');
 
+        const panMinActive = m.randomPan || hasMapping('pan');
+
         this._grainSizeMinRow.classList.toggle('range-row-inactive', !gsMinActive);
         this._densityMinRow.classList.toggle('range-row-inactive', !denMinActive);
         this._spreadMinRow.classList.toggle('range-row-inactive', !sprMinActive);
+        this._panMinRow.classList.toggle('range-row-inactive', !panMinActive);
 
         // --- BPM + Tap Tempo: active when any quantize toggle is checked ---
         const bpmActive = m.quantizeGrainSize || m.quantizeDensity || m.quantizePitch;

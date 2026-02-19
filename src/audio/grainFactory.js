@@ -1,7 +1,7 @@
 // grainFactory.js — Creates a single grain (BufferSource + GainNode envelope)
 // Each grain is ephemeral: fire-and-forget nodes that self-destruct after playback.
 
-import { getEnvelope } from './envelopes.js';
+import { getEnvelope, computeADSREnvelope } from './envelopes.js';
 
 /**
  * @typedef {Object} GrainParams
@@ -76,7 +76,11 @@ export function createGrain(audioContext, buffer, params, destination, when, onG
     const gainNode = audioContext.createGain();
 
     // Build the amplitude-scaled envelope curve
-    const baseCurve = getEnvelope(envelope, ENVELOPE_LENGTH);
+    // When envelope is 'custom' and per-instance ADSR params are provided, use them
+    // instead of the global ADSR state (supports per-instance ADSR in multi-tab)
+    const baseCurve = (envelope === 'custom' && params.adsr)
+        ? computeADSREnvelope(params.adsr, ENVELOPE_LENGTH)
+        : getEnvelope(envelope, ENVELOPE_LENGTH);
     const scaledCurve = new Float32Array(ENVELOPE_LENGTH);
     for (let i = 0; i < ENVELOPE_LENGTH; i++) {
         scaledCurve[i] = baseCurve[i] * scaledAmplitude;

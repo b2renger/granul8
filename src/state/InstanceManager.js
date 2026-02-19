@@ -75,6 +75,9 @@ export class InstanceManager {
 
         this.instances.set(state.id, { state, engine, grainOverlay, buffer: null, recorder, player });
 
+        // Apply initial per-instance volume from state defaults
+        engine.setInstanceVolume(state.volume);
+
         // If this is the first instance, make it active
         if (this.instances.size === 1) {
             this.activeId = state.id;
@@ -123,8 +126,8 @@ export class InstanceManager {
         // Wire grain visualization to the new active instance
         target.engine.onGrain = (info) => target.grainOverlay.addGrain(info);
 
-        // Update master volume from the restored instance
-        this.masterBus.setMasterVolume(target.state.volume);
+        // Update per-instance volume from the restored state
+        target.engine.setInstanceVolume(target.state.volume);
 
         this.activeId = instanceId;
         if (this.onTabsChanged) this.onTabsChanged();
@@ -268,6 +271,9 @@ export class InstanceManager {
             };
 
             this.instances.set(state.id, { state, engine, grainOverlay, buffer: null, recorder, player });
+
+            // Apply restored per-instance volume
+            engine.setInstanceVolume(state.volume);
         }
 
         // 3. Determine which tab to activate
@@ -281,7 +287,7 @@ export class InstanceManager {
         const target = this.instances.get(targetId);
         this.panel.setFullState(target.state);
         target.engine.onGrain = (info) => target.grainOverlay.addGrain(info);
-        this.masterBus.setMasterVolume(target.state.volume);
+        target.engine.setInstanceVolume(target.state.volume);
 
         // 5. Update counter so new tabs get sensible names
         this._counter = this.instances.size;

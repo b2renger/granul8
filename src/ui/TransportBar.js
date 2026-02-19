@@ -1,5 +1,6 @@
 // TransportBar.js — Manages transport control state and visual feedback.
 // Handles record/play/stop/loop button states and the time/progress display.
+// Includes draggable loop start/end handles on the progress bar.
 
 /**
  * Transport states:
@@ -31,6 +32,19 @@ export class TransportBar {
         /** @type {boolean} */
         this._hasRecording = false;
 
+        // --- Loop point handles ---
+        this._progressContainer = els.progressBar.parentElement; // #transport-progress
+        this._loopRegion = document.getElementById('loop-region');
+        this._loopStartHandle = document.getElementById('loop-start-handle');
+        this._loopEndHandle = document.getElementById('loop-end-handle');
+
+        /** Loop start as fraction (0–1) of recording duration */
+        this._loopStartFrac = 0;
+        /** Loop end as fraction (0–1) */
+        this._loopEndFrac = 1;
+        /** Which handle is being dragged */
+        this._draggingHandle = null;
+
         // --- Callbacks (set by main.js) ---
 
         /** Called when the user clicks Record (to start or stop recording). */
@@ -44,6 +58,12 @@ export class TransportBar {
 
         /** Called when the user toggles Loop. */
         this.onLoopToggle = null;
+
+        /**
+         * Called when loop start/end points change.
+         * @type {((startFrac: number, endFrac: number) => void)|null}
+         */
+        this.onLoopRangeChange = null;
 
         // --- Button event listeners ---
 
@@ -64,7 +84,96 @@ export class TransportBar {
             if (this.onLoopToggle) this.onLoopToggle(this.looping);
             this._updateLoopVisual();
         });
+
+        // --- Loop handle drag ---
+        this._onHandlePointerMove = this._onHandlePointerMove.bind(this);
+        this._onHandlePointerUp = this._onHandlePointerUp.bind(this);
+
+        this._loopStartHandle.addEventListener('pointerdown', (e) => {
+            this._draggingHandle = 'start';
+            this._beginDrag(e);
+        });
+        this._loopEndHandle.addEventListener('pointerdown', (e) => {
+            this._draggingHandle = 'end';
+            this._beginDrag(e);
+        });
     }
+
+    // --- Loop handle drag methods ---
+
+    /** @private */
+    _beginDrag(e) {
+        e.preventDefault();
+        e.target.setPointerCapture(e.pointerId);
+        document.addEventListener('pointermove', this._onHandlePointerMove);
+        document.addEventListener('pointerup', this._onHandlePointerUp);
+    }
+
+    /** @private */
+    _onHandlePointerMove(e) {
+        if (!this._draggingHandle) return;
+        const rect = this._progressContainer.getBoundingClientRect();
+        let frac = (e.clientX - rect.left) / rect.width;
+        frac = Math.max(0, Math.min(1, frac));
+
+        if (this._draggingHandle === 'start') {
+            this._loopStartFrac = Math.min(frac, this._loopEndFrac - 0.01);
+        } else {
+            this._loopEndFrac = Math.max(frac, this._loopStartFrac + 0.01);
+        }
+
+        this._updateLoopHandlePositions();
+        if (this.onLoopRangeChange) {
+            this.onLoopRangeChange(this._loopStartFrac, this._loopEndFrac);
+        }
+    }
+
+    /** @private */
+    _onHandlePointerUp() {
+        this._draggingHandle = null;
+        document.removeEventListener('pointermove', this._onHandlePointerMove);
+        document.removeEventListener('pointerup', this._onHandlePointerUp);
+    }
+
+    /** Update visual positions of loop handles and region. @private */
+    _updateLoopHandlePositions() {
+        const startPct = (this._loopStartFrac * 100).toFixed(2);
+        const endPct = (this._loopEndFrac * 100).toFixed(2);
+
+        this._loopStartHandle.style.left = `${startPct}%`;
+        this._loopEndHandle.style.left = `${endPct}%`;
+
+        this._loopRegion.style.left = `${startPct}%`;
+        this._loopRegion.style.width = `${(this._loopEndFrac - this._loopStartFrac) * 100}%`;
+    }
+
+    /**
+     * Get loop range as fractions.
+     * @returns {{ startFrac: number, endFrac: number }}
+     */
+    getLoopRange() {
+        return { startFrac: this._loopStartFrac, endFrac: this._loopEndFrac };
+    }
+
+    /**
+     * Set loop range from fractions (e.g. when restoring state).
+     * @param {number} startFrac
+     * @param {number} endFrac
+     */
+    setLoopRange(startFrac, endFrac) {
+        this._loopStartFrac = startFrac;
+        this._loopEndFrac = endFrac;
+        this._updateLoopHandlePositions();
+    }
+
+    /** Reset loop range to full recording. */
+    resetLoopRange() {
+        this._loopStartFrac = 0;
+        this._loopEndFrac = 1;
+        this._updateLoopHandlePositions();
+    }
+
+    // --- Existing methods ---
 
     /**
      * Transition to a new transport state and update all button visuals.
@@ -114,6 +223,10 @@ export class TransportBar {
         recordBtn.classList.remove('recording', 'armed');
         playBtn.classList.remove('playing');
 
+        // Show/hide loop handles when a recording exists and loop is active
+        const showHandles = this._hasRecording && this.looping;
+        this._progressContainer.classList.toggle('loop-handles-visible', showHandles);
+
         switch (this.state) {
             case 'idle':
                 stopBtn.disabled = true;
@@ -154,6 +267,11 @@ export class TransportBar {
             loopBtn.classList.add('loop-active');
         } else {
             loopBtn.classList.remove('loop-active');
+        }
+        // Update handle visibility
+        this._updateButtons();
+        if (this.looping) {
+            this._updateLoopHandlePositions();
         }
     }
 }
