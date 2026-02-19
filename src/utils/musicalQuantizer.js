@@ -5,10 +5,20 @@ export const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A',
 
 /** Scale intervals in semitones from root. */
 export const SCALES = {
-    chromatic:  [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
-    major:      [0, 2, 4, 5, 7, 9, 11],
-    minor:      [0, 2, 3, 5, 7, 8, 10],
-    pentatonic: [0, 2, 4, 7, 9],
+    chromatic:      [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+    major:          [0, 2, 4, 5, 7, 9, 11],
+    minor:          [0, 2, 3, 5, 7, 8, 10],
+    dorian:         [0, 2, 3, 5, 7, 9, 10],
+    phrygian:       [0, 1, 3, 5, 7, 8, 10],
+    lydian:         [0, 2, 4, 6, 7, 9, 11],
+    mixolydian:     [0, 2, 4, 5, 7, 9, 10],
+    locrian:        [0, 1, 3, 5, 6, 8, 10],
+    harmonicMinor:  [0, 2, 3, 5, 7, 8, 11],
+    melodicMinor:   [0, 2, 3, 5, 7, 9, 11],
+    pentatonic:     [0, 2, 4, 7, 9],
+    minorPentatonic:[0, 3, 5, 7, 10],
+    blues:          [0, 3, 5, 6, 7, 10],
+    wholeTone:      [0, 2, 4, 6, 8, 10],
 };
 
 /**
@@ -176,4 +186,89 @@ export function buildNoteTable(scaleIntervals, rootNote, minSemitones = -24, max
 
     notes.sort((a, b) => a - b);
     return notes;
+}
+
+// --- Arpeggiator permutation utilities ---
+
+/** Cache for permutation arrays, keyed by step count. */
+const _permutationCache = new Map();
+
+/**
+ * Generate all permutations of [0..n-1] using Heap's algorithm.
+ * @param {number} n - Number of elements (3–6 typical)
+ * @returns {number[][]} Array of all n! permutations
+ */
+export function generatePermutations(n) {
+    const result = [];
+    const arr = Array.from({ length: n }, (_, i) => i);
+    const c = new Array(n).fill(0);
+
+    result.push([...arr]);
+
+    let i = 0;
+    while (i < n) {
+        if (c[i] < i) {
+            if (i % 2 === 0) {
+                [arr[0], arr[i]] = [arr[i], arr[0]];
+            } else {
+                [arr[c[i]], arr[i]] = [arr[i], arr[c[i]]];
+            }
+            result.push([...arr]);
+            c[i]++;
+            i = 0;
+        } else {
+            c[i] = 0;
+            i++;
+        }
+    }
+
+    return result;
+}
+
+/**
+ * Get all permutations for a given step count (cached).
+ * @param {number} n - Number of steps (3–6)
+ * @returns {number[][]} All n! permutations
+ */
+export function getPermutations(n) {
+    if (!_permutationCache.has(n)) {
+        _permutationCache.set(n, generatePermutations(n));
+    }
+    return _permutationCache.get(n);
+}
+
+/**
+ * Pick N evenly spaced notes from a note table.
+ * If the table has fewer notes than steps, returns all available notes.
+ * @param {number[]} noteTable - Sorted array of semitone values
+ * @param {number} steps - Number of notes to pick
+ * @returns {number[]} Array of selected semitone values
+ */
+export function selectArpNotes(noteTable, steps) {
+    const len = noteTable.length;
+    if (len <= steps) return [...noteTable];
+
+    const notes = [];
+    for (let i = 0; i < steps; i++) {
+        const index = Math.round(i * (len - 1) / (steps - 1));
+        notes.push(noteTable[index]);
+    }
+    return notes;
+}
+
+/**
+ * Apply arp type to a permutation pattern.
+ * 'straight' returns the pattern as-is (repeating cycle).
+ * 'looped' returns a palindrome minus the endpoints (bounce).
+ * e.g. [0,1,2] straight → [0,1,2], looped → [0,1,2,1]
+ * @param {number[]} pattern - Permutation array
+ * @param {string} type - 'straight' or 'looped'
+ * @returns {number[]} Sequence to cycle through
+ */
+export function applyArpType(pattern, type) {
+    if (type === 'looped' && pattern.length > 2) {
+        const reversed = pattern.slice(1, -1).reverse();
+        return [...pattern, ...reversed];
+    }
+    return [...pattern];
 }

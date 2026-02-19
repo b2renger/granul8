@@ -38,7 +38,11 @@ export class InstanceState {
         this.randomGrainSize = false;
         this.randomDensity = false;
         this.randomPitch = false;
-        this.arpPattern = 'random';
+        this.arpPattern = 'random';   // 'random' or 'arpeggiator'
+        this.arpSteps = 4;            // number of notes in arp cycle (3–6)
+        this.arpType = 'straight';    // 'straight' or 'looped'
+        this.arpStyle = 0;            // permutation index (0..N!-1)
+        this.arpCustomPattern = null; // null = use permutation, or { values: number[], muted: boolean[] }
         this.pitchRange = 2;
 
         // --- ADSR envelope state ---
@@ -46,7 +50,15 @@ export class InstanceState {
     }
 
     toJSON() {
-        return { ...this, adsr: { ...this.adsr }, mappings: { ...this.mappings } };
+        return {
+            ...this,
+            adsr: { ...this.adsr },
+            mappings: { ...this.mappings },
+            arpCustomPattern: this.arpCustomPattern ? {
+                values: [...this.arpCustomPattern.values],
+                muted: [...this.arpCustomPattern.muted],
+            } : null,
+        };
     }
 
     static fromJSON(data) {

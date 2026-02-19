@@ -192,40 +192,18 @@ export class Voice {
         }
 
         // Per-grain pitch selection
-        if (this.pitchQuantize && this.pitchQuantize.noteTable) {
-            // Arpeggiator: pick from pre-computed note table using pattern
+        if (this.pitchQuantize && this.pitchQuantize.arpSequence) {
+            // Permutation arpeggiator: walk arpSequence cyclically into arpNotes
+            const { arpNotes, arpSequence } = this.pitchQuantize;
+            const stepIdx = arpSequence[this.arpIndex % arpSequence.length];
+            this.arpIndex++;
+            if (stepIdx === null) return; // muted step: skip grain
+            const semitones = arpNotes[stepIdx % arpNotes.length];
+            pitch = semitonesToRate(semitones);
+        } else if (this.pitchQuantize && this.pitchQuantize.noteTable) {
+            // Random mode: pick random note from the full table
             const table = this.pitchQuantize.noteTable;
-            const pattern = this.pitchQuantize.pattern || 'random';
-            let semitones;
-
-            switch (pattern) {
-                case 'up':
-                    semitones = table[this.arpIndex % table.length];
-                    this.arpIndex++;
-                    break;
-                case 'down':
-                    semitones = table[table.length - 1 - (this.arpIndex % table.length)];
-                    this.arpIndex++;
-                    break;
-                case 'updown': {
-                    semitones = table[this.arpIndex];
-                    if (table.length > 1) {
-                        this.arpIndex += this.arpDirection;
-                        if (this.arpIndex >= table.length) {
-                            this.arpDirection = -1;
-                            this.arpIndex = table.length - 2;
-                        } else if (this.arpIndex < 0) {
-                            this.arpDirection = 1;
-                            this.arpIndex = 1;
-                        }
-                    }
-                    break;
-                }
-                default: // 'random'
-                    semitones = table[Math.floor(Math.random() * table.length)];
-                    break;
-            }
-
+            const semitones = table[Math.floor(Math.random() * table.length)];
             pitch = semitonesToRate(semitones);
         } else {
             // No note table: original behavior

@@ -102,9 +102,19 @@
                             <label for="param-scale">Scale</label>
                             <select id="param-scale">
                                 <option value="chromatic" selected>Chromatic</option>
-                                <option value="major">Major</option>
-                                <option value="minor">Minor</option>
+                                <option value="major">Major (Ionian)</option>
+                                <option value="minor">Minor (Aeolian)</option>
+                                <option value="dorian">Dorian</option>
+                                <option value="phrygian">Phrygian</option>
+                                <option value="lydian">Lydian</option>
+                                <option value="mixolydian">Mixolydian</option>
+                                <option value="locrian">Locrian</option>
+                                <option value="harmonicMinor">Harmonic Minor</option>
+                                <option value="melodicMinor">Melodic Minor</option>
                                 <option value="pentatonic">Pentatonic</option>
+                                <option value="minorPentatonic">Minor Pentatonic</option>
+                                <option value="blues">Blues</option>
+                                <option value="wholeTone">Whole Tone</option>
                             </select>
                         </div>
                         <div class="param-group quantize-toggles">
@@ -147,18 +157,35 @@
                                 </label>
                             </div>
                         </div>
-                        <div class="param-group" id="arp-pattern-group" style="display: none;">
-                            <label for="param-arp-pattern">Arp Pattern</label>
+                        <div class="param-group" id="arp-mode-group" style="display: none;">
+                            <label for="param-arp-pattern">Arp Mode</label>
                             <select id="param-arp-pattern">
                                 <option value="random" selected>Random</option>
-                                <option value="up">Up</option>
-                                <option value="down">Down</option>
-                                <option value="updown">Up-Down</option>
+                                <option value="arpeggiator">Arpeggiator</option>
                             </select>
                         </div>
                         <div class="param-group" id="pitch-range-group" style="display: none;">
                             <label for="param-pitch-range">Pitch Range <span class="param-value" id="val-pitch-range">&plusmn;2 oct</span></label>
                             <input type="range" id="param-pitch-range" min="1" max="4" value="2" step="1">
+                        </div>
+                        <div class="param-group" id="arp-steps-group" style="display: none;">
+                            <label for="param-arp-steps">Arp Steps <span class="param-value" id="val-arp-steps">4</span></label>
+                            <input type="range" id="param-arp-steps" min="3" max="6" value="4" step="1">
+                        </div>
+                        <div class="param-group" id="arp-type-group" style="display: none;">
+                            <label for="param-arp-type">Arp Type</label>
+                            <select id="param-arp-type">
+                                <option value="straight" selected>Straight</option>
+                                <option value="looped">Looped</option>
+                            </select>
+                        </div>
+                        <div class="param-group arp-style-group" id="arp-style-group" style="display: none;">
+                            <label>Arp Shape <span class="param-value" id="val-arp-style">1/24</span></label>
+                            <div class="arp-style-nav">
+                                <button type="button" id="arp-style-prev" title="Previous pattern">&lsaquo;</button>
+                                <svg id="arp-style-svg" class="arp-style-preview" viewBox="0 0 100 50"></svg>
+                                <button type="button" id="arp-style-next" title="Next pattern">&rsaquo;</button>
+                            </div>
                         </div>
                     </div>
                 </details>

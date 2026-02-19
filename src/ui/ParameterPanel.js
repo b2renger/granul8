@@ -3,7 +3,10 @@
 
 import { ADSRWidget } from './ADSRWidget.js';
 import { expMap } from '../utils/math.js';
-import { normalizedToSubdivision, getSubdivisionSeconds } from '../utils/musicalQuantizer.js';
+import {
+    normalizedToSubdivision, getSubdivisionSeconds, getPermutations, applyArpType,
+    buildNoteTable, selectArpNotes, semitonesToNoteName, SCALES,
+} from '../utils/musicalQuantizer.js';
 
 /**
  * @typedef {Object} GrainParams
@@ -160,10 +163,12 @@ export class ParameterPanel {
         });
 
         this._rootNoteSelect.addEventListener('change', () => {
+            this._redrawArpSvg();
             this.callbacks.onChange(this.getParams());
         });
 
         this._scaleSelect.addEventListener('change', () => {
+            this._redrawArpSvg();
             this.callbacks.onChange(this.getParams());
         });
 
@@ -193,12 +198,65 @@ export class ParameterPanel {
             });
         }
 
-        // --- Arp pattern select (visible when randomize pitch is active) ---
-        this._arpPatternGroup = document.getElementById('arp-pattern-group');
+        // --- Arp mode select (visible when randomize pitch is active) ---
+        this._arpModeGroup = document.getElementById('arp-mode-group');
         this._arpPatternSelect = document.getElementById('param-arp-pattern');
         this._arpPatternSelect.addEventListener('change', () => {
+            this._updateArpVisibility();
             this.callbacks.onChange(this.getParams());
         });
+
+        // --- Arp steps slider (visible when mode is 'arpeggiator') ---
+        this._arpStepsGroup = document.getElementById('arp-steps-group');
+        this._arpStepsSlider = document.getElementById('param-arp-steps');
+        this._arpStepsDisplay = document.getElementById('val-arp-steps');
+        this._arpStepsSlider.addEventListener('input', () => {
+            this._arpStepsDisplay.textContent = this._arpStepsSlider.value;
+            // Reset style to 0 when steps change (permutation count changes)
+            this._arpStyleIndex = 0;
+            this._updateArpStyleDisplay();
+            this.callbacks.onChange(this.getParams());
+        });
+
+        // --- Arp type select (visible when mode is 'arpeggiator') ---
+        this._arpTypeGroup = document.getElementById('arp-type-group');
+        this._arpTypeSelect = document.getElementById('param-arp-type');
+        this._arpTypeSelect.addEventListener('change', () => {
+            this._updateArpStyleDisplay();
+            this.callbacks.onChange(this.getParams());
+        });
+
+        // --- Arp style prev/next + SVG preview ---
+        this._arpStyleGroup = document.getElementById('arp-style-group');
+        this._arpStyleSvg = document.getElementById('arp-style-svg');
+        this._arpStyleDisplay = document.getElementById('val-arp-style');
+        this._arpStyleIndex = 0;
+        this._currentPattern = null;  // mutable values array for editing
+        this._mutedSteps = null;      // boolean array — true = step is muted
+        this._dragStepIdx = null;     // which step index is being dragged
+        this._dragMoved = false;      // did pointer move during drag? (for tap vs drag detection)
+
+        document.getElementById('arp-style-prev').addEventListener('click', () => {
+            const steps = parseInt(this._arpStepsSlider.value, 10);
+            const count = getPermutations(steps).length;
+            this._arpStyleIndex = (this._arpStyleIndex - 1 + count) % count;
+            this._updateArpStyleDisplay();
+            this.callbacks.onChange(this.getParams());
+        });
+
+        document.getElementById('arp-style-next').addEventListener('click', () => {
+            const steps = parseInt(this._arpStepsSlider.value, 10);
+            const count = getPermutations(steps).length;
+            this._arpStyleIndex = (this._arpStyleIndex + 1) % count;
+            this._updateArpStyleDisplay();
+            this.callbacks.onChange(this.getParams());
+        });
+
+        // --- SVG drag interaction for pattern editing ---
+        this._arpStyleSvg.addEventListener('pointerdown', (e) => this._onArpSvgPointerDown(e));
+        this._arpStyleSvg.addEventListener('pointermove', (e) => this._onArpSvgPointerMove(e));
+        this._arpStyleSvg.addEventListener('pointerup', (e) => this._onArpSvgPointerUp(e));
+        this._arpStyleSvg.addEventListener('pointercancel', (e) => this._onArpSvgPointerUp(e));
 
         // --- Pitch range slider (visible when randomize pitch is active) ---
         this._pitchRangeGroup = document.getElementById('pitch-range-group');
@@ -206,6 +264,7 @@ export class ParameterPanel {
         this._pitchRangeDisplay = document.getElementById('val-pitch-range');
         this._pitchRangeSlider.addEventListener('input', () => {
             this._pitchRangeDisplay.textContent = `\u00B1${this._pitchRangeSlider.value} oct`;
+            this._redrawArpSvg();
             this.callbacks.onChange(this.getParams());
         });
 
@@ -248,14 +307,226 @@ export class ParameterPanel {
         });
     }
 
-    /** Show/hide arp pattern + pitch range controls based on randomize pitch toggle. */
+    /** Show/hide arp controls based on randomize pitch toggle and arp mode. */
     _updateArpVisibility() {
-        const show = this._randomPitch.checked;
-        if (this._arpPatternGroup) {
-            this._arpPatternGroup.style.display = show ? '' : 'none';
+        const showPitch = this._randomPitch.checked;
+        const isArpeggiator = this._arpPatternSelect.value === 'arpeggiator';
+        const showArpControls = showPitch && isArpeggiator;
+
+        this._arpModeGroup.style.display = showPitch ? '' : 'none';
+        this._pitchRangeGroup.style.display = showPitch ? '' : 'none';
+        this._arpStepsGroup.style.display = showArpControls ? '' : 'none';
+        this._arpTypeGroup.style.display = showArpControls ? '' : 'none';
+        this._arpStyleGroup.style.display = showArpControls ? '' : 'none';
+
+        if (showArpControls) {
+            // If custom pattern already loaded (e.g. from setFullState), just redraw
+            if (this._currentPattern && this._currentPattern.length === parseInt(this._arpStepsSlider.value, 10)) {
+                this._updateArpCounter();
+                this._redrawArpSvg();
+            } else {
+                this._updateArpStyleDisplay();
+            }
         }
-        if (this._pitchRangeGroup) {
-            this._pitchRangeGroup.style.display = show ? '' : 'none';
+    }
+
+    /** Load pattern from permutation index, reset mutes, redraw SVG. */
+    _updateArpStyleDisplay() {
+        const steps = parseInt(this._arpStepsSlider.value, 10);
+        const perms = getPermutations(steps);
+        const count = perms.length;
+        const idx = Math.min(this._arpStyleIndex, count - 1);
+        this._currentPattern = [...perms[idx]];
+        this._mutedSteps = new Array(steps).fill(false);
+
+        this._arpStyleDisplay.textContent = `${idx + 1}/${count}`;
+        this._redrawArpSvg();
+    }
+
+    /** Check if the current pattern/mutes differ from the stored permutation. */
+    _isCustomPattern() {
+        if (!this._currentPattern) return false;
+        if (this._mutedSteps.some(m => m)) return true;
+        const steps = this._currentPattern.length;
+        const perms = getPermutations(steps);
+        const idx = Math.min(this._arpStyleIndex, perms.length - 1);
+        return !perms[idx].every((v, i) => v === this._currentPattern[i]);
+    }
+
+    /** Compute the arp note names for current musical params (for Y-axis labels). */
+    _computeArpNotes() {
+        const scale = this._scaleSelect.value;
+        const rootNote = parseInt(this._rootNoteSelect.value, 10);
+        const pitchRange = parseInt(this._pitchRangeSlider.value, 10);
+        const steps = parseInt(this._arpStepsSlider.value, 10);
+        const scaleIntervals = SCALES[scale] || SCALES.chromatic;
+        const range = pitchRange * 12;
+        const fullTable = buildNoteTable(scaleIntervals, rootNote, -range, range);
+        return selectArpNotes(fullTable, steps);
+    }
+
+    /** SVG layout constants. */
+    static _SVG = { w: 100, h: 50, labelX: 16, plotL: 20, plotR: 96, padY: 7 };
+
+    /** Render the SVG: grid lines, Y-axis labels, polyline, draggable circles. */
+    _redrawArpSvg() {
+        const pattern = this._currentPattern;
+        if (!pattern) return;
+
+        const svg = this._arpStyleSvg;
+        const steps = pattern.length;
+        const maxVal = steps - 1;
+        const { h, labelX, plotL, plotR, padY } = ParameterPanel._SVG;
+        const plotH = h - 2 * padY;
+
+        // Compute actual note names for labels
+        const arpNotes = this._computeArpNotes();
+
+        // Y position for a given step value (0=bottom, maxVal=top)
+        const yOf = (val) => padY + (1 - val / maxVal) * plotH;
+
+        let content = '';
+
+        // Horizontal grid lines + Y-axis labels
+        for (let v = 0; v <= maxVal; v++) {
+            const y = yOf(v);
+            content += `<line x1="${plotL}" y1="${y.toFixed(1)}" x2="${plotR}" y2="${y.toFixed(1)}" class="arp-grid-line"/>`;
+            const label = v < arpNotes.length ? semitonesToNoteName(arpNotes[v]) : v;
+            content += `<text x="${labelX}" y="${(y + 1.5).toFixed(1)}" text-anchor="end" class="arp-label">${label}</text>`;
+        }
+
+        // Polyline connecting all points (breaks at muted steps with dashed style)
+        const pts = pattern.map((val, i) => ({
+            x: plotL + (i / (steps - 1)) * (plotR - plotL),
+            y: yOf(val),
+        }));
+
+        // Build segments: solid between active, dashed to/from muted
+        let segments = '';
+        for (let i = 0; i < steps - 1; i++) {
+            const a = pts[i], b = pts[i + 1];
+            const muted = this._mutedSteps[i] || this._mutedSteps[i + 1];
+            if (muted) {
+                segments += `<line x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" stroke="var(--text-secondary)" stroke-width="1" stroke-dasharray="3 2" opacity="0.4"/>`;
+            } else {
+                segments += `<line x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"/>`;
+            }
+        }
+        content += segments;
+
+        // Circles for each step
+        for (let i = 0; i < steps; i++) {
+            const p = pts[i];
+            const isMuted = this._mutedSteps[i];
+            const isDragging = i === this._dragStepIdx;
+            let cls = isMuted ? 'arp-point-muted' : (isDragging ? 'arp-point dragging' : 'arp-point');
+            content += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4.5" class="${cls}"/>`;
+        }
+
+        svg.innerHTML = content;
+    }
+
+    /** Convert a pointer event to SVG viewBox coordinates. */
+    _svgCoords(e) {
+        const rect = this._arpStyleSvg.getBoundingClientRect();
+        return {
+            x: (e.clientX - rect.left) / rect.width * 100,
+            y: (e.clientY - rect.top) / rect.height * 50,
+        };
+    }
+
+    /** @param {PointerEvent} e */
+    _onArpSvgPointerDown(e) {
+        if (!this._currentPattern) return;
+
+        const { x, y } = this._svgCoords(e);
+        const steps = this._currentPattern.length;
+        const maxVal = steps - 1;
+        const { plotL, plotR, padY } = ParameterPanel._SVG;
+        const plotH = 50 - 2 * padY;
+
+        // Find nearest point within hit radius
+        let bestDist = 12;
+        let bestIdx = -1;
+        for (let i = 0; i < steps; i++) {
+            const px = plotL + (i / (steps - 1)) * (plotR - plotL);
+            const py = padY + (1 - this._currentPattern[i] / maxVal) * plotH;
+            const dist = Math.sqrt((x - px) ** 2 + (y - py) ** 2);
+            if (dist < bestDist) {
+                bestDist = dist;
+                bestIdx = i;
+            }
+        }
+
+        if (bestIdx >= 0) {
+            e.preventDefault();
+            this._dragStepIdx = bestIdx;
+            this._dragMoved = false;
+            this._arpStyleSvg.setPointerCapture(e.pointerId);
+            this._redrawArpSvg();
+        }
+    }
+
+    /** @param {PointerEvent} e */
+    _onArpSvgPointerMove(e) {
+        if (this._dragStepIdx === null) return;
+        e.preventDefault();
+
+        const { y } = this._svgCoords(e);
+        const steps = this._currentPattern.length;
+        const maxVal = steps - 1;
+        const padY = ParameterPanel._SVG.padY;
+        const plotH = 50 - 2 * padY;
+
+        // Map Y to value (top = max, bottom = 0) — allow duplicates, no swap
+        const rawVal = (1 - (y - padY) / plotH) * maxVal;
+        const newVal = Math.max(0, Math.min(maxVal, Math.round(rawVal)));
+
+        if (newVal !== this._currentPattern[this._dragStepIdx]) {
+            this._currentPattern[this._dragStepIdx] = newVal;
+            this._dragMoved = true;
+            this._redrawArpSvg();
+        } else if (!this._dragMoved) {
+            // Check if pointer moved far enough to count as a drag
+            const { x: sx } = this._svgCoords(e);
+            const steps2 = this._currentPattern.length;
+            const { plotL, plotR } = ParameterPanel._SVG;
+            const px = plotL + (this._dragStepIdx / (steps2 - 1)) * (plotR - plotL);
+            const py = padY + (1 - this._currentPattern[this._dragStepIdx] / maxVal) * plotH;
+            if (Math.sqrt((sx - px) ** 2 + (y - py) ** 2) > 4) {
+                this._dragMoved = true;
+            }
+        }
+    }
+
+    /** @param {PointerEvent} e */
+    _onArpSvgPointerUp(e) {
+        if (this._dragStepIdx === null) return;
+
+        const stepIdx = this._dragStepIdx;
+        this._arpStyleSvg.releasePointerCapture(e.pointerId);
+        this._dragStepIdx = null;
+
+        if (!this._dragMoved) {
+            // Tap (no drag): toggle mute
+            this._mutedSteps[stepIdx] = !this._mutedSteps[stepIdx];
+        }
+
+        // Update counter: show "custom" or permutation index
+        this._updateArpCounter();
+        this._redrawArpSvg();
+        this.callbacks.onChange(this.getParams());
+    }
+
+    /** Update the arp shape counter label. */
+    _updateArpCounter() {
+        if (this._isCustomPattern()) {
+            this._arpStyleDisplay.textContent = 'custom';
+        } else {
+            const steps = parseInt(this._arpStepsSlider.value, 10);
+            const count = getPermutations(steps).length;
+            const idx = Math.min(this._arpStyleIndex, count - 1);
+            this._arpStyleDisplay.textContent = `${idx + 1}/${count}`;
         }
     }
 
@@ -310,6 +581,12 @@ export class ParameterPanel {
             randomDensity: this._randomDensity.checked,
             randomPitch: this._randomPitch.checked,
             arpPattern: this._arpPatternSelect.value,
+            arpSteps: parseInt(this._arpStepsSlider.value, 10),
+            arpType: this._arpTypeSelect.value,
+            arpStyle: this._arpStyleIndex,
+            arpCustomPattern: this._isCustomPattern() && this._currentPattern
+                ? { values: [...this._currentPattern], muted: [...this._mutedSteps] }
+                : null,
             pitchRange: parseInt(this._pitchRangeSlider.value, 10),
         };
     }
@@ -371,7 +648,25 @@ export class ParameterPanel {
         this._randomPitch.checked = state.randomPitch;
 
         // --- Arp + pitch range ---
-        this._arpPatternSelect.value = state.arpPattern;
+        // Handle legacy arpPattern values (up/down/updown → arpeggiator)
+        const arpPattern = state.arpPattern;
+        if (arpPattern === 'up' || arpPattern === 'down' || arpPattern === 'updown') {
+            this._arpPatternSelect.value = 'arpeggiator';
+        } else {
+            this._arpPatternSelect.value = arpPattern || 'random';
+        }
+        this._arpStepsSlider.value = state.arpSteps || 4;
+        this._arpStepsDisplay.textContent = state.arpSteps || 4;
+        this._arpTypeSelect.value = state.arpType || 'straight';
+        this._arpStyleIndex = state.arpStyle || 0;
+        // Restore custom pattern (if any) after loading base permutation
+        if (state.arpCustomPattern) {
+            this._currentPattern = [...state.arpCustomPattern.values];
+            this._mutedSteps = [...state.arpCustomPattern.muted];
+        } else {
+            this._currentPattern = null;
+            this._mutedSteps = null;
+        }
         this._pitchRangeSlider.value = state.pitchRange;
         this._pitchRangeDisplay.textContent = `\u00B1${state.pitchRange} oct`;
 

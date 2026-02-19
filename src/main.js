@@ -12,6 +12,7 @@ import { expMap, lerp } from './utils/math.js';
 import {
     SCALES, quantizePitch, rateToSemitones, semitonesToRate,
     normalizedToSubdivision, getSubdivisionSeconds, buildNoteTable,
+    selectArpNotes, getPermutations, applyArpType,
 } from './utils/musicalQuantizer.js';
 
 // --- Theme toggle (light/dark) ---
@@ -197,15 +198,37 @@ function resolveParams(p, g, m) {
         : null;
 
     const arpPattern = m.arpPattern || 'random';
-    const needsPitchTable = m.randomPitch && (m.quantizePitch || arpPattern !== 'random');
-    const pitchQuantize = needsPitchTable
-        ? {
-            scale: SCALES[m.scale] || SCALES.chromatic,
-            rootNote: m.rootNote,
-            pattern: arpPattern,
-            noteTable: buildNoteTable(SCALES[m.scale] || SCALES.chromatic, m.rootNote, -(m.pitchRange || 2) * 12, (m.pitchRange || 2) * 12),
+    const scaleIntervals = SCALES[m.scale] || SCALES.chromatic;
+    const range = (m.pitchRange || 2) * 12;
+    let pitchQuantize = null;
+
+    if (m.randomPitch && arpPattern === 'arpeggiator') {
+        // Permutation arpeggiator: build arpNotes + arpSequence
+        const fullTable = buildNoteTable(scaleIntervals, m.rootNote, -range, range);
+        const steps = m.arpSteps || 4;
+        const arpNotes = selectArpNotes(fullTable, steps);
+        let pattern;
+        if (m.arpCustomPattern) {
+            // Custom edited pattern: values array with possible nulls for muted steps
+            pattern = m.arpCustomPattern.values.map((v, i) =>
+                m.arpCustomPattern.muted[i] ? null : v
+            );
+        } else {
+            const perms = getPermutations(steps);
+            const styleIdx = Math.min(m.arpStyle || 0, perms.length - 1);
+            pattern = perms[styleIdx];
         }
-        : null;
+        const arpSequence = applyArpType(pattern, m.arpType || 'straight');
+        pitchQuantize = { arpNotes, arpSequence };
+    } else if (m.randomPitch && m.quantizePitch) {
+        // Random pitch with scale quantization (no arpeggiator)
+        const noteTable = buildNoteTable(scaleIntervals, m.rootNote, -range, range);
+        pitchQuantize = { scale: scaleIntervals, rootNote: m.rootNote, noteTable };
+    } else if (m.randomPitch) {
+        // Random pitch, no quantization — noteTable for random selection
+        const noteTable = buildNoteTable(scaleIntervals, m.rootNote, -range, range);
+        pitchQuantize = { noteTable };
+    }
 
     return {
         position:   g.position,
