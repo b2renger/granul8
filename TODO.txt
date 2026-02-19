@@ -1,0 +1,6 @@
+- adsr, volume, pan, arpegio etc. should all be customizable per instance and apply only to their instance.
+- update transport bar to allow start loop point and end loop point editing
+- use pan and allow to randomize pan
+- we should have a master volume per layer
+- we need to review the bpm sync accross layers.
+- we should also review the loop points and the quantization so that everything stays in rythm over time.
