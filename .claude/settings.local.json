@@ -4,7 +4,9 @@
       "Bash(curl:*)",
       "Bash(node -e:*)",
       "WebFetch(domain:codepen.io)",
-      "WebFetch(domain:cdpn.io)"
+      "WebFetch(domain:cdpn.io)",
+      "Bash(git ls-tree:*)",
+      "Bash(dd:*)"
     ]
   }
 }

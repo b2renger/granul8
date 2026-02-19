@@ -911,7 +911,7 @@ Refactored the automation system for production use with three architectural cha
 
 ---
 
-### Step 4.4c — Keyboard Shortcut 'R' for Record
+### Step 4.4c — Keyboard Shortcut 'R' for Record [DONE]
 
 Add keyboard shortcut so pressing 'R' triggers the same behavior as clicking the record button (arm, disarm, or stop recording).
 
@@ -926,7 +926,7 @@ Add keyboard shortcut so pressing 'R' triggers the same behavior as clicking the
 
 ---
 
-### Step 4.4d — Background Playback on Tab Switch
+### Step 4.4d — Background Playback on Tab Switch [DONE]
 
 Allow playback to continue in the background when the user switches tabs. Only recording stops on tab switch.
 
@@ -1013,7 +1013,7 @@ Persist recordings for later use.
 | **Phase 1** | 1.1 – 1.10 | Single-voice granular sampler with waveform display, parameter controls, clean audio | COMPLETE |
 | **Phase 2** | 2.1 – 2.9 | Multi-touch support (10 voices), per-voice visuals, musical quantization, mobile polish | COMPLETE |
 | **Phase 3** | 3.1 – 3.9 | Multi-instance architecture with tab UI, arpeggiator, session persistence | COMPLETE |
-| **Phase 4** | 4.1 – 4.8 | Gesture recording, playback, overdub, ghost visualization, save/load | **IN PROGRESS** (4.1–4.4b done, 4.4c–4.4d next) |
+| **Phase 4** | 4.1 – 4.8 | Gesture recording, playback, overdub, ghost visualization, save/load | **IN PROGRESS** (4.1–4.4d done, 4.5 next) |
 
 ---
 
