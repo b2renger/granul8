@@ -382,6 +382,63 @@ html, body {
     border-radius: 50%;
 }
 
+#btn-record.armed {
+    border-color: var(--record-red);
+    background: color-mix(in srgb, var(--record-red) 15%, var(--bg-surface));
+}
+
+#btn-record.armed .record-icon {
+    animation: record-pulse 1.5s ease-in-out infinite;
+}
+
+#btn-record.recording {
+    background: var(--record-red);
+}
+
+#btn-record.recording .record-icon {
+    animation: record-pulse 1s ease-in-out infinite;
+}
+
+@keyframes record-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+#btn-play.playing {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 20%, var(--bg-surface));
+}
+
+#btn-loop.loop-active {
+    border-color: var(--accent);
+}
+
+#btn-loop.loop-active .loop-icon {
+    border-color: var(--accent);
+}
+
+#btn-loop.loop-active .loop-icon::after {
+    border-left-color: var(--accent);
+}
+
+/* Transport progress bar */
+#transport-progress {
+    flex: 1;
+    min-width: 40px;
+    height: 4px;
+    background: var(--bg-primary);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+#transport-progress-fill {
+    width: 0%;
+    height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
+    transition: width 0.05s linear;
+}
+
 .play-icon {
     width: 0;
     height: 0;

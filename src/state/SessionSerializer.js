@@ -7,9 +7,10 @@
  *
  * @param {import('./InstanceManager.js').InstanceManager} instanceManager
  * @param {import('../ui/ParameterPanel.js').ParameterPanel} panel
+ * @param {number} masterBpm - Global master BPM value
  * @returns {Object} Session JSON object
  */
-export function serializeSession(instanceManager, panel) {
+export function serializeSession(instanceManager, panel, masterBpm) {
     // Save the active panel state into the active instance's state
     const active = instanceManager.getActive();
     if (active) {
@@ -26,6 +27,7 @@ export function serializeSession(instanceManager, panel) {
     return {
         granul8: true,
         version: 1,
+        masterBpm: masterBpm || 120,
         savedAt: new Date().toISOString(),
         activeInstanceId: instanceManager.activeId,
         instances,

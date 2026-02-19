@@ -10,6 +10,7 @@ import { LevelMeter } from './ui/LevelMeter.js';
 import { setupDragAndDrop, setupFilePicker, isAudioFile } from './utils/fileLoader.js';
 import { serializeSession, validateSession, getBundledSampleUrls } from './state/SessionSerializer.js';
 import { SessionPersistence, exportSessionFile, readSessionFile } from './state/SessionPersistence.js';
+import { TransportBar } from './ui/TransportBar.js';
 import { expMap, lerp } from './utils/math.js';
 import {
     SCALES, quantizePitch, rateToSemitones, semitonesToRate,
@@ -56,6 +57,52 @@ const dropOverlay = document.getElementById('drop-overlay');
 // --- Shared audio bus ---
 
 const masterBus = new MasterBus();
+
+// --- Master BPM (global, not per-instance) ---
+
+const bpmSlider = document.getElementById('param-bpm');
+const bpmDisplay = document.getElementById('val-bpm');
+const tapTempoBtn = document.getElementById('tap-tempo');
+let tapTimes = [];
+
+/** Read the current master BPM from the slider. */
+function getMasterBpm() {
+    return parseInt(bpmSlider.value, 10);
+}
+
+bpmSlider.addEventListener('input', () => {
+    bpmDisplay.textContent = bpmSlider.value;
+    // Refresh quantized displays in the panel
+    params.refreshQuantizedDisplays();
+    if (persistence) persistence.scheduleSave();
+});
+
+tapTempoBtn.addEventListener('click', () => {
+    const now = performance.now();
+    if (tapTimes.length > 0 && now - tapTimes[tapTimes.length - 1] > 2000) {
+        tapTimes = [];
+    }
+    tapTimes.push(now);
+    if (tapTimes.length > 4) tapTimes.shift();
+    if (tapTimes.length >= 2) {
+        let sum = 0;
+        for (let i = 1; i < tapTimes.length; i++) {
+            sum += tapTimes[i] - tapTimes[i - 1];
+        }
+        const avgMs = sum / (tapTimes.length - 1);
+        const bpm = Math.round(60000 / avgMs);
+        const clamped = Math.max(40, Math.min(300, bpm));
+        bpmSlider.value = clamped;
+        bpmDisplay.textContent = clamped;
+        params.refreshQuantizedDisplays();
+        if (persistence) persistence.scheduleSave();
+    }
+});
+
+// --- Per-tab automation (recorder & player owned by each instance in InstanceManager) ---
+
+/** @type {Map<number, number>} pointerId → voiceIndex for active recording on current tab */
+const recorderPointerMap = new Map();
 
 // --- Level meter (reads combined output from all instances) ---
 
@@ -161,14 +208,16 @@ function resolveParams(p, g, m) {
     let grainSize = expMap(grainSizeNorm, 0.001, 1.0);
     let interOnset = expMap(densityNorm, 0.005, 0.5);
 
+    const bpm = getMasterBpm();
+
     if (m.quantizeGrainSize && !m.randomGrainSize) {
         const sub = normalizedToSubdivision(1 - grainSizeNorm);
-        grainSize = getSubdivisionSeconds(m.bpm, sub.divisor);
+        grainSize = getSubdivisionSeconds(bpm, sub.divisor);
     }
 
     if (m.quantizeDensity && !m.randomDensity) {
         const sub = normalizedToSubdivision(1 - densityNorm);
-        interOnset = getSubdivisionSeconds(m.bpm, sub.divisor);
+        interOnset = getSubdivisionSeconds(bpm, sub.divisor);
     }
 
     if (m.quantizePitch && !m.randomPitch) {
@@ -192,11 +241,11 @@ function resolveParams(p, g, m) {
         : null;
 
     const grainSizeQuantize = (m.quantizeGrainSize && m.randomGrainSize)
-        ? { bpm: m.bpm }
+        ? { bpm }
         : null;
 
     const interOnsetQuantize = (m.quantizeDensity && m.randomDensity)
-        ? { bpm: m.bpm }
+        ? { bpm }
         : null;
 
     const arpPattern = m.arpPattern || 'random';
@@ -303,12 +352,24 @@ const pointer = new PointerHandler(canvas, {
         const active = instanceManager.getActive();
         if (!active || !active.engine.sourceBuffer) return undefined;
         masterBus.resume();
+
+        // If armed, start actual recording on first touch
+        if (transport.state === 'armed') {
+            active.recorder.startRecording();
+            transport.setState('recording');
+        }
+
         const gesture = { position, amplitude, pressure, contactSize, velocity };
         const p = params.getParams();
         const m = params.getMusicalParams();
         const resolved = resolveParams(p, gesture, m);
         params.updateGestureIndicators(getResolvedNormals(p, gesture));
-        return active.engine.startVoice(pointerId, resolved);
+        const voiceId = active.engine.startVoice(pointerId, resolved);
+        if (voiceId !== undefined && active.recorder.isRecording) {
+            recorderPointerMap.set(pointerId, voiceId);
+            active.recorder.captureStart(voiceId, resolved);
+        }
+        return voiceId;
     },
     onMove({ pointerId, position, amplitude, pressure, contactSize, velocity }) {
         const active = instanceManager.getActive();
@@ -319,10 +380,23 @@ const pointer = new PointerHandler(canvas, {
         const resolved = resolveParams(p, gesture, m);
         active.engine.updateVoice(pointerId, resolved);
         params.updateGestureIndicators(getResolvedNormals(p, gesture));
+        if (active.recorder.isRecording) {
+            const voiceId = recorderPointerMap.get(pointerId);
+            if (voiceId !== undefined) {
+                active.recorder.captureMove(voiceId, resolved);
+            }
+        }
     },
     onStop({ pointerId }) {
         const active = instanceManager.getActive();
         if (active) active.engine.stopVoice(pointerId);
+        if (active?.recorder.isRecording) {
+            const voiceId = recorderPointerMap.get(pointerId);
+            if (voiceId !== undefined) {
+                active.recorder.captureStop(voiceId);
+                recorderPointerMap.delete(pointerId);
+            }
+        }
         if (pointer.pointers.size === 0) {
             params.hideGestureIndicators();
         }
@@ -345,12 +419,25 @@ const tabBar = new TabBar(
             }
             pointer.pointers.clear();
             pointer._fading = [];
+            recorderPointerMap.clear();
             params.hideGestureIndicators();
 
+            // switchTo() stops recording/playback on the old tab
             instanceManager.switchTo(id);
 
-            // Update sample display
+            // Update transport bar to reflect new tab's state
             const active = instanceManager.getActive();
+            if (active?.player.isPlaying) {
+                transport.setState('playing');
+            } else {
+                transport.setState('idle');
+            }
+            transport.setHasRecording(active?.recorder.getRecording().length > 0);
+            if (!active?.player.isPlaying) {
+                transport.resetDisplay();
+            }
+
+            // Update sample display
             if (active) {
                 sampleNameEl.textContent = active.state.sampleDisplayName;
                 sampleSelect.value = active.state.sampleUrl || '';
@@ -442,7 +529,7 @@ sampleSelect.addEventListener('change', () => {
 const bundledSampleUrls = getBundledSampleUrls(sampleSelect);
 
 persistence = new SessionPersistence(
-    () => serializeSession(instanceManager, params)
+    () => serializeSession(instanceManager, params, getMasterBpm())
 );
 
 /**
@@ -495,6 +582,11 @@ async function initializeSession() {
 
     if (validation.valid) {
         try {
+            // Restore master BPM from session (default 120 for backward compatibility)
+            const savedBpm = validation.data.masterBpm || 120;
+            bpmSlider.value = savedBpm;
+            bpmDisplay.textContent = savedBpm;
+
             await instanceManager.restoreFromSession(validation.data, restoreSampleForInstance);
             tabBar.render(instanceManager.getTabList());
 
@@ -526,7 +618,7 @@ const importBtn = document.getElementById('session-import-btn');
 const importInput = document.getElementById('session-import-input');
 
 exportBtn.addEventListener('click', () => {
-    const session = serializeSession(instanceManager, params);
+    const session = serializeSession(instanceManager, params, getMasterBpm());
     exportSessionFile(session);
     showNotification('Session exported');
 });
@@ -561,6 +653,11 @@ async function importSessionFromFile(file) {
         params.hideGestureIndicators();
 
         persistence.disable();
+
+        // Restore master BPM from imported session
+        const importedBpm = validation.data.masterBpm || 120;
+        bpmSlider.value = importedBpm;
+        bpmDisplay.textContent = importedBpm;
 
         await instanceManager.restoreFromSession(validation.data, restoreSampleForInstance);
         tabBar.render(instanceManager.getTabList());
@@ -636,6 +733,92 @@ function updateGestureMeters() {
     gestureMeterEls.velocity.style.width = hasPointers ? `${live.velocity * 100}%` : '0%';
 }
 
+// --- Transport controls ---
+
+const transport = new TransportBar({
+    recordBtn:   document.getElementById('btn-record'),
+    playBtn:     document.getElementById('btn-play'),
+    stopBtn:     document.getElementById('btn-stop'),
+    loopBtn:     document.getElementById('btn-loop'),
+    timeDisplay: document.getElementById('time-display'),
+    progressBar: document.getElementById('transport-progress-fill'),
+});
+
+transport.onRecord = () => {
+    const active = instanceManager.getActive();
+    if (!active) return;
+
+    if (active.recorder.isRecording) {
+        // Stop recording
+        active.recorder.stopRecording();
+        recorderPointerMap.clear();
+        transport.setState('idle');
+        transport.setHasRecording(active.recorder.getRecording().length > 0);
+    } else if (transport.state === 'armed') {
+        // Disarm (toggle off)
+        transport.setState('idle');
+        transport.setHasRecording(active.recorder.getRecording().length > 0);
+    } else {
+        // Arm recording — actual recording starts on first touch
+        if (active.player.isPlaying) active.player.stop();
+        transport.setState('armed');
+    }
+};
+
+transport.onPlay = () => {
+    const active = instanceManager.getActive();
+    if (!active) return;
+    const lane = active.recorder.getRecording();
+    if (lane.length === 0) return;
+    masterBus.resume();
+    active.player.play(lane, transport.looping);
+    transport.setState('playing');
+};
+
+transport.onStop = () => {
+    const active = instanceManager.getActive();
+    if (active?.recorder.isRecording) {
+        active.recorder.stopRecording();
+        recorderPointerMap.clear();
+    }
+    if (active?.player.isPlaying) {
+        active.player.stop();
+    }
+    transport.setState('idle');
+    transport.setHasRecording(active?.recorder.getRecording().length > 0);
+    transport.setProgress(0);
+};
+
+transport.onLoopToggle = (looping) => {
+    const active = instanceManager.getActive();
+    if (active?.player) active.player.setLoop(looping);
+};
+
+// --- Keyboard shortcut: 'R' to arm/disarm/stop recording ---
+
+document.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+    if (e.key === 'r' || e.key === 'R') {
+        e.preventDefault();
+        if (transport.onRecord) transport.onRecord();
+    }
+});
+
+// --- Player callbacks routed through InstanceManager ---
+
+instanceManager.onPlayerFrame = (elapsed, progress) => {
+    transport.setTime(elapsed);
+    transport.setProgress(progress);
+};
+
+instanceManager.onPlayerComplete = () => {
+    const active = instanceManager.getActive();
+    transport.setState('idle');
+    transport.setHasRecording(true);
+    transport.setProgress(0);
+    if (active) transport.setTime(active.recorder.getRecording().getDuration());
+};
+
 // --- Render loop ---
 
 function render() {
@@ -652,6 +835,11 @@ function render() {
     updateGestureMeters();
     params.updateRandomIndicators(params.getMusicalParams());
     params.updateParamRelevance();
+
+    // Update transport time display during recording
+    if (active?.recorder.isRecording) {
+        transport.setTime(active.recorder.getElapsedTime());
+    }
 
     requestAnimationFrame(render);
 }

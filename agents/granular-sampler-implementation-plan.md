@@ -827,64 +827,120 @@ Define the data structures for recording and playback.
 
 ---
 
-### Step 4.2 — Gesture Recorder
+### Step 4.2 — Gesture Recorder [DONE]
 
 Capture live gestures into an automation lane.
 
 **Tasks**:
-- Create `src/automation/Recorder.js`:
+- Created `src/automation/Recorder.js`:
   - `startRecording()` — records the current `audioContext.currentTime` as the reference start time. Sets `isRecording = true`.
-  - Hook into `PointerHandler`: when recording is active, every `pointerdown` / `pointermove` / `pointerup` event is captured as an `AutomationEvent` with `time = audioContext.currentTime - recordingStartTime`.
+  - Hooks into `PointerHandler`: when recording is active, every `pointerdown` / `pointermove` / `pointerup` event is captured as an `AutomationEvent` with `time = audioContext.currentTime - recordingStartTime`.
   - Throttle `pointermove` capture to **30 events per second per pointer** using a simple time-since-last-event check. This keeps recordings compact without losing gestural nuance.
-  - Also capture global parameter changes (if the user moves a slider during recording): store as a special event type `'param'` with the parameter name and value.
   - `stopRecording()` — sets `isRecording = false`, finalizes the automation lane.
   - `getRecording()` — returns the `AutomationLane`.
-- The recorder does not interfere with live audio — while recording, the user hears their gestures in real time as normal.
+  - Captures 8 params: position, amplitude, pitch, grainSize, interOnset, spread, pan, envelope.
 
-**Deliverable**: User presses Record, performs gestures, presses Stop. The recording is stored in memory as a structured event array.
+**Deliverable**: Recording is stored in memory as a structured event array.
 
 ---
 
-### Step 4.3 — Transport Controls UI
+### Step 4.3 — Transport Controls UI [DONE]
 
 Build the record/play/stop bar.
 
 **Tasks**:
-- Create `src/ui/TransportBar.js`:
-  - Three buttons: **Record** (red circle), **Play** (green triangle), **Stop** (gray square).
-  - A **time display** showing current position in `MM:SS.ms` format.
-  - A **progress bar** showing playback position relative to recording duration (thin horizontal bar below the waveform, or integrated into the waveform canvas as a horizontal line).
-  - Visual states:
-    - Idle: Play is enabled only if a recording exists. Record is always available.
-    - Recording: Record button pulses red. Time display counts up. Stop is available.
-    - Playing: Play button is highlighted. Progress bar advances. Stop is available.
-  - A **Loop toggle** button (cycle icon) that enables/disables loop playback.
-- Wire buttons to the Recorder and Player (next step).
+- Created `src/ui/TransportBar.js`:
+  - Four buttons: **Record**, **Play**, **Stop**, **Loop**.
+  - Time display (`MM:SS.mmm`) and progress bar.
+  - Four states: `idle`, `armed`, `recording`, `playing`.
+  - Visual feedback: `.recording` pulse, `.playing` accent, `.loop-active` accent.
+  - Callbacks: `onRecord`, `onPlay`, `onStop`, `onLoopToggle`.
 
-**Deliverable**: A clean transport bar with clear visual states for idle, recording, and playback modes.
+**Deliverable**: Transport bar with clear visual states.
 
 ---
 
-### Step 4.4 — Automation Player
+### Step 4.4 — Automation Player [DONE]
 
 Replay recorded gestures through the engine.
 
 **Tasks**:
-- Create `src/automation/Player.js`:
-  - `play(automationLane, loop)` — starts playback from the beginning.
-  - Uses a `requestAnimationFrame` loop (not `setTimeout` — we want frame-accurate event dispatch, and the events themselves schedule audio ahead anyway).
-  - Each frame, compute `elapsedTime = audioContext.currentTime - playbackStartTime`.
-  - Fetch all events between `lastProcessedTime` and `elapsedTime` from the lane.
-  - For each event, dispatch the corresponding action on the engine:
-    - `'start'` → `engine.startVoice(event.voiceIndex, event.params)` (use a synthetic pointer ID space distinct from real pointers, e.g., `pointerId = 1000 + voiceIndex`).
-    - `'move'` → `engine.updateVoice(syntheticPointerId, event.params)`.
-    - `'stop'` → `engine.stopVoice(syntheticPointerId)`.
-  - On loop: when `elapsedTime > lane.getDuration()`, stop all active playback voices and restart from 0.
-  - `stop()` — halts playback, stops all playback-originated voices.
-  - `pause()` / `resume()` — freeze and continue from the paused position.
-- Ensure that playback voices and live touch voices can coexist. Reserve voice slots 0–2 for playback and 3–5 for live input, or use the allocator with a priority system.
+- Created `src/automation/Player.js`:
+  - `play(lane, loop)` — starts playback using `requestAnimationFrame` loop.
+  - Synthetic pointer IDs (`1000 + voiceIndex`) to avoid collision with live pointers.
+  - Per-frame event dispatch from `AutomationLane.getEventsInRange()`.
+  - Loop: stops all voices, restarts from 0. Non-loop: calls `onComplete`.
+  - Callbacks: `onDispatch`, `onFrame`, `onComplete`.
+- Wired into main.js: player dispatches to active engine, transport bar reflects playback state.
 
-**Deliverable**: User presses Play and hears their recorded gestures reproduced exactly, with grain positions, amplitudes, and timings matching the original performance.
+**Deliverable**: Recorded gestures reproduce exactly through the engine.
+
+---
+
+### Step 4.4b — Automation Architecture Refactoring [DONE]
+
+Refactored the automation system for production use with three architectural changes:
+
+**R1 — Master BPM (global, not per-instance)**:
+- Removed `bpm` field from `InstanceState` constructor and serialization.
+- Moved BPM slider and tap-tempo ownership from `ParameterPanel` to `main.js`. Added `getMasterBpm()` global function.
+- `ParameterPanel.getMusicalParams()` no longer returns `bpm`. `setFullState()` no longer writes BPM.
+- `ParameterPanel` keeps `_bpmGroup` DOM ref for dimming in `updateParamRelevance()` only; new `refreshQuantizedDisplays()` public method called from `main.js` when BPM changes.
+- `resolveParams()` in `main.js` reads BPM from the global slider. Voice `grainSizeQuantize` and `interOnsetQuantize` use the global BPM.
+- `SessionSerializer.serializeSession()` takes a `masterBpm` parameter, stores it at the root level of the session JSON. Startup/import restores BPM slider from session data (defaults to 120 for backward compatibility).
+
+**R2 — Per-tab Recorder & Player**:
+- Each `InstanceManager` entry now holds `{ state, engine, grainOverlay, buffer, recorder, player }`.
+- `createInstance()` creates a `Recorder` and `Player` per instance. Player `onDispatch` routes to its own engine via closure (not `getActive()`).
+- Player `onFrame`/`onComplete` callbacks have active-tab guards: only update transport when the player's instance is the active tab.
+- `switchTo()` stops recording on old tab. `removeInstance()` and `restoreFromSession()` handle recorder/player lifecycle.
+- Global `recorder`/`player` singletons removed from `main.js`. All references go through `instanceManager.getActive().recorder`/`.player`.
+- `recorderPointerMap` stays global (maps live pointers for the active tab).
+- `instanceManager.onPlayerFrame`/`onPlayerComplete` callbacks route player events to the transport bar.
+
+**R3 — Arm-to-Record**:
+- Added `'armed'` transport state to `TransportBar`. Record button arms recording; first pointer touch on waveform starts actual recording; clicking Record again while armed disarms (toggle).
+- `TransportBar._updateButtons()` handles `'armed'` case: `.armed` CSS class, stop enabled, play/loop disabled.
+- `style.css` adds armed visual: accent border, slow 1.5s pulse animation (visually distinct from recording's faster pulse).
+- Pointer `onStart` in `main.js` checks `transport.state === 'armed'` to trigger `recorder.startRecording()`.
+- Stop callback handles all states (armed, recording, playing).
+
+**Files**: `InstanceState.js`, `ParameterPanel.js`, `InstanceManager.js`, `TransportBar.js`, `SessionSerializer.js`, `style.css`, `main.js`
+
+**Deliverable**: Per-tab automation with arm-to-record and synchronized master BPM.
+
+---
+
+### Step 4.4c — Keyboard Shortcut 'R' for Record
+
+Add keyboard shortcut so pressing 'R' triggers the same behavior as clicking the record button (arm, disarm, or stop recording).
+
+**Tasks**:
+- Add a `keydown` listener on `document` in `main.js`.
+- Guard against firing when focus is in an `INPUT`, `TEXTAREA`, or `SELECT` element.
+- Call `transport.onRecord()` to reuse the existing arm/disarm/stop-recording logic.
+
+**Files**: `main.js`
+
+**Deliverable**: 'R' key toggles record arm/disarm/stop, identical to clicking the record button.
+
+---
+
+### Step 4.4d — Background Playback on Tab Switch
+
+Allow playback to continue in the background when the user switches tabs. Only recording stops on tab switch.
+
+**Tasks**:
+- Remove `current.player.stop()` from `InstanceManager.switchTo()` (keep `current.recorder.stopRecording()`).
+- In `main.js` tab `onSwitch`, check the target tab's player state: if playing, set transport to `'playing'`; if idle, set to `'idle'`. Don't reset the display if the target tab is playing.
+- Player already dispatches to its own engine via closure, so audio continues automatically in the background.
+- Player `onFrame`/`onComplete` already have active-tab guards, so transport only updates when viewing the playing tab.
+
+**Edge cases**: Tab switch while target is playing (transport catches up on next frame). Close a tab with background playback (`removeInstance()` stops the player). Stop button only affects the active tab's player.
+
+**Files**: `InstanceManager.js`, `main.js`
+
+**Deliverable**: Playback continues across tab switches. Transport reflects the active tab's playback state.
 
 ---
 
@@ -957,7 +1013,7 @@ Persist recordings for later use.
 | **Phase 1** | 1.1 – 1.10 | Single-voice granular sampler with waveform display, parameter controls, clean audio | COMPLETE |
 | **Phase 2** | 2.1 – 2.9 | Multi-touch support (10 voices), per-voice visuals, musical quantization, mobile polish | COMPLETE |
 | **Phase 3** | 3.1 – 3.9 | Multi-instance architecture with tab UI, arpeggiator, session persistence | COMPLETE |
-| **Phase 4** | 4.1 – 4.8 | Gesture recording, playback, overdub, ghost visualization, save/load | **IN PROGRESS** (4.1 done) |
+| **Phase 4** | 4.1 – 4.8 | Gesture recording, playback, overdub, ghost visualization, save/load | **IN PROGRESS** (4.1–4.4b done, 4.4c–4.4d next) |
 
 ---
 

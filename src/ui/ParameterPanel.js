@@ -145,22 +145,13 @@ export class ParameterPanel {
             );
         }
 
-        // --- Musical section (BPM, root note, scale, quantize toggles) ---
-        this._bpmSlider = document.getElementById('param-bpm');
-        this._bpmDisplay = document.getElementById('val-bpm');
-        this._tapTempoBtn = document.getElementById('tap-tempo');
+        // --- Musical section (root note, scale, quantize toggles) ---
+        // Note: BPM slider is owned by main.js (global master tempo), not ParameterPanel.
         this._rootNoteSelect = document.getElementById('param-root-note');
         this._scaleSelect = document.getElementById('param-scale');
         this._quantizeGrainSize = document.getElementById('quantize-grain-size');
         this._quantizeDensity = document.getElementById('quantize-density');
         this._quantizePitch = document.getElementById('quantize-pitch');
-
-        this._bpmSlider.addEventListener('input', () => {
-            this._bpmDisplay.textContent = this._bpmSlider.value;
-            this._refreshGrainSizeDisplay();
-            this._refreshDensityDisplay();
-            this.callbacks.onChange(this.getParams());
-        });
 
         this._rootNoteSelect.addEventListener('change', () => {
             this._redrawArpSvg();
@@ -274,37 +265,9 @@ export class ParameterPanel {
         this._densityMinRow   = this._ranges.density.minSlider.closest('.range-row');
         this._spreadMinRow    = this._ranges.spread.minSlider.closest('.range-row');
         // Param groups for musical controls
-        this._bpmGroup      = this._bpmSlider.closest('.param-group');
+        this._bpmGroup      = document.getElementById('param-bpm').closest('.param-group');
         this._rootNoteGroup = this._rootNoteSelect.closest('.param-group');
         this._scaleGroup    = this._scaleSelect.closest('.param-group');
-
-        // --- Tap tempo ---
-        this._tapTimes = [];
-        this._tapTempoBtn.addEventListener('click', () => {
-            const now = performance.now();
-            // Reset if too slow (> 2s since last tap)
-            if (this._tapTimes.length > 0 && now - this._tapTimes[this._tapTimes.length - 1] > 2000) {
-                this._tapTimes = [];
-            }
-            this._tapTimes.push(now);
-            // Keep only the last 4 taps
-            if (this._tapTimes.length > 4) this._tapTimes.shift();
-            if (this._tapTimes.length >= 2) {
-                // Average interval between taps
-                let sum = 0;
-                for (let i = 1; i < this._tapTimes.length; i++) {
-                    sum += this._tapTimes[i] - this._tapTimes[i - 1];
-                }
-                const avgMs = sum / (this._tapTimes.length - 1);
-                const bpm = Math.round(60000 / avgMs);
-                const clamped = Math.max(40, Math.min(300, bpm));
-                this._bpmSlider.value = clamped;
-                this._bpmDisplay.textContent = clamped;
-                this._refreshGrainSizeDisplay();
-                this._refreshDensityDisplay();
-                this.callbacks.onChange(this.getParams());
-            }
-        });
     }
 
     /** Show/hide arp controls based on randomize pitch toggle and arp mode. */
@@ -567,11 +530,11 @@ export class ParameterPanel {
 
     /**
      * Read current musical quantization settings.
-     * @returns {{ bpm: number, rootNote: number, scale: string, quantizeDensity: boolean, quantizePitch: boolean }}
+     * Note: BPM is not included — it is a global master tempo, read directly in main.js.
+     * @returns {{ rootNote: number, scale: string, quantizeDensity: boolean, quantizePitch: boolean }}
      */
     getMusicalParams() {
         return {
-            bpm: parseInt(this._bpmSlider.value, 10),
             rootNote: parseInt(this._rootNoteSelect.value, 10),
             scale: this._scaleSelect.value,
             quantizeGrainSize: this._quantizeGrainSize.checked,
@@ -631,9 +594,7 @@ export class ParameterPanel {
         // --- Envelope ---
         this._envelopeSelect.value = state.envelope;
 
-        // --- Musical params ---
-        this._bpmSlider.value = state.bpm;
-        this._bpmDisplay.textContent = state.bpm;
+        // --- Musical params (BPM is global, not restored per-instance) ---
         this._rootNoteSelect.value = state.rootNote;
         this._scaleSelect.value = state.scale;
 
@@ -718,7 +679,7 @@ export class ParameterPanel {
     _refreshDensityDisplay() {
         const r = this._ranges.density;
         if (this._quantizeDensity.checked) {
-            const bpm = parseInt(this._bpmSlider.value, 10);
+            const bpm = parseInt(document.getElementById('param-bpm').value, 10);
             const minSub = normalizedToSubdivision(1 - parseFloat(r.minSlider.value));
             const maxSub = normalizedToSubdivision(1 - parseFloat(r.maxSlider.value));
             const minMs = Math.round(getSubdivisionSeconds(bpm, minSub.divisor) * 1000);
@@ -738,7 +699,7 @@ export class ParameterPanel {
     _refreshGrainSizeDisplay() {
         const r = this._ranges.grainSize;
         if (this._quantizeGrainSize.checked) {
-            const bpm = parseInt(this._bpmSlider.value, 10);
+            const bpm = parseInt(document.getElementById('param-bpm').value, 10);
             const minSub = normalizedToSubdivision(1 - parseFloat(r.minSlider.value));
             const maxSub = normalizedToSubdivision(1 - parseFloat(r.maxSlider.value));
             const minMs = Math.round(getSubdivisionSeconds(bpm, minSub.divisor) * 1000);
@@ -881,6 +842,15 @@ export class ParameterPanel {
             || (m.randomPitch && arpPattern !== 'random');
         this._rootNoteGroup.classList.toggle('param-inactive', !noteActive);
         this._scaleGroup.classList.toggle('param-inactive', !noteActive);
+    }
+
+    /**
+     * Refresh quantized display labels (grain size + density) when master BPM changes.
+     * Called from main.js since BPM is a global control, not owned by ParameterPanel.
+     */
+    refreshQuantizedDisplays() {
+        this._refreshGrainSizeDisplay();
+        this._refreshDensityDisplay();
     }
 
     /** Notify canvas sub-widgets of a theme change. */

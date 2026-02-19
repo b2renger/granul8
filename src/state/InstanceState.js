@@ -29,7 +29,7 @@ export class InstanceState {
         };
 
         // --- Musical parameters (mirrors ParameterPanel.getMusicalParams()) ---
-        this.bpm = 120;
+        // Note: BPM is global (master tempo), not per-instance.
         this.rootNote = 0;
         this.scale = 'chromatic';
         this.quantizeGrainSize = false;

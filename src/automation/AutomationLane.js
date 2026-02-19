@@ -12,8 +12,10 @@
  * @property {number} [params.amplitude]
  * @property {number} [params.pitch]
  * @property {number} [params.grainSize]
+ * @property {number} [params.interOnset]
  * @property {number} [params.spread]
  * @property {number} [params.pan]
+ * @property {string} [params.envelope]
  */
 
 export class AutomationLane {

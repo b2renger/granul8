@@ -5,6 +5,8 @@
 import { GranularEngine } from '../audio/GranularEngine.js';
 import { GrainOverlay } from '../ui/GrainOverlay.js';
 import { InstanceState } from './InstanceState.js';
+import { Recorder } from '../automation/Recorder.js';
+import { Player } from '../automation/Player.js';
 
 export class InstanceManager {
     /**
@@ -17,7 +19,7 @@ export class InstanceManager {
         this.panel = panel;
         this.waveform = waveform;
 
-        /** @type {Map<string, { state: InstanceState, engine: GranularEngine, grainOverlay: GrainOverlay, buffer: AudioBuffer|null }>} */
+        /** @type {Map<string, { state: InstanceState, engine: GranularEngine, grainOverlay: GrainOverlay, buffer: AudioBuffer|null, recorder: Recorder, player: Player }>} */
         this.instances = new Map();
 
         /** @type {string|null} */
@@ -25,6 +27,12 @@ export class InstanceManager {
 
         /** Called when the tab list changes (add, remove, rename, switch). */
         this.onTabsChanged = null;
+
+        /** Called when the active instance's player reports a frame. */
+        this.onPlayerFrame = null;
+
+        /** Called when the active instance's player completes playback. */
+        this.onPlayerComplete = null;
 
         /** Instance counter for default naming. */
         this._counter = 0;
@@ -40,8 +48,32 @@ export class InstanceManager {
         const state = new InstanceState(name || `Sampler ${this._counter}`);
         const engine = new GranularEngine(this.masterBus.audioContext, this.masterBus.masterGain);
         const grainOverlay = new GrainOverlay();
+        const recorder = new Recorder(this.masterBus.audioContext);
+        const player = new Player(this.masterBus.audioContext);
 
-        this.instances.set(state.id, { state, engine, grainOverlay, buffer: null });
+        // Wire player to dispatch directly to this instance's engine
+        player.onDispatch = (type, syntheticId, eventParams) => {
+            switch (type) {
+                case 'start': engine.startVoice(syntheticId, eventParams); break;
+                case 'move':  engine.updateVoice(syntheticId, eventParams); break;
+                case 'stop':  engine.stopVoice(syntheticId); break;
+            }
+        };
+
+        // Wire frame/complete callbacks with active-tab guard
+        const instanceId = state.id;
+        player.onFrame = (elapsed, progress) => {
+            if (this.activeId === instanceId && this.onPlayerFrame) {
+                this.onPlayerFrame(elapsed, progress);
+            }
+        };
+        player.onComplete = () => {
+            if (this.activeId === instanceId && this.onPlayerComplete) {
+                this.onPlayerComplete();
+            }
+        };
+
+        this.instances.set(state.id, { state, engine, grainOverlay, buffer: null, recorder, player });
 
         // If this is the first instance, make it active
         if (this.instances.size === 1) {
@@ -63,7 +95,7 @@ export class InstanceManager {
         const target = this.instances.get(instanceId);
         if (!target) return;
 
-        // Save current instance's panel state
+        // Save current instance's panel state and stop automation
         if (this.activeId) {
             const current = this.instances.get(this.activeId);
             if (current) {
@@ -71,6 +103,10 @@ export class InstanceManager {
                 Object.assign(current.state, fullState);
                 // Disconnect grain visualization
                 current.engine.onGrain = null;
+                // Stop any active recording on the old tab (playback continues in background)
+                if (current.recorder.isRecording) {
+                    current.recorder.stopRecording();
+                }
             }
         }
 
@@ -113,7 +149,9 @@ export class InstanceManager {
             this.switchTo(nextId);
         }
 
-        // Stop voices and disconnect
+        // Stop automation, voices, and disconnect
+        if (entry.recorder.isRecording) entry.recorder.stopRecording();
+        if (entry.player.isPlaying) entry.player.stop();
         entry.engine.stopAllVoices();
         entry.engine.dispose();
         this.instances.delete(instanceId);
@@ -189,6 +227,8 @@ export class InstanceManager {
     async restoreFromSession(sessionData, onInstanceCreated) {
         // 1. Destroy all existing instances
         for (const [, entry] of this.instances) {
+            if (entry.recorder.isRecording) entry.recorder.stopRecording();
+            if (entry.player.isPlaying) entry.player.stop();
             entry.engine.stopAllVoices();
             entry.engine.dispose();
         }
@@ -203,8 +243,31 @@ export class InstanceManager {
                 this.masterBus.masterGain
             );
             const grainOverlay = new GrainOverlay();
+            const recorder = new Recorder(this.masterBus.audioContext);
+            const player = new Player(this.masterBus.audioContext);
 
-            this.instances.set(state.id, { state, engine, grainOverlay, buffer: null });
+            // Wire player dispatch to this instance's engine
+            player.onDispatch = (type, syntheticId, eventParams) => {
+                switch (type) {
+                    case 'start': engine.startVoice(syntheticId, eventParams); break;
+                    case 'move':  engine.updateVoice(syntheticId, eventParams); break;
+                    case 'stop':  engine.stopVoice(syntheticId); break;
+                }
+            };
+
+            const instanceId = state.id;
+            player.onFrame = (elapsed, progress) => {
+                if (this.activeId === instanceId && this.onPlayerFrame) {
+                    this.onPlayerFrame(elapsed, progress);
+                }
+            };
+            player.onComplete = () => {
+                if (this.activeId === instanceId && this.onPlayerComplete) {
+                    this.onPlayerComplete();
+                }
+            };
+
+            this.instances.set(state.id, { state, engine, grainOverlay, buffer: null, recorder, player });
         }
 
         // 3. Determine which tab to activate
