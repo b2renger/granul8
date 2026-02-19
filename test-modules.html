@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head><title>Module Test</title></head>
+<body>
+<pre id="log" style="font-size:14px;padding:20px;"></pre>
+<script type="module">
+const log = document.getElementById('log');
+function out(msg) { log.textContent += msg + '\n'; console.log(msg); }
+
+try {
+    out('1. Testing MasterBus import...');
+    const { MasterBus } = await import('./src/audio/MasterBus.js');
+    out('   OK: MasterBus loaded');
+
+    out('2. Testing InstanceState import...');
+    const { InstanceState } = await import('./src/state/InstanceState.js');
+    out('   OK: InstanceState loaded');
+
+    out('3. Testing InstanceManager import...');
+    const { InstanceManager } = await import('./src/state/InstanceManager.js');
+    out('   OK: InstanceManager loaded');
+
+    out('4. Testing TabBar import...');
+    const { TabBar } = await import('./src/ui/TabBar.js');
+    out('   OK: TabBar loaded');
+
+    out('5. Testing ParameterPanel import...');
+    const { ParameterPanel } = await import('./src/ui/ParameterPanel.js');
+    out('   OK: ParameterPanel loaded');
+
+    out('6. Creating MasterBus...');
+    const bus = new MasterBus();
+    out('   OK: MasterBus created, audioContext state: ' + bus.audioContext.state);
+
+    out('7. Creating InstanceState...');
+    const state = new InstanceState('Test');
+    out('   OK: InstanceState created, id: ' + state.id);
+
+    out('\nAll module imports and basic construction succeeded.');
+} catch (e) {
+    out('\nERROR: ' + e.message);
+    out('Stack: ' + e.stack);
+}
+</script>
+</body>
+</html>

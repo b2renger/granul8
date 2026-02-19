@@ -2,7 +2,8 @@
 
 import { GrainScheduler } from './GrainScheduler.js';
 import { createGrain } from './grainFactory.js';
-import { quantizePitch, rateToSemitones, semitonesToRate, quantizeDensity } from '../utils/musicalQuantizer.js';
+import { quantizePitch, rateToSemitones, semitonesToRate, normalizedToSubdivision, getSubdivisionSeconds } from '../utils/musicalQuantizer.js';
+import { expMap } from '../utils/math.js';
 
 export class Voice {
     /**
@@ -49,9 +50,16 @@ export class Voice {
 
         /**
          * Pitch quantization config for per-grain snapping (null = disabled).
-         * @type {{ scale: number[], rootNote: number }|null}
+         * When a noteTable is present, arpeggiator patterns are used.
+         * @type {{ scale: number[], rootNote: number, pattern?: string, noteTable?: number[] }|null}
          */
         this.pitchQuantize = null;
+
+        // Arpeggiator state (used when pitchQuantize.noteTable is present)
+        /** @type {number} Current index in the note table */
+        this.arpIndex = 0;
+        /** @type {1|-1} Direction for up-down pattern */
+        this.arpDirection = 1;
 
         // Grain scheduler
         this.scheduler = new GrainScheduler(
@@ -70,6 +78,8 @@ export class Voice {
      */
     start(params) {
         this.active = true;
+        this.arpIndex = 0;
+        this.arpDirection = 1;
         this.update(params);
 
         // Gain level is set externally by GranularEngine._updateVoiceGains()
@@ -95,11 +105,11 @@ export class Voice {
             this.params.interOnset = params.interOnset;
         }
 
-        // Density scheduling: jitter range takes priority over fixed interOnset
+        // Density scheduling: jitter range (normalized 0–1) takes priority over fixed interOnset
         if (params.interOnsetRange) {
             this.scheduler.setInterOnsetRange(
-                params.interOnsetRange[0] * 1000,
-                params.interOnsetRange[1] * 1000
+                params.interOnsetRange[0],
+                params.interOnsetRange[1]
             );
         } else if (params.interOnset !== undefined) {
             this.scheduler.setInterOnset(params.interOnset * 1000);
@@ -167,27 +177,69 @@ export class Voice {
         let duration = this.params.grainSize;
         let pitch = this.params.pitch;
 
-        // Per-grain randomization
+        // Per-grain grain size randomization (range is normalized 0–1)
         const rnd = this.randomize;
         if (rnd.grainSize) {
-            duration = rnd.grainSize[0] + Math.random() * (rnd.grainSize[1] - rnd.grainSize[0]);
+            const norm = rnd.grainSize[0] + Math.random() * (rnd.grainSize[1] - rnd.grainSize[0]);
+            if (this.grainSizeQuantize) {
+                // Quantized: map normalized value to BPM subdivision
+                const sub = normalizedToSubdivision(1 - norm);
+                duration = getSubdivisionSeconds(this.grainSizeQuantize.bpm, sub.divisor);
+            } else {
+                // Free: apply exponential mapping per grain
+                duration = expMap(norm, 0.001, 1.0);
+            }
         }
 
-        // Apply grain size quantization (snap to nearest BPM subdivision)
-        if (this.grainSizeQuantize) {
-            duration = quantizeDensity(duration, this.grainSizeQuantize.bpm).seconds;
-        }
+        // Per-grain pitch selection
+        if (this.pitchQuantize && this.pitchQuantize.noteTable) {
+            // Arpeggiator: pick from pre-computed note table using pattern
+            const table = this.pitchQuantize.noteTable;
+            const pattern = this.pitchQuantize.pattern || 'random';
+            let semitones;
 
-        if (rnd.pitch) {
-            // Random pitch in log space: ±2 octaves
-            pitch = Math.pow(2, rnd.pitch[0] + Math.random() * (rnd.pitch[1] - rnd.pitch[0]));
-        }
+            switch (pattern) {
+                case 'up':
+                    semitones = table[this.arpIndex % table.length];
+                    this.arpIndex++;
+                    break;
+                case 'down':
+                    semitones = table[table.length - 1 - (this.arpIndex % table.length)];
+                    this.arpIndex++;
+                    break;
+                case 'updown': {
+                    semitones = table[this.arpIndex];
+                    if (table.length > 1) {
+                        this.arpIndex += this.arpDirection;
+                        if (this.arpIndex >= table.length) {
+                            this.arpDirection = -1;
+                            this.arpIndex = table.length - 2;
+                        } else if (this.arpIndex < 0) {
+                            this.arpDirection = 1;
+                            this.arpIndex = 1;
+                        }
+                    }
+                    break;
+                }
+                default: // 'random'
+                    semitones = table[Math.floor(Math.random() * table.length)];
+                    break;
+            }
 
-        // Apply pitch quantization (snap to scale degree)
-        if (this.pitchQuantize) {
-            const semitones = rateToSemitones(pitch);
-            const snapped = quantizePitch(semitones, this.pitchQuantize.scale, this.pitchQuantize.rootNote);
-            pitch = semitonesToRate(snapped);
+            pitch = semitonesToRate(semitones);
+        } else {
+            // No note table: original behavior
+            if (rnd.pitch) {
+                // Random pitch in log space: ±2 octaves
+                pitch = Math.pow(2, rnd.pitch[0] + Math.random() * (rnd.pitch[1] - rnd.pitch[0]));
+            }
+
+            // Apply pitch quantization (snap to scale degree)
+            if (this.pitchQuantize) {
+                const semitones = rateToSemitones(pitch);
+                const snapped = quantizePitch(semitones, this.pitchQuantize.scale, this.pitchQuantize.rootNote);
+                pitch = semitonesToRate(snapped);
+            }
         }
 
         createGrain(

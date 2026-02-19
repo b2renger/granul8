@@ -113,6 +113,9 @@ export class ParameterPanel {
             this.callbacks.onChange(this.getParams());
         });
 
+        // Initialize ADSR widget if custom envelope is the default
+        this._updateADSRVisibility();
+
         // --- Gesture mapping selects ---
         this._mappingSelects = {};
         for (let i = 0; i < MAPPING_IDS.length; i++) {
@@ -185,9 +188,36 @@ export class ParameterPanel {
 
         for (const el of [this._randomGrainSize, this._randomDensity, this._randomPitch]) {
             el.addEventListener('change', () => {
+                this._updateArpVisibility();
                 this.callbacks.onChange(this.getParams());
             });
         }
+
+        // --- Arp pattern select (visible when randomize pitch is active) ---
+        this._arpPatternGroup = document.getElementById('arp-pattern-group');
+        this._arpPatternSelect = document.getElementById('param-arp-pattern');
+        this._arpPatternSelect.addEventListener('change', () => {
+            this.callbacks.onChange(this.getParams());
+        });
+
+        // --- Pitch range slider (visible when randomize pitch is active) ---
+        this._pitchRangeGroup = document.getElementById('pitch-range-group');
+        this._pitchRangeSlider = document.getElementById('param-pitch-range');
+        this._pitchRangeDisplay = document.getElementById('val-pitch-range');
+        this._pitchRangeSlider.addEventListener('input', () => {
+            this._pitchRangeDisplay.textContent = `\u00B1${this._pitchRangeSlider.value} oct`;
+            this.callbacks.onChange(this.getParams());
+        });
+
+        // --- DOM references for param-relevance dimming ---
+        // Min range rows (dimmed when no randomization or gesture targets the param)
+        this._grainSizeMinRow = this._ranges.grainSize.minSlider.closest('.range-row');
+        this._densityMinRow   = this._ranges.density.minSlider.closest('.range-row');
+        this._spreadMinRow    = this._ranges.spread.minSlider.closest('.range-row');
+        // Param groups for musical controls
+        this._bpmGroup      = this._bpmSlider.closest('.param-group');
+        this._rootNoteGroup = this._rootNoteSelect.closest('.param-group');
+        this._scaleGroup    = this._scaleSelect.closest('.param-group');
 
         // --- Tap tempo ---
         this._tapTimes = [];
@@ -216,6 +246,17 @@ export class ParameterPanel {
                 this.callbacks.onChange(this.getParams());
             }
         });
+    }
+
+    /** Show/hide arp pattern + pitch range controls based on randomize pitch toggle. */
+    _updateArpVisibility() {
+        const show = this._randomPitch.checked;
+        if (this._arpPatternGroup) {
+            this._arpPatternGroup.style.display = show ? '' : 'none';
+        }
+        if (this._pitchRangeGroup) {
+            this._pitchRangeGroup.style.display = show ? '' : 'none';
+        }
     }
 
     /** Show/hide the ADSR canvas editor based on envelope selection. */
@@ -268,7 +309,93 @@ export class ParameterPanel {
             randomGrainSize: this._randomGrainSize.checked,
             randomDensity: this._randomDensity.checked,
             randomPitch: this._randomPitch.checked,
+            arpPattern: this._arpPatternSelect.value,
+            pitchRange: parseInt(this._pitchRangeSlider.value, 10),
         };
+    }
+
+    /**
+     * Return a complete state snapshot of all panel controls.
+     * Used by InstanceManager to save state before switching tabs.
+     * @returns {Object}
+     */
+    getFullState() {
+        const p = this.getParams();
+        const m = this.getMusicalParams();
+        const adsr = this._adsrWidget ? this._adsrWidget.getState() : { a: 0.2, d: 0.15, s: 0.7, r: 0.2 };
+        return {
+            ...p,
+            ...m,
+            volume: parseFloat(this._sliders['param-volume'].slider.value),
+            adsr,
+        };
+    }
+
+    /**
+     * Restore all panel controls from a state snapshot.
+     * Does NOT fire onChange/onVolumeChange callbacks — the caller handles side effects.
+     * @param {Object} state
+     */
+    setFullState(state) {
+        // --- Range sliders ---
+        this._ranges.grainSize.minSlider.value = state.grainSizeMin;
+        this._ranges.grainSize.maxSlider.value = state.grainSizeMax;
+        this._ranges.density.minSlider.value = state.densityMin;
+        this._ranges.density.maxSlider.value = state.densityMax;
+        this._ranges.spread.minSlider.value = state.spreadMin;
+        this._ranges.spread.maxSlider.value = state.spreadMax;
+
+        // --- Simple sliders ---
+        this._sliders['param-pan'].slider.value = state.pan;
+        this._sliders['param-pan'].display.textContent = parseFloat(state.pan).toFixed(2);
+        this._sliders['param-volume'].slider.value = state.volume;
+        this._sliders['param-volume'].display.textContent = parseFloat(state.volume).toFixed(2);
+
+        // --- Envelope ---
+        this._envelopeSelect.value = state.envelope;
+
+        // --- Musical params ---
+        this._bpmSlider.value = state.bpm;
+        this._bpmDisplay.textContent = state.bpm;
+        this._rootNoteSelect.value = state.rootNote;
+        this._scaleSelect.value = state.scale;
+
+        // --- Quantize toggles ---
+        this._quantizeGrainSize.checked = state.quantizeGrainSize;
+        this._quantizeDensity.checked = state.quantizeDensity;
+        this._quantizePitch.checked = state.quantizePitch;
+
+        // --- Randomize toggles ---
+        this._randomGrainSize.checked = state.randomGrainSize;
+        this._randomDensity.checked = state.randomDensity;
+        this._randomPitch.checked = state.randomPitch;
+
+        // --- Arp + pitch range ---
+        this._arpPatternSelect.value = state.arpPattern;
+        this._pitchRangeSlider.value = state.pitchRange;
+        this._pitchRangeDisplay.textContent = `\u00B1${state.pitchRange} oct`;
+
+        // --- Gesture mappings ---
+        if (state.mappings) {
+            this._mappingSelects.pressure.value = state.mappings.pressure;
+            this._mappingSelects.contactSize.value = state.mappings.contactSize;
+            this._mappingSelects.velocity.value = state.mappings.velocity;
+        }
+
+        // --- Update visibility states (must happen before ADSR restore
+        //     so the widget is created if switching to custom envelope) ---
+        this._updateADSRVisibility();
+        this._updateArpVisibility();
+
+        // --- ADSR widget ---
+        if (state.adsr && this._adsrWidget) {
+            this._adsrWidget.setState(state.adsr);
+        }
+
+        // --- Refresh all display labels ---
+        this._updateRangeDisplay('grainSize');
+        this._updateRangeDisplay('density');
+        this._updateRangeDisplay('spread');
     }
 
     /**
@@ -297,8 +424,8 @@ export class ParameterPanel {
         const r = this._ranges.density;
         if (this._quantizeDensity.checked) {
             const bpm = parseInt(this._bpmSlider.value, 10);
-            const minSub = normalizedToSubdivision(parseFloat(r.minSlider.value));
-            const maxSub = normalizedToSubdivision(parseFloat(r.maxSlider.value));
+            const minSub = normalizedToSubdivision(1 - parseFloat(r.minSlider.value));
+            const maxSub = normalizedToSubdivision(1 - parseFloat(r.maxSlider.value));
             const minMs = Math.round(getSubdivisionSeconds(bpm, minSub.divisor) * 1000);
             const maxMs = Math.round(getSubdivisionSeconds(bpm, maxSub.divisor) * 1000);
             r.minDisplay.textContent = `${minSub.label} (${minMs}ms)`;
@@ -317,8 +444,8 @@ export class ParameterPanel {
         const r = this._ranges.grainSize;
         if (this._quantizeGrainSize.checked) {
             const bpm = parseInt(this._bpmSlider.value, 10);
-            const minSub = normalizedToSubdivision(parseFloat(r.minSlider.value));
-            const maxSub = normalizedToSubdivision(parseFloat(r.maxSlider.value));
+            const minSub = normalizedToSubdivision(1 - parseFloat(r.minSlider.value));
+            const maxSub = normalizedToSubdivision(1 - parseFloat(r.maxSlider.value));
             const minMs = Math.round(getSubdivisionSeconds(bpm, minSub.divisor) * 1000);
             const maxMs = Math.round(getSubdivisionSeconds(bpm, maxSub.divisor) * 1000);
             r.minDisplay.textContent = `${minSub.label} (${minMs}ms)`;
@@ -426,6 +553,39 @@ export class ParameterPanel {
             bar.style.width = `${barWidth}px`;
             bar.style.top = `${topPx - 3}px`;
         }
+    }
+
+    /**
+     * Evaluate which controls are relevant given the current mode and toggle
+     * CSS dimming classes accordingly. Call from the render loop or on change.
+     */
+    updateParamRelevance() {
+        const m = this.getMusicalParams();
+        const mappings = this.getParams().mappings;
+
+        /** True if any gesture dimension is mapped to the given target. */
+        const hasMapping = (target) =>
+            Object.values(mappings).some(t => t === target);
+
+        // --- Min range rows: active when randomized OR gesture-mapped ---
+        const gsMinActive  = m.randomGrainSize || hasMapping('grainSize');
+        const denMinActive = m.randomDensity   || hasMapping('density');
+        const sprMinActive = hasMapping('spread');
+
+        this._grainSizeMinRow.classList.toggle('range-row-inactive', !gsMinActive);
+        this._densityMinRow.classList.toggle('range-row-inactive', !denMinActive);
+        this._spreadMinRow.classList.toggle('range-row-inactive', !sprMinActive);
+
+        // --- BPM + Tap Tempo: active when any quantize toggle is checked ---
+        const bpmActive = m.quantizeGrainSize || m.quantizeDensity || m.quantizePitch;
+        this._bpmGroup.classList.toggle('param-inactive', !bpmActive);
+
+        // --- Root Note & Scale: active when quantize pitch, or arp pattern ≠ random ---
+        const arpPattern = m.arpPattern || 'random';
+        const noteActive = m.quantizePitch
+            || (m.randomPitch && arpPattern !== 'random');
+        this._rootNoteGroup.classList.toggle('param-inactive', !noteActive);
+        this._scaleGroup.classList.toggle('param-inactive', !noteActive);
     }
 
     /** Notify canvas sub-widgets of a theme change. */

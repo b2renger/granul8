@@ -1,45 +1,27 @@
-// GranularEngine.js — Top-level: AudioContext, master bus, limiter, voice pool
+// GranularEngine.js — Per-instance audio subgraph: voice pool + instance gain.
+// Connects to an external destination (typically MasterBus.masterGain).
 
 import { VoiceAllocator } from '../input/VoiceAllocator.js';
 
 export class GranularEngine {
-    constructor() {
+    /**
+     * @param {AudioContext} audioContext - Shared AudioContext from MasterBus
+     * @param {AudioNode} destination - Where to connect instanceGain (e.g. masterBus.masterGain)
+     */
+    constructor(audioContext, destination) {
         /** @type {AudioContext} */
-        this.audioContext = new AudioContext();
+        this.audioContext = audioContext;
 
         /** @type {AudioBuffer|null} */
         this.sourceBuffer = null;
 
-        // --- Signal chain ---
-        // voices → masterGain → limiter → softClipper → analyser → destination
+        // Per-instance gain node (volume + anti-clip scaling)
+        this.instanceGain = audioContext.createGain();
+        this.instanceGain.gain.value = 1.0;
+        this.instanceGain.connect(destination);
 
-        this.masterGain = this.audioContext.createGain();
-        this.masterGain.gain.value = 0.7;
-
-        // Anti-clipping Layer 3: Brickwall limiter (DynamicsCompressor)
-        this.limiter = this.audioContext.createDynamicsCompressor();
-        this.limiter.threshold.setValueAtTime(-3, this.audioContext.currentTime);
-        this.limiter.knee.setValueAtTime(0, this.audioContext.currentTime);
-        this.limiter.ratio.setValueAtTime(20, this.audioContext.currentTime);
-        this.limiter.attack.setValueAtTime(0.001, this.audioContext.currentTime);
-        this.limiter.release.setValueAtTime(0.05, this.audioContext.currentTime);
-
-        // Anti-clipping Layer 4: Soft clipper (tanh waveshaper)
-        // Gentle saturation that prevents harsh digital clipping artifacts.
-        this.softClipper = this._createSoftClipper();
-
-        // Analyser for visualization (level meter, FFT)
-        this.analyser = this.audioContext.createAnalyser();
-        this.analyser.fftSize = 2048;
-
-        // Connect chain
-        this.masterGain.connect(this.limiter);
-        this.limiter.connect(this.softClipper);
-        this.softClipper.connect(this.analyser);
-        this.analyser.connect(this.audioContext.destination);
-
-        // --- Voice pool (6 voices, mapped by pointer ID) ---
-        this._allocator = new VoiceAllocator(this.audioContext, this.masterGain);
+        // Voice pool (10 voices, mapped by pointer ID)
+        this._allocator = new VoiceAllocator(audioContext, this.instanceGain);
 
         // Grain event callback (forwarded from all voices, for visualization)
         /** @type {((info: {voiceId: number, position: number, duration: number, amplitude: number, when: number}) => void)|null} */
@@ -53,7 +35,6 @@ export class GranularEngine {
     /**
      * Anti-clipping Layer 2: recalculate per-voice gain based on active voice count.
      * Each voice gets 1/sqrt(N) to compensate for RMS summing of uncorrelated voices.
-     * Conservative base level of 0.4 is applied on top.
      * @private
      */
     _updateVoiceGains() {
@@ -64,7 +45,7 @@ export class GranularEngine {
     }
 
     /**
-     * Load a sample from a URL (e.g. the bundled demo sample).
+     * Load a sample from a URL.
      * @param {string} url
      * @returns {Promise<AudioBuffer>}
      */
@@ -90,28 +71,23 @@ export class GranularEngine {
      * @returns {Promise<AudioBuffer>}
      */
     async _decodeAndStore(arrayBuffer) {
-        // Stop all active voices before replacing the buffer
         this._allocator.releaseAll();
-
         const buffer = await this.audioContext.decodeAudioData(arrayBuffer);
         this.sourceBuffer = buffer;
         this._allocator.setBuffer(buffer);
-
         return buffer;
     }
 
     /**
      * Start a voice for the given pointer ID.
      * @param {number} pointerId
-     * @param {Object} params - { position, amplitude, grainSize, interOnset, pitch, spread, pan, envelope }
+     * @param {Object} params
      * @returns {number|undefined} The voice slot id, or undefined if allocation failed.
      */
     startVoice(pointerId, params) {
         if (!this.sourceBuffer) return undefined;
-
         const voice = this._allocator.allocate(pointerId);
         if (!voice) return undefined;
-
         voice.start(params);
         this._updateVoiceGains();
         return voice.id;
@@ -120,7 +96,7 @@ export class GranularEngine {
     /**
      * Update the voice mapped to the given pointer ID.
      * @param {number} pointerId
-     * @param {Object} params - Partial params to merge
+     * @param {Object} params
      */
     updateVoice(pointerId, params) {
         const voice = this._allocator.getVoice(pointerId);
@@ -130,8 +106,8 @@ export class GranularEngine {
     }
 
     /**
-     * Update all active voices (e.g. when a global parameter like envelope changes).
-     * @param {Object} params - Partial params to merge
+     * Update all active voices.
+     * @param {Object} params
      */
     updateAllVoices(params) {
         for (const voice of this._allocator.voices) {
@@ -149,54 +125,18 @@ export class GranularEngine {
     }
 
     /**
-     * Resume the AudioContext (required after user gesture on iOS/Safari).
+     * Stop all active voices.
      */
-    async resume() {
-        if (this.audioContext.state === 'suspended') {
-            await this.audioContext.resume();
-        }
+    stopAllVoices() {
+        this._allocator.releaseAll();
+        this._updateVoiceGains();
     }
 
     /**
-     * Set master volume (0–1).
-     * @param {number} value
-     */
-    setMasterVolume(value) {
-        this.masterGain.gain.linearRampToValueAtTime(
-            value,
-            this.audioContext.currentTime + 0.02
-        );
-    }
-
-    /**
-     * Create a WaveShaperNode with a tanh transfer curve for soft clipping.
-     * This gently saturates signals that exceed ~±0.8, preventing harsh
-     * digital clipping while adding minimal coloration.
-     * @returns {WaveShaperNode}
-     * @private
-     */
-    _createSoftClipper() {
-        const shaper = this.audioContext.createWaveShaper();
-        const numSamples = 8192;
-        const curve = new Float32Array(numSamples);
-
-        for (let i = 0; i < numSamples; i++) {
-            // Map i from [0, numSamples-1] to [-1, 1]
-            const x = (2 * i / (numSamples - 1)) - 1;
-            // tanh provides smooth saturation: linear near 0, compresses toward ±1
-            curve[i] = Math.tanh(x);
-        }
-
-        shaper.curve = curve;
-        shaper.oversample = '2x'; // Reduce aliasing from the nonlinear transfer
-        return shaper;
-    }
-
-    /**
-     * Clean up all resources.
+     * Clean up: disconnect instance gain, dispose allocator.
      */
     dispose() {
         this._allocator.dispose();
-        this.audioContext.close();
+        this.instanceGain.disconnect();
     }
 }

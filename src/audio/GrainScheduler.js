@@ -1,6 +1,7 @@
 // GrainScheduler.js — Look-ahead timer that spawns grains on schedule
 
-import { quantizeDensity } from '../utils/musicalQuantizer.js';
+import { normalizedToSubdivision, getSubdivisionSeconds } from '../utils/musicalQuantizer.js';
+import { expMap } from '../utils/math.js';
 
 export class GrainScheduler {
     /**
@@ -20,7 +21,7 @@ export class GrainScheduler {
         /** Inter-onset time between grains (seconds) */
         this.interOnset = 0.030;
 
-        /** Random inter-onset range [min, max] in seconds, or null for fixed. */
+        /** Random inter-onset range [min, max] in normalized 0–1 space, or null for fixed. */
         this.interOnsetRange = null;
 
         /** BPM for per-grain inter-onset quantization, or null for continuous. */
@@ -67,12 +68,13 @@ export class GrainScheduler {
 
     /**
      * Set a random inter-onset range for per-grain jitter.
-     * Each grain picks a random value between min and max.
-     * @param {number} minMs - Minimum inter-onset in milliseconds
-     * @param {number} maxMs - Maximum inter-onset in milliseconds
+     * Values are in normalized slider space (0–1); the actual mapping
+     * (expMap or subdivision lookup) is applied per grain in _tick().
+     * @param {number} min - Normalized minimum (0–1)
+     * @param {number} max - Normalized maximum (0–1)
      */
-    setInterOnsetRange(minMs, maxMs) {
-        this.interOnsetRange = [minMs / 1000, maxMs / 1000];
+    setInterOnsetRange(min, max) {
+        this.interOnsetRange = [min, max];
     }
 
     /**
@@ -86,14 +88,24 @@ export class GrainScheduler {
 
         while (this.nextGrainTime < deadline) {
             this.onScheduleGrain(this.nextGrainTime);
-            // Use random jitter range if set, otherwise fixed interOnset
-            let iot = this.interOnsetRange
-                ? this.interOnsetRange[0] + Math.random() * (this.interOnsetRange[1] - this.interOnsetRange[0])
-                : this.interOnset;
-            // Snap to nearest BPM subdivision when quantization is active
-            if (this.quantizeBpm !== null && this.interOnsetRange) {
-                iot = quantizeDensity(iot, this.quantizeBpm).seconds;
+
+            let iot;
+            if (this.interOnsetRange) {
+                // Random jitter: pick in normalized space, then map per grain
+                const norm = this.interOnsetRange[0]
+                    + Math.random() * (this.interOnsetRange[1] - this.interOnsetRange[0]);
+                if (this.quantizeBpm !== null) {
+                    // Quantized: map to BPM subdivision (1-norm for correct direction)
+                    const sub = normalizedToSubdivision(1 - norm);
+                    iot = getSubdivisionSeconds(this.quantizeBpm, sub.divisor);
+                } else {
+                    // Free: exponential mapping for perceptually uniform distribution
+                    iot = expMap(norm, 0.005, 0.5);
+                }
+            } else {
+                iot = this.interOnset;
             }
+
             this.nextGrainTime += iot;
         }
 

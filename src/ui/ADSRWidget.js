@@ -245,6 +245,24 @@ export class ADSRWidget {
         ctx.fillText(`S:${this.s.toFixed(2)}`, sP.x + 8 * dpr, sP.y - 2 * dpr);
     }
 
+    /** Return the current ADSR state as a plain object. */
+    getState() {
+        return { a: this.a, d: this.d, s: this.s, r: this.r };
+    }
+
+    /**
+     * Restore ADSR state from a plain object. Updates global and redraws.
+     * @param {{ a: number, d: number, s: number, r: number }} state
+     */
+    setState(state) {
+        this.a = state.a;
+        this.d = state.d;
+        this.s = state.s;
+        this.r = state.r;
+        setCustomADSR(this.a, this.d, this.s, this.r);
+        this._draw();
+    }
+
     dispose() {
         this._resizeObserver.disconnect();
         this.canvas.removeEventListener('pointerdown', this._onPointerDown);

@@ -208,7 +208,7 @@ Final Phase 1 pass: test everything together, fix edge cases, polish the experie
 
 ---
 
-## Phase 2 — Multi-Touch & Voice Management
+## Phase 2 — Multi-Touch & Voice Management [COMPLETE]
 
 **Goal**: Support multiple simultaneous touch points, each controlling an independent grain voice. Polish the mobile/tablet experience. Make the instrument feel expressive and alive.
 
@@ -385,7 +385,7 @@ Randomization runs at the engine level (per-grain), not in `resolveParams()` (pe
 
 **UI layout:**
 
-- Collapsible `<details>` section titled "Musical" between "Sound Engine" and "Gesture Mapping".
+- Collapsible `<details>` section titled "Rhythm and Harmony" before "Sound Engine" and "Gesture Mapping".
 - Contents: BPM slider + tap-tempo button, Root Note dropdown, Scale dropdown.
 - Quantize toggles row: three checkboxes for Grain Size, Density, Pitch.
 - Randomize toggles row: three checkboxes for Grain Size, Density, Pitch.
@@ -404,7 +404,350 @@ Randomization runs at the engine level (per-grain), not in `resolveParams()` (pe
 
 ---
 
-## Phase 3 — Gesture Recording & Automation Playback
+### Step 2.8 — Fix Quantized Slider Directions, Arpeggiator Patterns & Randomization Distribution
+
+Three issues to address in the quantization/randomization system before moving to Phase 3.
+
+#### 2.8a — Fix reversed slider direction in quantized mode
+
+**Problem:** The slider direction flips when switching between free and quantized modes, which is disorienting.
+
+- **Grain size free mode:** `expMap(0, 0.001, 1.0)` = 1ms (short) → `expMap(1, 0.001, 1.0)` = 1000ms (long). Slider: **left = short, right = long**.
+- **Grain size quantized mode:** `normalizedToSubdivision(0)` → 1/1 = 2000ms (long) → `normalizedToSubdivision(1)` → 1/32 = 62.5ms (short). Slider: **left = long, right = short**. **Reversed!**
+- **Density free mode:** `expMap(0, 0.005, 0.5)` = 5ms (dense) → `expMap(1, 0.005, 0.5)` = 500ms (sparse). Slider: **left = dense, right = sparse**.
+- **Density quantized mode:** `normalizedToSubdivision(0)` → 1/1 = 2000ms (sparse) → `normalizedToSubdivision(1)` → 1/32 = 62.5ms (dense). Slider: **left = sparse, right = dense**. **Reversed!**
+
+**Fix:** Invert the normalized value before the subdivision lookup when used for grain size and density: use `normalizedToSubdivision(1 - norm)` instead of `normalizedToSubdivision(norm)`. This way slider-left stays "small/fast" and slider-right stays "large/slow", matching the free mode direction.
+
+**Files to modify:**
+- `src/main.js` — `resolveParams()`: all `normalizedToSubdivision()` calls for grain size and density (both the direct snap and the min/max bounds for randomization)
+- `src/ui/ParameterPanel.js` — `_refreshGrainSizeDisplay()` and `_refreshDensityDisplay()`: invert when computing subdivision labels
+
+#### 2.8b — Arpeggiator patterns for pitch randomization
+
+**Concept:** When pitch randomization is active with quantization, instead of pure random scale-degree selection, offer pattern modes that cycle through notes musically:
+
+**Pattern modes:**
+| Pattern | Behavior |
+|---------|----------|
+| Random | Current behavior — each grain picks a random scale degree in range |
+| Up | Ascend through scale degrees in range, wrap to bottom when reaching top |
+| Down | Descend through scale degrees, wrap to top when reaching bottom |
+| Up-Down | Ping-pong — ascend then descend, reversing at boundaries |
+
+**Implementation:**
+
+1. **Pre-compute the note table:** Given a scale, root note, and ±2 octave range, enumerate all valid MIDI-like semitone values. For example, C minor pentatonic over ±2 octaves = ~20 discrete pitches. Store as a sorted array of semitone values.
+
+2. **Arpeggiator state per voice (`Voice.js`):**
+   - `arpIndex`: current position in the note table (integer)
+   - `arpDirection`: +1 (ascending) or −1 (descending), used for up-down mode
+   - Reset `arpIndex` to 0 (or nearest note to current pitch) on voice start
+   - Advance `arpIndex` per grain in `_onScheduleGrain()`
+
+3. **Pattern logic in `_onScheduleGrain()`:**
+   - **Random:** pick `noteTable[Math.floor(Math.random() * noteTable.length)]` (current behavior, but now from pre-computed table instead of continuous random + snap)
+   - **Up:** `pitch = noteTable[arpIndex % noteTable.length]; arpIndex++`
+   - **Down:** `pitch = noteTable[noteTable.length - 1 - (arpIndex % noteTable.length)]; arpIndex++`
+   - **Up-Down:** advance `arpIndex` by `arpDirection`; reverse direction at boundaries
+
+4. **UI:** Add a `<select>` dropdown for arp pattern (Random / Up / Down / Up-Down) in the Musical section, visible when "Randomize Pitch" is checked. Alternatively, always visible next to the pitch randomize toggle.
+
+5. **Config flow:** `resolveParams()` passes `pitchQuantize.pattern` and `pitchQuantize.noteTable` (pre-computed). Voice stores the arp state and steps through the table per grain.
+
+**Files to modify:**
+- `src/utils/musicalQuantizer.js` — add `buildNoteTable(scale, rootNote, minSemitones, maxSemitones)` → sorted array of valid semitone values
+- `src/audio/Voice.js` — arpeggiator state (`arpIndex`, `arpDirection`), pattern logic in `_onScheduleGrain()`
+- `src/main.js` — `resolveParams()` passes pattern mode + note table
+- `src/ui/ParameterPanel.js` — new `<select>` for arp pattern, exposed in `getMusicalParams()`
+- `index.html` — arp pattern dropdown element
+- `style.css` — optional styling for conditional visibility
+
+#### 2.8c — Review randomization distribution for grain size and density
+
+**Problem:** Randomization picks uniformly in **linear seconds** space, but the parameter mappings are exponential (`expMap`). This creates a perceptual bias: longer durations (which span larger absolute ranges) are overrepresented, while short durations (where the perceptual detail lives) are underrepresented.
+
+Example at a grain size range of 10ms–500ms:
+- A uniform random in [0.01, 0.5] seconds lands in [250ms, 500ms] **half the time** — that's only the top 50% of the value range but only the last octave of a ~5.6 octave span.
+- The bottom octave (10ms–20ms) only has a 2% chance of being picked.
+
+**Same issue for density:** `interOnsetRange` is in linear seconds, so sparse values (long inter-onset) dominate.
+
+**When quantized + randomized:** Even worse — the quantization snap makes subdivision selection uneven because subdivisions are spaced exponentially (each doubles in rate), but the random input is linear. Subdivisions near the "long" end of the range attract more random hits.
+
+**Fix — randomize in normalized space, apply mapping per grain:**
+
+Instead of pre-computing min/max in engine units and randomizing between them, pass the normalized slider range to the engine and apply `expMap` (or subdivision lookup) per grain:
+
+1. `resolveParams()` passes `randomize.grainSize = [normMin, normMax]` (normalized 0–1) instead of `[expMap(min), expMap(max)]`.
+2. `Voice._onScheduleGrain()` picks `norm = lerp(normMin, normMax, Math.random())`, then applies `duration = expMap(norm, 0.001, 1.0)`. This gives perceptually uniform distribution across the slider range.
+3. Same for density: `interOnsetRange` passes normalized values; `GrainScheduler._tick()` applies `expMap(norm, 0.005, 0.5)` per grain.
+4. **For quantized + randomized:** pick a random normalized value in `[normMin, normMax]`, then call `normalizedToSubdivision(1 - norm)` → `getSubdivisionSeconds(bpm, divisor)`. Since subdivisions are evenly spaced in normalized slider space (linearly indexed), each subdivision has an equal probability of being selected. This is musically fair.
+
+**Alternative (simpler, for quantized only):** Enumerate all valid subdivisions between min and max indices, pick uniformly from the list. This guarantees exactly equal probability per subdivision regardless of their duration ratio.
+
+**Files to modify:**
+- `src/main.js` — `resolveParams()`: pass normalized ranges instead of engine-unit ranges
+- `src/audio/Voice.js` — `_onScheduleGrain()`: apply expMap or subdivision lookup per grain
+- `src/audio/GrainScheduler.js` — `_tick()`: apply expMap or subdivision lookup per grain for density
+- `src/utils/math.js` — may need to export `expMap` for use in Voice/Scheduler (already exported)
+
+**Deliverable:** Slider directions are consistent between free and quantized modes. Pitch randomization supports musical arpeggiator patterns (up, down, up-down, random). Grain size and density randomization use perceptually uniform distribution that treats each region of the slider equally.
+
+---
+
+### Step 2.9 — Context-Aware Parameter Relevance (Dim/Disable Inactive Controls)
+
+**Goal:** Make the UI self-documenting by visually indicating which controls actually affect the current audio output. When a parameter has no effect given the current mode configuration, dim or disable it so the user immediately understands what matters and what doesn't.
+
+**Problem:** The panel currently shows all parameters at full visibility regardless of mode. A user can spend time adjusting a slider that does nothing in the active configuration. Examples:
+
+- Min sliders for grain size, density, and spread do nothing unless a gesture dimension is mapped to that parameter or randomization is active — without those, only the Max value is used.
+- BPM slider has no effect unless at least one of the three quantize toggles is checked.
+- Root Note and Scale dropdowns have no audible effect unless Quantize Pitch is on (or an arp pattern other than Random is selected with Randomize Pitch).
+- The Arp Pattern and Pitch Range controls only matter when Randomize Pitch is on (already handled via visibility toggle).
+- Gesture mapping dropdowns for Pressure and Contact Size show "not detected" badges, which is sufficient — they stay always visible and interactive.
+
+**Approach — CSS class `param-inactive` toggled by JS:**
+
+Each control group (`<div class="param-group">`) gets a CSS class `param-inactive` when its contents have no effect. The class applies:
+- `opacity: 0.35` on the group (dims labels, sliders, values)
+- `pointer-events: none` on inputs (prevents interaction)
+- A subtle transition (`opacity 0.2s`) for smooth visual feedback
+
+A method `ParameterPanel.updateParamRelevance(musicalParams)` (called each frame from the render loop, or on change events) evaluates the current configuration and toggles the class.
+
+**Rules for each control:**
+
+| Control | Active when... |
+|---------|---------------|
+| Grain Size **Min** slider | Randomize Grain Size is on, OR a gesture dimension is mapped to `grainSize` |
+| Density **Min** slider | Randomize Density is on, OR a gesture dimension is mapped to `density` |
+| Spread **Min** slider | A gesture dimension is mapped to `spread` |
+| BPM slider + Tap Tempo | At least one Quantize toggle is checked (grain size, density, or pitch) |
+| Root Note dropdown | Quantize Pitch is on, OR Randomize Pitch is on with arp pattern ≠ Random |
+| Scale dropdown | Same as Root Note |
+| Quantize Grain Size toggle | Always active (it's a mode switch) |
+| Quantize Density toggle | Always active |
+| Quantize Pitch toggle | Always active |
+| Randomize toggles | Always active |
+| Arp Pattern | Randomize Pitch is on (already visibility-toggled) |
+| Pitch Range | Randomize Pitch is on (already visibility-toggled) |
+| Pressure mapping | Always visible (badge shows detection status) |
+| Contact Size mapping | Always visible (badge shows detection status) |
+| Velocity mapping | Always active |
+
+**Implementation outline:**
+
+1. **CSS**: Add `.param-inactive` and `.range-row-inactive` styles:
+   ```css
+   .param-inactive {
+       opacity: 0.35;
+       pointer-events: none;
+       transition: opacity 0.2s;
+   }
+   .range-row-inactive {
+       opacity: 0.35;
+       pointer-events: none;
+       transition: opacity 0.2s;
+   }
+   ```
+   Use `.range-row-inactive` for individual min rows within a range-group (dimming just the min row, not the whole group).
+
+2. **ParameterPanel.js**: Add `updateParamRelevance(musicalParams, gestureCapabilities)` method:
+   - Receives current musical params and device capability flags.
+   - For each control, evaluates the rule above and toggles the CSS class.
+   - For min sliders specifically: check if any gesture mapping targets that parameter OR if the corresponding randomize toggle is on. If neither, add `range-row-inactive` to the min row.
+
+3. **main.js render loop**: Call `params.updateParamRelevance(params.getMusicalParams(), pointer.capabilities)` each frame (lightweight — just class toggling, no DOM layout changes).
+
+**Edge cases:**
+- When a control transitions from inactive → active (e.g., user checks Quantize Density), the BPM slider smoothly fades in. Any value previously set remains — we don't reset dimmed controls.
+- `pointer-events: none` prevents accidental changes to dimmed controls but doesn't affect programmatic updates.
+- On mobile, dimmed controls shouldn't interfere with touch events on adjacent active controls (the `pointer-events: none` handles this).
+
+**Files to modify:**
+- `style.css` — `.param-inactive`, `.range-row-inactive` rules
+- `src/ui/ParameterPanel.js` — `updateParamRelevance()` method, DOM references for each control group
+- `src/main.js` — call `updateParamRelevance()` in the render loop
+
+**Deliverable:** Inactive parameters are visually dimmed and non-interactive. The user can instantly see which controls affect the current sound. The UI feels more intentional and less overwhelming, especially for new users.
+
+---
+
+## Phase 3 — Multi-Instance Architecture with Tab UI
+
+**Goal**: Refactor the app so each tab is an independent granular instrument with its own sample, parameters, and (eventually) automation. All instances share a single AudioContext and master output chain. Multi-touch resolves to the active tab only. One set of DOM controls, state swapped on tab switch (DAW channel strip pattern).
+
+**Duration**: ~2 weeks
+
+---
+
+### Step 3.1 — Refactor GranularEngine for Dependency Injection
+
+**Goal:** Extract the master output chain so multiple engines can share one AudioContext.
+
+**Tasks:**
+- Create `src/audio/MasterBus.js` — owns `AudioContext`, builds the master chain: `masterGain → limiter → softClipper → analyser → destination`. Exposes `resume()`, `setMasterVolume()`, `audioContext`, `masterGain` (as connection point for engine instances), and `analyser` (for LevelMeter).
+- Modify `src/audio/GranularEngine.js` — constructor becomes `constructor(audioContext, destination)`. Creates only `instanceGain` (GainNode) + `VoiceAllocator`. Remove AudioContext creation, master chain nodes, and `resume()`. Rename `setMasterVolume()` → `setInstanceVolume()`.
+- `_updateVoiceGains()` anti-clipping logic stays in the engine (per-instance voice count scaling).
+
+**Files:** Create `src/audio/MasterBus.js`, modify `src/audio/GranularEngine.js`
+
+**Deliverable:** Multiple `GranularEngine` instances can be created against the same AudioContext, each feeding into the shared master bus.
+
+---
+
+### Step 3.2 — Instance State Model
+
+**Goal:** Define a serializable state snapshot capturing everything about one sampler instance.
+
+**Tasks:**
+- Create `src/state/InstanceState.js` — holds: `id`, `name`, all grain param values (grainSize min/max, density min/max, spread min/max, pan, volume, envelope, mappings), all musical params (bpm, rootNote, scale, quantize/random toggles, arpPattern, pitchRange), ADSR state `{a, d, s, r}`, and sample reference (url, fileName, displayName).
+- Defaults match the current HTML attribute values.
+- `toJSON()` / `fromJSON()` for serialization.
+- The `AudioBuffer` is **not** serialized (too large, non-serializable). Only the sample URL/filename is stored.
+
+**Files:** Create `src/state/InstanceState.js`
+
+**Deliverable:** A complete, serializable state snapshot that can be saved/restored on tab switch.
+
+---
+
+### Step 3.3 — ParameterPanel Save/Restore
+
+**Goal:** Add `getFullState()` and `setFullState(state)` methods so the single set of DOM controls can be swapped to reflect any instance's parameters.
+
+**Tasks:**
+- Add `getFullState()` to `ParameterPanel` — returns combined `getParams()` + `getMusicalParams()` + volume slider value + ADSR state.
+- Add `setFullState(state)` to `ParameterPanel` — programmatically sets all slider `.value`, select `.value`, checkbox `.checked` properties. Refreshes all display labels. Restores ADSR widget state. Calls `_updateADSRVisibility()` and `_updateArpVisibility()`. Does **not** fire onChange/onVolumeChange callbacks.
+- Add `getState()` / `setState({a, d, s, r})` to `ADSRWidget` — updates internal state, calls `setCustomADSR()` from `envelopes.js`, and redraws.
+
+**Files:** Modify `src/ui/ParameterPanel.js`, modify `src/ui/ADSRWidget.js`
+
+**Deliverable:** `panel.setFullState(savedState)` instantly updates all DOM controls without triggering change callbacks.
+
+---
+
+### Step 3.4 — InstanceManager
+
+**Goal:** Central orchestrator for instance lifecycle: create, destroy, switch, route audio.
+
+**Tasks:**
+- Create `src/state/InstanceManager.js` with:
+  - `createInstance(name)` — creates `GranularEngine`, `GrainOverlay`, `InstanceState`. Stores in `Map<id, {state, engine, grainOverlay, buffer}>`. Auto-switches if first instance.
+  - `switchTo(id)` — saves current panel state to current instance, restores target instance's state into the panel, swaps waveform buffer, updates `onGrain` callback, calls `onTabsChanged`.
+  - `removeInstance(id)` — stops voices, disconnects engine, removes. Can't remove last instance.
+  - `getActive()` — returns `{state, engine, grainOverlay, buffer}` of active instance.
+  - `getTabList()` — returns `[{id, name, isActive}]` for tab bar rendering.
+  - `renameInstance(id, name)`.
+  - `onTabsChanged` — callback for the tab bar to re-render.
+
+**Files:** Create `src/state/InstanceManager.js`
+
+**Deliverable:** InstanceManager can create multiple instances, switch between them with full state preservation, and remove instances cleanly.
+
+---
+
+### Step 3.5 — Tab Bar UI
+
+**Goal:** Horizontal tab strip for creating, switching, renaming, and closing instances.
+
+**Tasks:**
+- Add `<div id="tab-bar"><div id="tab-list"></div><button id="tab-add">+</button></div>` to `index.html` between `#top-bar` and `#main-area`.
+- Create `src/ui/TabBar.js`:
+  - `render(tabs)` — dynamically creates tab buttons from `[{id, name, isActive}]`.
+  - Active tab gets `.tab-active` class (accent border, brighter text).
+  - Close button (×) on each tab, hidden when only one tab exists.
+  - Double-click tab label to rename.
+  - "+" button always at the end.
+- Add CSS: flex row, scrollable overflow, accent styling for active tab, close button on hover.
+
+**Files:** Create `src/ui/TabBar.js`, modify `index.html`, modify `style.css`
+
+**Deliverable:** Functional tab bar that renders dynamically and fires callbacks for switch, close, rename, add.
+
+---
+
+### Step 3.6 — Wire main.js to InstanceManager
+
+**Goal:** Replace global singletons with InstanceManager routing.
+
+**Tasks:**
+- Replace `new GranularEngine()` with `new MasterBus()` + `new InstanceManager(...)`.
+- `LevelMeter` uses `masterBus.analyser`.
+- Audio unlock uses `masterBus.resume()`.
+- Pointer callbacks route to `instanceManager.getActive().engine`.
+- `onChange` callback updates voices on the active engine.
+- Sample loading stores buffer + metadata in the active instance.
+- Render loop draws the active instance's `grainOverlay`.
+- Tab switch: force-stop all active pointer voices before switching, save/restore state, swap waveform buffer, update sample name display and sample selector dropdown.
+- Wire `TabBar` callbacks to `InstanceManager` methods.
+- Create initial default instance on startup, auto-load the selected sample into it.
+
+**Files:** Modify `src/main.js` (major rewrite of initialization and callback wiring)
+
+**Deliverable:** The app initializes with one tab and works identically to before. Users can add tabs, switch between them, and each tab is fully independent.
+
+---
+
+### Step 3.7 — Integration Testing
+
+**Tasks:**
+- Create 3 tabs with different samples and parameters, verify full independence.
+- Switch tabs: sliders snap to correct values, waveform changes, ADSR updates, sample name updates.
+- Multi-touch during tab switch: voices stop cleanly, no orphaned audio.
+- Close active tab: switches to adjacent, no crashes.
+- Close non-active tab: active tab unaffected.
+- Rapid tab switching: no race conditions.
+- Performance: 5 instances loaded, no audio glitches.
+
+**Deliverable:** All scenarios pass. Architecture is ready for Phase 4 automation.
+
+---
+
+### Step 3.8 — Arpeggiator Enhancement
+
+**Goal**: Replace the limited 4-pattern arpeggiator (up, down, updown, random) with a permutation-based system inspired by [CodePen jak_e/qNrZyw](https://codepen.io/jak_e/pen/qNrZyw). Expand from 4 scales to 14. Add arp steps, type (straight/looped), and shape (permutation selection with SVG preview).
+
+#### 3.8a — Expand scales + add permutation functions (`musicalQuantizer.js`)
+
+Pure utility additions, no side effects.
+
+- Expand `SCALES` object with: dorian, phrygian, lydian, mixolydian, locrian, harmonicMinor, melodicMinor, blues, wholeTone, minorPentatonic
+- Add `generatePermutations(n)` — Heap's algorithm, returns all permutations of [0..n-1]
+- Add `getPermutations(n)` — cached wrapper (avoids recomputing 720 arrays)
+- Add `selectArpNotes(noteTable, steps)` — picks N evenly spaced notes from full note table
+- Add `applyArpType(pattern, type)` — 'straight' returns as-is, 'looped' returns palindrome minus endpoints
+
+#### 3.8b — Add state fields (`InstanceState.js`)
+
+- Add `arpSteps: 4`, `arpType: 'straight'`, `arpStyle: 0`
+- Change `arpPattern` default semantics: 'random' or 'arpeggiator' (old 'up'/'down'/'updown' deprecated)
+
+#### 3.8c — Update Voice arp logic (`Voice.js`)
+
+In `_onScheduleGrain()`, add a new branch before the existing noteTable logic. The Voice walks `arpSequence` cyclically, using each value as an index into `arpNotes`.
+
+#### 3.8d — Update resolveParams (`main.js`)
+
+- Import new functions: `selectArpNotes`, `getPermutations`, `applyArpType`
+- When `arpPattern === 'arpeggiator'`: build `arpNotes` + `arpSequence` from steps/type/style
+- When `arpPattern === 'random'`: use existing noteTable path
+
+#### 3.8e — UI: HTML + ParameterPanel + CSS
+
+**index.html:** Expand scale `<select>` with 14 options. Replace arp-pattern-group: Arp Mode (random/arpeggiator), Arp Steps (range 3–6), Arp Type (straight/looped), Arp Shape (prev/next buttons + SVG polyline + counter). Controls hidden by default, shown when randomPitch on + mode is arpeggiator.
+
+**ParameterPanel.js:** Import `getPermutations`, `applyArpType`. Wire new DOM elements. Add `_updateArpStyleDisplay()` to draw SVG polyline. Update visibility, `getMusicalParams()`, `setFullState()`.
+
+**style.css:** `.arp-style-nav` flex row, `.arp-style-preview` inline SVG, `.arp-style-group` full grid width.
+
+**Deliverable:** Permutation-based arpeggiator with 14 scales, configurable steps/type/shape, SVG pattern preview, full tab persistence.
+
+---
+
+## Phase 4 — Gesture Recording & Automation Playback
 
 **Goal**: Let users record their multi-touch performances and play them back as automation, enabling composition and layering. Think of it as recording automation lanes in a DAW, but for gestural parameters.
 
@@ -412,7 +755,7 @@ Randomization runs at the engine level (per-grain), not in `resolveParams()` (pe
 
 ---
 
-### Step 3.1 — Automation Data Model
+### Step 4.1 — Automation Data Model
 
 Define the data structures for recording and playback.
 
@@ -445,7 +788,7 @@ Define the data structures for recording and playback.
 
 ---
 
-### Step 3.2 — Gesture Recorder
+### Step 4.2 — Gesture Recorder
 
 Capture live gestures into an automation lane.
 
@@ -463,7 +806,7 @@ Capture live gestures into an automation lane.
 
 ---
 
-### Step 3.3 — Transport Controls UI
+### Step 4.3 — Transport Controls UI
 
 Build the record/play/stop bar.
 
@@ -483,7 +826,7 @@ Build the record/play/stop bar.
 
 ---
 
-### Step 3.4 — Automation Player
+### Step 4.4 — Automation Player
 
 Replay recorded gestures through the engine.
 
@@ -506,7 +849,7 @@ Replay recorded gestures through the engine.
 
 ---
 
-### Step 3.5 — Ghost Visualization
+### Step 4.5 — Ghost Visualization
 
 Show recorded gestures as visual traces during playback.
 
@@ -521,7 +864,7 @@ Show recorded gestures as visual traces during playback.
 
 ---
 
-### Step 3.6 — Overdub Mode
+### Step 4.6 — Overdub Mode
 
 Allow layering new gestures on top of an existing recording.
 
@@ -538,7 +881,7 @@ Allow layering new gestures on top of an existing recording.
 
 ---
 
-### Step 3.7 — Save & Load Recordings
+### Step 4.7 — Save & Load Recordings
 
 Persist recordings for later use.
 
@@ -552,7 +895,7 @@ Persist recordings for later use.
 
 ---
 
-### Step 3.8 — Phase 3 Integration Testing & Final Polish
+### Step 4.8 — Phase 4 Integration Testing & Final Polish
 
 **Tasks**:
 - Record a complex multi-touch performance (3+ voices, 15+ seconds). Play it back. Verify timing accuracy — grains should land at the same positions and the overall rhythm should feel identical.
@@ -573,8 +916,9 @@ Persist recordings for later use.
 | Phase | Steps | Key Deliverable | Duration |
 |---|---|---|---|
 | **Phase 1** | 1.1 – 1.10 | Single-voice granular sampler with waveform display, parameter controls, clean audio | ~3 weeks |
-| **Phase 2** | 2.1 – 2.6 | Multi-touch support (6 voices), per-voice visuals, mobile polish | ~2 weeks |
-| **Phase 3** | 3.1 – 3.8 | Gesture recording, playback, overdub, ghost visualization, save/load | ~2.5 weeks |
+| **Phase 2** | 2.1 – 2.9 | Multi-touch support (10 voices), per-voice visuals, musical quantization, mobile polish | ~2 weeks |
+| **Phase 3** | 3.1 – 3.7 | Multi-instance architecture with tab UI, shared AudioContext, state save/restore | ~2 weeks |
+| **Phase 4** | 4.1 – 4.8 | Gesture recording, playback, overdub, ghost visualization, save/load | ~2.5 weeks |
 
 ---
 

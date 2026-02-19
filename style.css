@@ -136,6 +136,111 @@ html, body {
     max-width: 200px;
 }
 
+/* === Tab Bar === */
+#tab-bar {
+    display: flex;
+    align-items: stretch;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+#tab-bar::-webkit-scrollbar {
+    display: none;
+}
+
+#tab-list {
+    display: flex;
+    align-items: stretch;
+    gap: 2px;
+    padding: 0 4px;
+    min-width: 0;
+}
+
+.tab-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    white-space: nowrap;
+    min-width: 80px;
+    transition: color 0.15s, border-color 0.15s;
+    user-select: none;
+}
+
+.tab-item:hover {
+    color: var(--text-primary);
+}
+
+.tab-item.tab-active {
+    color: var(--text-primary);
+    border-bottom-color: var(--accent);
+}
+
+.tab-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    font-size: 12px;
+    line-height: 1;
+    color: var(--text-secondary);
+    background: transparent;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s, background 0.15s;
+    flex-shrink: 0;
+    padding: 0;
+}
+
+.tab-item:hover .tab-close,
+.tab-item.tab-active .tab-close {
+    opacity: 0.6;
+}
+
+.tab-close:hover {
+    opacity: 1 !important;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+#tab-add {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    font-size: 16px;
+    color: var(--text-secondary);
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: color 0.15s;
+}
+
+#tab-add:hover {
+    color: var(--text-primary);
+}
+
+/* Touch: always show close buttons */
+@media (pointer: coarse) {
+    .tab-close {
+        opacity: 0.6;
+    }
+}
+
 /* === Main Area === */
 #main-area {
     display: flex;
@@ -174,6 +279,10 @@ html, body {
     font-weight: 600;
     pointer-events: none;
     z-index: 10;
+}
+
+#drop-overlay[hidden] {
+    display: none;
 }
 
 /* === Transport Bar === */
@@ -468,6 +577,19 @@ html, body {
     text-align: right;
     flex-shrink: 0;
     white-space: nowrap;
+}
+
+/* === Inactive parameter dimming === */
+.param-inactive {
+    opacity: 0.35;
+    pointer-events: none;
+    transition: opacity 0.2s;
+}
+
+.range-row-inactive {
+    opacity: 0.35;
+    pointer-events: none;
+    transition: opacity 0.2s;
 }
 
 /* === Gesture Indicator (real-time feedback on range sliders) === */

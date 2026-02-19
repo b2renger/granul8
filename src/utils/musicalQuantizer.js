@@ -149,3 +149,31 @@ export function normalizedToSubdivision(normalized) {
     const index = Math.round(normalized * (SUBDIVISIONS.length - 1));
     return SUBDIVISIONS[index];
 }
+
+/**
+ * Build a sorted array of all valid semitone values for a given scale
+ * within a semitone range. Used as the note table for arpeggiator patterns.
+ *
+ * @param {number[]} scaleIntervals - Array of intervals from SCALES (e.g. [0,2,4,5,7,9,11])
+ * @param {number} rootNote - Root note as semitone offset (0=C, 1=C#, ..., 11=B)
+ * @param {number} [minSemitones=-24] - Lower bound (inclusive), ±2 octaves from unity
+ * @param {number} [maxSemitones=24] - Upper bound (inclusive)
+ * @returns {number[]} Sorted array of semitone values
+ */
+export function buildNoteTable(scaleIntervals, rootNote, minSemitones = -24, maxSemitones = 24) {
+    const notes = [];
+    const minOctave = Math.floor((minSemitones - rootNote) / 12) - 1;
+    const maxOctave = Math.ceil((maxSemitones - rootNote) / 12) + 1;
+
+    for (let oct = minOctave; oct <= maxOctave; oct++) {
+        for (const interval of scaleIntervals) {
+            const semitone = oct * 12 + interval + rootNote;
+            if (semitone >= minSemitones && semitone <= maxSemitones) {
+                notes.push(semitone);
+            }
+        }
+    }
+
+    notes.sort((a, b) => a - b);
+    return notes;
+}

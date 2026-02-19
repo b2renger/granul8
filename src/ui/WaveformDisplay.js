@@ -56,6 +56,10 @@ export class WaveformDisplay {
      */
     setBuffer(buffer) {
         this.buffer = buffer;
+        if (!buffer) {
+            this.waveformMin = null;
+            this.waveformMax = null;
+        }
         this._computeWaveform();
         this._renderCache();
     }

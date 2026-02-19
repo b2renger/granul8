@@ -1,16 +1,17 @@
 // main.js — Entry point, wires everything together
 
-import { GranularEngine } from './audio/GranularEngine.js';
+import { MasterBus } from './audio/MasterBus.js';
+import { InstanceManager } from './state/InstanceManager.js';
 import { WaveformDisplay } from './ui/WaveformDisplay.js';
-import { GrainOverlay } from './ui/GrainOverlay.js';
 import { ParameterPanel } from './ui/ParameterPanel.js';
+import { TabBar } from './ui/TabBar.js';
 import { PointerHandler } from './input/PointerHandler.js';
 import { LevelMeter } from './ui/LevelMeter.js';
 import { setupDragAndDrop, setupFilePicker } from './utils/fileLoader.js';
 import { expMap, lerp } from './utils/math.js';
 import {
     SCALES, quantizePitch, rateToSemitones, semitonesToRate,
-    normalizedToSubdivision, getSubdivisionSeconds,
+    normalizedToSubdivision, getSubdivisionSeconds, buildNoteTable,
 } from './utils/musicalQuantizer.js';
 
 // --- Theme toggle (light/dark) ---
@@ -49,20 +50,15 @@ const sampleNameEl = document.getElementById('sample-name');
 const sampleSelect = document.getElementById('sample-select');
 const dropOverlay = document.getElementById('drop-overlay');
 
-// --- Engine ---
+// --- Shared audio bus ---
 
-const engine = new GranularEngine();
+const masterBus = new MasterBus();
 
-// --- Grain overlay (visualization of individual grains) ---
-
-const grainOverlay = new GrainOverlay();
-engine.onGrain = (info) => grainOverlay.addGrain(info);
-
-// --- Level meter ---
+// --- Level meter (reads combined output from all instances) ---
 
 const levelMeter = new LevelMeter(
     document.getElementById('level-meter'),
-    engine.analyser
+    masterBus.analyser
 );
 
 // --- Waveform display ---
@@ -70,13 +66,11 @@ const levelMeter = new LevelMeter(
 const waveform = new WaveformDisplay(canvas);
 
 // --- iOS / Safari audio unlock overlay ---
-// Show a "Tap to start" overlay if AudioContext is suspended.
-// On first user gesture, resume audio and dismiss the overlay.
 
 const unlockOverlay = document.getElementById('audio-unlock-overlay');
 
 function dismissUnlockOverlay() {
-    engine.resume();
+    masterBus.resume();
     if (unlockOverlay) {
         unlockOverlay.style.opacity = '0';
         unlockOverlay.style.pointerEvents = 'none';
@@ -85,12 +79,10 @@ function dismissUnlockOverlay() {
     }
 }
 
-// If audio context is already running (desktop autoplay allowed), hide immediately
-if (engine.audioContext.state === 'running') {
+if (masterBus.audioContext.state === 'running') {
     unlockOverlay?.remove();
 } else {
     unlockOverlay?.addEventListener('pointerdown', dismissUnlockOverlay, { once: true });
-    // Also listen globally as a fallback
     document.addEventListener('pointerdown', function unlock() {
         dismissUnlockOverlay();
         document.removeEventListener('pointerdown', unlock);
@@ -112,91 +104,26 @@ function resizeCanvas() {
 resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
 
-// --- Sample loading ---
-
-async function handleFile(file) {
-    sampleNameEl.textContent = file.name;
-    try {
-        const buffer = await engine.loadSampleFromFile(file);
-        waveform.setBuffer(buffer);
-        console.log(`Loaded: ${file.name} (${buffer.duration.toFixed(2)}s, ${buffer.sampleRate}Hz, ${buffer.numberOfChannels}ch)`);
-    } catch (err) {
-        console.error('Failed to decode audio file:', err);
-        sampleNameEl.textContent = 'Error loading file';
-    }
-}
-
-// Wire drag-and-drop
-setupDragAndDrop(container, dropOverlay, handleFile);
-
-// Wire file picker
-setupFilePicker(loadBtn, fileInput, handleFile);
-
-// --- Sample selector dropdown ---
-
-async function loadSampleFromUrl(url, displayName) {
-    try {
-        sampleNameEl.textContent = 'Loading...';
-        const buffer = await engine.loadSample(url);
-        waveform.setBuffer(buffer);
-        sampleNameEl.textContent = displayName;
-        console.log(`Loaded: ${displayName} (${buffer.duration.toFixed(2)}s, ${buffer.sampleRate}Hz)`);
-    } catch (err) {
-        console.error('Failed to load sample:', err);
-        sampleNameEl.textContent = 'Error loading sample';
-    }
-}
-
-sampleSelect.addEventListener('change', () => {
-    const url = sampleSelect.value;
-    if (!url) return;
-    const displayName = sampleSelect.options[sampleSelect.selectedIndex].textContent;
-    loadSampleFromUrl(url, displayName);
-});
-
-// Auto-load the initially selected sample
-if (sampleSelect.value) {
-    const displayName = sampleSelect.options[sampleSelect.selectedIndex].textContent;
-    loadSampleFromUrl(sampleSelect.value, displayName);
-}
-
 // --- Gesture modulation resolution ---
 
 /** Convert normalized Y (0=top, 1=bottom) to playback rate via octaves. */
 function yToPitch(y) {
-    // top → +2 octaves (4×), center → 0 (1×), bottom → −2 octaves (0.25×)
     const octaves = 2 - 4 * y;
     return Math.pow(2, octaves);
 }
 
 /**
- * Resolve panel parameters (normalized ranges + mappings) and gesture data
- * into engine-ready parameters.
- *
- * For each range parameter (grainSize, density, spread):
- *   - If a gesture dimension is mapped to it → interpolate min–max using gesture value
- *   - Otherwise → use the max value (behaves like a single slider)
- *
- * Musical quantization (optional):
- *   - Density: snap interOnset to nearest BPM subdivision
- *   - Pitch: snap to nearest scale degree
- *
- * @param {object} p   - Panel params from ParameterPanel.getParams()
- * @param {object} g   - Gesture data { position, amplitude, pressure, contactSize, velocity }
- * @param {object} m   - Musical params from ParameterPanel.getMusicalParams()
- * @returns {object}    Engine-ready params
+ * Resolve panel parameters + gesture data into engine-ready parameters.
  */
 function resolveParams(p, g, m) {
     const { mappings } = p;
 
-    // Start with max values (default when no gesture is mapped)
     let grainSizeNorm = p.grainSizeMax;
     let densityNorm   = p.densityMax;
     let spreadNorm    = p.spreadMax;
     let amplitude     = 0.8;
     let pitch         = yToPitch(g.amplitude);
 
-    // Apply gesture mappings
     const gestureDims = {
         pressure:    g.pressure,
         contactSize: g.contactSize,
@@ -207,8 +134,6 @@ function resolveParams(p, g, m) {
         if (target === 'none') continue;
         const gv = gestureDims[dim];
         if (gv === undefined) continue;
-
-        // Invert velocity for density: fast movement → short inter-onset (denser)
         const effectiveGv = (dim === 'velocity' && target === 'density') ? 1 - gv : gv;
 
         switch (target) {
@@ -225,31 +150,24 @@ function resolveParams(p, g, m) {
                 amplitude = effectiveGv;
                 break;
             case 'pitch':
-                // 0 → −2 octaves (0.25×), 1 → +2 octaves (4×)
                 pitch = Math.pow(2, lerp(-2, 2, effectiveGv));
                 break;
         }
     }
 
-    // Convert normalized values to engine units
-    let grainSize = expMap(grainSizeNorm, 0.001, 1.0);   // 1 ms – 1000 ms
-    let interOnset = expMap(densityNorm, 0.005, 0.5);     // 5 ms – 500 ms
+    let grainSize = expMap(grainSizeNorm, 0.001, 1.0);
+    let interOnset = expMap(densityNorm, 0.005, 0.5);
 
-    // Apply grain size quantization: snap to nearest BPM subdivision
-    // (only when not randomized; per-grain snapping handled in Voice when randomized)
     if (m.quantizeGrainSize && !m.randomGrainSize) {
-        const sub = normalizedToSubdivision(grainSizeNorm);
+        const sub = normalizedToSubdivision(1 - grainSizeNorm);
         grainSize = getSubdivisionSeconds(m.bpm, sub.divisor);
     }
 
-    // Apply density quantization: snap to nearest BPM subdivision
     if (m.quantizeDensity && !m.randomDensity) {
-        const sub = normalizedToSubdivision(densityNorm);
+        const sub = normalizedToSubdivision(1 - densityNorm);
         interOnset = getSubdivisionSeconds(m.bpm, sub.divisor);
     }
 
-    // Apply pitch quantization (for non-randomized pitch only; per-grain pitch
-    // quantization is handled in Voice._onScheduleGrain when randomized)
     if (m.quantizePitch && !m.randomPitch) {
         const semitones = rateToSemitones(pitch);
         const scaleIntervals = SCALES[m.scale] || SCALES.chromatic;
@@ -257,46 +175,36 @@ function resolveParams(p, g, m) {
         pitch = semitonesToRate(snapped);
     }
 
-    // Build per-grain randomization ranges (null = no randomization)
     const randomize = {
         grainSize: m.randomGrainSize
-            ? [expMap(p.grainSizeMin, 0.001, 1.0), expMap(p.grainSizeMax, 0.001, 1.0)]
+            ? [p.grainSizeMin, p.grainSizeMax]
             : null,
         pitch: m.randomPitch
-            ? [-2, 2]  // log2 space: ±2 octaves
+            ? [-(m.pitchRange || 2), m.pitchRange || 2]
             : null,
     };
 
-    // Density randomization: compute interOnset range for scheduler jitter
-    let interOnsetRange = null;
-    if (m.randomDensity) {
-        if (m.quantizeDensity) {
-            // Quantized: jitter between first and last subdivision bounds
-            const minSub = normalizedToSubdivision(p.densityMin);
-            const maxSub = normalizedToSubdivision(p.densityMax);
-            const iotA = getSubdivisionSeconds(m.bpm, minSub.divisor);
-            const iotB = getSubdivisionSeconds(m.bpm, maxSub.divisor);
-            interOnsetRange = [Math.min(iotA, iotB), Math.max(iotA, iotB)];
-        } else {
-            const iotMin = expMap(p.densityMin, 0.005, 0.5);
-            const iotMax = expMap(p.densityMax, 0.005, 0.5);
-            interOnsetRange = [Math.min(iotMin, iotMax), Math.max(iotMin, iotMax)];
-        }
-    }
+    const interOnsetRange = m.randomDensity
+        ? [p.densityMin, p.densityMax]
+        : null;
 
-    // Grain size quantization info for per-grain snapping (when grain size is randomized)
     const grainSizeQuantize = (m.quantizeGrainSize && m.randomGrainSize)
         ? { bpm: m.bpm }
         : null;
 
-    // Density quantization info for per-grain snapping (when density is randomized)
     const interOnsetQuantize = (m.quantizeDensity && m.randomDensity)
         ? { bpm: m.bpm }
         : null;
 
-    // Pitch quantization info for per-grain snapping (when pitch is randomized)
-    const pitchQuantize = (m.quantizePitch && m.randomPitch)
-        ? { scale: SCALES[m.scale] || SCALES.chromatic, rootNote: m.rootNote }
+    const arpPattern = m.arpPattern || 'random';
+    const needsPitchTable = m.randomPitch && (m.quantizePitch || arpPattern !== 'random');
+    const pitchQuantize = needsPitchTable
+        ? {
+            scale: SCALES[m.scale] || SCALES.chromatic,
+            rootNote: m.rootNote,
+            pattern: arpPattern,
+            noteTable: buildNoteTable(SCALES[m.scale] || SCALES.chromatic, m.rootNote, -(m.pitchRange || 2) * 12, (m.pitchRange || 2) * 12),
+        }
         : null;
 
     return {
@@ -305,7 +213,7 @@ function resolveParams(p, g, m) {
         interOnset,
         interOnsetRange,
         interOnsetQuantize,
-        spread:     spreadNorm,                           // 0–1
+        spread:     spreadNorm,
         amplitude,
         pitch,
         pan:        p.pan,
@@ -317,8 +225,7 @@ function resolveParams(p, g, m) {
 }
 
 /**
- * Compute the resolved normalized values for range params that have active gesture mappings.
- * Returns only keys with active mappings (used for visual indicator feedback).
+ * Compute resolved normalized values for range params with active gesture mappings.
  */
 function getResolvedNormals(p, g) {
     const { mappings } = p;
@@ -341,46 +248,161 @@ function getResolvedNormals(p, g) {
 
 const params = new ParameterPanel(document.getElementById('parameter-panel'), {
     onChange(p) {
-        // Re-resolve all active voices with updated panel params + their current gesture data
+        const active = instanceManager.getActive();
+        if (!active) return;
         const m = params.getMusicalParams();
         for (const [pointerId, entry] of pointer.pointers) {
             const resolved = resolveParams(p, entry, m);
-            engine.updateVoice(pointerId, resolved);
+            active.engine.updateVoice(pointerId, resolved);
         }
     },
-    onVolumeChange(v) { engine.setMasterVolume(v); },
+    onVolumeChange(v) { masterBus.setMasterVolume(v); },
 });
 
-// --- Pointer interaction via PointerHandler ---
-// Multi-touch: each pointer allocates a voice from the pool (up to 10)
-// Extended gestures (pressure, contact size, velocity) modulate parameters via mappings
+// --- Instance manager ---
+
+const instanceManager = new InstanceManager(masterBus, params, waveform);
+
+// --- Pointer interaction ---
 
 const pointer = new PointerHandler(canvas, {
     onStart({ pointerId, position, amplitude, pressure, contactSize, velocity }) {
-        if (!engine.sourceBuffer) return undefined;
-        engine.resume();
+        const active = instanceManager.getActive();
+        if (!active || !active.engine.sourceBuffer) return undefined;
+        masterBus.resume();
         const gesture = { position, amplitude, pressure, contactSize, velocity };
         const p = params.getParams();
         const m = params.getMusicalParams();
         const resolved = resolveParams(p, gesture, m);
         params.updateGestureIndicators(getResolvedNormals(p, gesture));
-        return engine.startVoice(pointerId, resolved);
+        return active.engine.startVoice(pointerId, resolved);
     },
     onMove({ pointerId, position, amplitude, pressure, contactSize, velocity }) {
+        const active = instanceManager.getActive();
+        if (!active) return;
         const gesture = { position, amplitude, pressure, contactSize, velocity };
         const p = params.getParams();
         const m = params.getMusicalParams();
         const resolved = resolveParams(p, gesture, m);
-        engine.updateVoice(pointerId, resolved);
+        active.engine.updateVoice(pointerId, resolved);
         params.updateGestureIndicators(getResolvedNormals(p, gesture));
     },
     onStop({ pointerId }) {
-        engine.stopVoice(pointerId);
+        const active = instanceManager.getActive();
+        if (active) active.engine.stopVoice(pointerId);
         if (pointer.pointers.size === 0) {
             params.hideGestureIndicators();
         }
     },
 });
+
+// --- Tab bar ---
+
+const tabBar = new TabBar(
+    document.getElementById('tab-list'),
+    document.getElementById('tab-add'),
+    {
+        onSwitch(id) {
+            // Force-stop all active pointer voices before switching
+            const current = instanceManager.getActive();
+            if (current) {
+                for (const [pointerId] of pointer.pointers) {
+                    current.engine.stopVoice(pointerId);
+                }
+            }
+            pointer.pointers.clear();
+            pointer._fading = [];
+            params.hideGestureIndicators();
+
+            instanceManager.switchTo(id);
+
+            // Update sample display
+            const active = instanceManager.getActive();
+            if (active) {
+                sampleNameEl.textContent = active.state.sampleDisplayName;
+                sampleSelect.value = active.state.sampleUrl || '';
+            }
+        },
+        onClose(id) {
+            instanceManager.removeInstance(id);
+            // Update sample display after potential tab switch
+            const active = instanceManager.getActive();
+            if (active) {
+                sampleNameEl.textContent = active.state.sampleDisplayName;
+                sampleSelect.value = active.state.sampleUrl || '';
+            }
+        },
+        onRename(id, name) {
+            instanceManager.renameInstance(id, name);
+        },
+        onAdd() {
+            const id = instanceManager.createInstance();
+            instanceManager.switchTo(id);
+            sampleNameEl.textContent = 'No sample loaded';
+            sampleSelect.value = '';
+        },
+    }
+);
+
+instanceManager.onTabsChanged = () => {
+    tabBar.render(instanceManager.getTabList());
+};
+
+// --- Create initial instance and load default sample ---
+
+instanceManager.createInstance('Sampler 1');
+tabBar.render(instanceManager.getTabList());
+
+// --- Sample loading ---
+
+async function handleFile(file) {
+    const active = instanceManager.getActive();
+    if (!active) return;
+    sampleNameEl.textContent = file.name;
+    try {
+        const buffer = await active.engine.loadSampleFromFile(file);
+        instanceManager.setActiveSample(buffer, file.name, null, file.name);
+        waveform.setBuffer(buffer);
+        console.log(`Loaded: ${file.name} (${buffer.duration.toFixed(2)}s, ${buffer.sampleRate}Hz, ${buffer.numberOfChannels}ch)`);
+    } catch (err) {
+        console.error('Failed to decode audio file:', err);
+        sampleNameEl.textContent = 'Error loading file';
+    }
+}
+
+setupDragAndDrop(container, dropOverlay, handleFile);
+setupFilePicker(loadBtn, fileInput, handleFile);
+
+// --- Sample selector dropdown ---
+
+async function loadSampleFromUrl(url, displayName) {
+    const active = instanceManager.getActive();
+    if (!active) return;
+    try {
+        sampleNameEl.textContent = 'Loading...';
+        const buffer = await active.engine.loadSample(url);
+        instanceManager.setActiveSample(buffer, displayName, url, null);
+        waveform.setBuffer(buffer);
+        sampleNameEl.textContent = displayName;
+        console.log(`Loaded: ${displayName} (${buffer.duration.toFixed(2)}s, ${buffer.sampleRate}Hz)`);
+    } catch (err) {
+        console.error('Failed to load sample:', err);
+        sampleNameEl.textContent = 'Error loading sample';
+    }
+}
+
+sampleSelect.addEventListener('change', () => {
+    const url = sampleSelect.value;
+    if (!url) return;
+    const displayName = sampleSelect.options[sampleSelect.selectedIndex].textContent;
+    loadSampleFromUrl(url, displayName);
+});
+
+// Auto-load the initially selected sample into the first instance
+if (sampleSelect.value) {
+    const displayName = sampleSelect.options[sampleSelect.selectedIndex].textContent;
+    loadSampleFromUrl(sampleSelect.value, displayName);
+}
 
 // --- Gesture live meters ---
 
@@ -396,50 +418,42 @@ const gestureStatusEls = {
     velocity:    document.getElementById('status-velocity'),
 };
 
-/** Update gesture meter fills + capability badges. Called each frame. */
 function updateGestureMeters() {
     const live = pointer.liveGesture;
     const caps = pointer.capabilities;
     const hasPointers = pointer.pointers.size > 0;
 
-    // Pressure
     gestureMeterEls.pressure.style.width = hasPointers ? `${live.pressure * 100}%` : '0%';
     if (caps.pressure && !gestureStatusEls.pressure.classList.contains('active')) {
         gestureStatusEls.pressure.textContent = 'available';
         gestureStatusEls.pressure.classList.add('active');
     }
 
-    // Contact size
     gestureMeterEls.contactSize.style.width = hasPointers ? `${live.contactSize * 100}%` : '0%';
     if (caps.contactSize && !gestureStatusEls.contactSize.classList.contains('active')) {
         gestureStatusEls.contactSize.textContent = 'available';
         gestureStatusEls.contactSize.classList.add('active');
     }
 
-    // Velocity (always available)
     gestureMeterEls.velocity.style.width = hasPointers ? `${live.velocity * 100}%` : '0%';
 }
 
 // --- Render loop ---
 
 function render() {
-    // Waveform draws its own background + cached waveform image
     waveform.draw();
 
-    // Grain overlay (fading rectangles showing individual grains)
-    grainOverlay.draw(waveform.ctx, canvas.width, canvas.height, engine.audioContext.currentTime);
+    // Grain overlay for the active instance
+    const active = instanceManager.getActive();
+    if (active) {
+        active.grainOverlay.draw(waveform.ctx, canvas.width, canvas.height, masterBus.audioContext.currentTime);
+    }
 
-    // Pointer indicator (circle + vertical line at touch/click position)
     pointer.drawIndicator(waveform.ctx, canvas.width, canvas.height);
-
-    // Level meter
     levelMeter.update();
-
-    // Gesture live meters
     updateGestureMeters();
-
-    // Randomization range indicators on sliders
     params.updateRandomIndicators(params.getMusicalParams());
+    params.updateParamRelevance();
 
     requestAnimationFrame(render);
 }

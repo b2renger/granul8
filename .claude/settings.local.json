@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl:*)",
+      "Bash(node -e:*)",
+      "WebFetch(domain:codepen.io)",
+      "WebFetch(domain:cdpn.io)"
+    ]
+  }
+}
