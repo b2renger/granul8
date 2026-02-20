@@ -6,6 +6,7 @@
  * Transport states:
  *   'idle'      — No recording or playback active
  *   'armed'     — Record button pressed, waiting for first touch to start recording
+ *   'count-in'  — Metronome count-in in progress, recording starts on next downbeat
  *   'recording' — Actively capturing gestures
  *   'playing'   — Playing back a recorded automation
  */
@@ -23,8 +24,12 @@ export class TransportBar {
     constructor(els) {
         this._els = els;
 
-        /** @type {'idle'|'armed'|'recording'|'playing'} */
+        /** @type {'idle'|'armed'|'count-in'|'recording'|'playing'} */
         this.state = 'idle';
+
+        // Beat indicator for metronome visualization
+        this._beatIndicator = document.getElementById('beat-indicator');
+        this._numBeats = 4;
 
         /** @type {boolean} */
         this.looping = false;
@@ -215,6 +220,41 @@ export class TransportBar {
         this.setProgress(0);
     }
 
+    // --- Beat indicator methods ---
+
+    /**
+     * Rebuild the beat indicator dots for the given time signature.
+     * @param {number} numBeats - Number of beats per bar (numerator).
+     */
+    updateBeatIndicator(numBeats) {
+        this._numBeats = numBeats;
+        this._beatIndicator.innerHTML = '';
+        for (let i = 0; i < numBeats; i++) {
+            const dot = document.createElement('div');
+            dot.className = 'beat-dot' + (i === 0 ? ' downbeat' : '');
+            this._beatIndicator.appendChild(dot);
+        }
+    }
+
+    /**
+     * Highlight the current beat in the indicator.
+     * @param {number} beatIndex - 0-based beat within bar.
+     */
+    highlightBeat(beatIndex) {
+        const dots = this._beatIndicator.querySelectorAll('.beat-dot');
+        dots.forEach((dot, i) => {
+            dot.classList.toggle('active', i === beatIndex);
+        });
+    }
+
+    /**
+     * Clear all beat highlights.
+     */
+    clearBeatIndicator() {
+        const dots = this._beatIndicator.querySelectorAll('.beat-dot');
+        dots.forEach(dot => dot.classList.remove('active'));
+    }
+
     /** @private */
     _updateButtons() {
         const { recordBtn, playBtn, stopBtn, loopBtn } = this._els;
@@ -236,6 +276,14 @@ export class TransportBar {
                 break;
 
             case 'armed':
+                recordBtn.classList.add('armed');
+                stopBtn.disabled = false;
+                recordBtn.disabled = false;
+                playBtn.disabled = true;
+                loopBtn.disabled = true;
+                break;
+
+            case 'count-in':
                 recordBtn.classList.add('armed');
                 stopBtn.disabled = false;
                 recordBtn.disabled = false;

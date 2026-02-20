@@ -60,6 +60,11 @@ export class InstanceManager {
             }
         };
 
+        // Wire release callback for crossfade at loop boundaries
+        player.onRelease = (syntheticId) => {
+            engine.releaseVoice(syntheticId);
+        };
+
         // Wire frame/complete callbacks with active-tab guard
         const instanceId = state.id;
         player.onFrame = (elapsed, progress) => {
@@ -256,6 +261,11 @@ export class InstanceManager {
                     case 'move':  engine.updateVoice(syntheticId, eventParams); break;
                     case 'stop':  engine.stopVoice(syntheticId); break;
                 }
+            };
+
+            // Wire release callback for crossfade at loop boundaries
+            player.onRelease = (syntheticId) => {
+                engine.releaseVoice(syntheticId);
             };
 
             const instanceId = state.id;

@@ -9,9 +9,10 @@
  * @param {import('../ui/ParameterPanel.js').ParameterPanel} panel
  * @param {number} masterBpm - Global master BPM value
  * @param {number} [masterVolume=0.7] - Global master volume value
+ * @param {Object} [loopStationState] - Loop station state (time sig, metronome)
  * @returns {Object} Session JSON object
  */
-export function serializeSession(instanceManager, panel, masterBpm, masterVolume = 0.7) {
+export function serializeSession(instanceManager, panel, masterBpm, masterVolume = 0.7, loopStationState = {}) {
     // Save the active panel state into the active instance's state
     const active = instanceManager.getActive();
     if (active) {
@@ -27,9 +28,12 @@ export function serializeSession(instanceManager, panel, masterBpm, masterVolume
 
     return {
         granul8: true,
-        version: 1,
+        version: 2,
         masterBpm: masterBpm || 120,
         masterVolume: masterVolume ?? 0.7,
+        timeSignature: loopStationState.timeSignature || { numerator: 4, denominator: 4 },
+        metronome: loopStationState.metronome || { enabled: false, volume: 0.5, muted: false },
+        // loopStationMode is now per-instance (stored in each instance's state)
         savedAt: new Date().toISOString(),
         activeInstanceId: instanceManager.activeId,
         instances,

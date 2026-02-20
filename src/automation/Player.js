@@ -1,9 +1,16 @@
 // Player.js — Replays recorded automation events through the engine.
 // Uses requestAnimationFrame for frame-accurate event dispatch.
-// Synthetic pointer IDs (1000 + voiceIndex) keep playback voices separate
-// from live touch voices in the VoiceAllocator.
+//
+// Crossfade looping: alternates between two synthetic ID ranges (A/B).
+// When approaching the loop end, pre-starts the next iteration's voices
+// from loopStart while the current iteration's grains play out naturally.
+// This eliminates the audible gap at loop boundaries.
 
-const SYNTHETIC_POINTER_BASE = 1000;
+const SYNTHETIC_POINTER_BASE_A = 1000;
+const SYNTHETIC_POINTER_BASE_B = 2000;
+
+/** Pre-start window: start next iteration this many seconds before loop end. */
+const CROSSFADE_WINDOW = 0.050; // 50ms
 
 export class Player {
     /**
@@ -36,19 +43,42 @@ export class Player {
         /** @type {number} */
         this._duration = 0;
 
-        /** @type {Set<number>} Active synthetic pointer IDs */
-        this._activeVoices = new Set();
+        // --- Crossfade iteration tracking ---
+        /** @type {'A'|'B'} */
+        this._currentIteration = 'A';
+
+        /** @type {Set<number>} Active synthetic IDs for iteration A */
+        this._activeVoicesA = new Set();
+
+        /** @type {Set<number>} Active synthetic IDs for iteration B */
+        this._activeVoicesB = new Set();
+
+        /** @type {boolean} True when we've pre-started the next iteration */
+        this._crossfadeStarted = false;
+
+        // --- Loop station mode ---
+        this._loopStationMode = false;
+
+        /** @type {import('../audio/MasterClock.js').MasterClock|null} */
+        this._clock = null;
 
         /** @type {number|null} */
         this._rafId = null;
 
-        // --- Callbacks (set by main.js) ---
+        // --- Callbacks ---
 
         /**
-         * Called to dispatch a voice action on the engine.
+         * Called to dispatch a voice action on the engine (start/move/stop).
          * @type {((type: 'start'|'move'|'stop', syntheticPointerId: number, params?: Object) => void)|null}
          */
         this.onDispatch = null;
+
+        /**
+         * Called to release a voice (scheduler stops, grains play out).
+         * Used at loop boundaries for seamless crossfade.
+         * @type {((syntheticPointerId: number) => void)|null}
+         */
+        this.onRelease = null;
 
         /**
          * Called each frame with elapsed time and progress fraction.
@@ -63,6 +93,16 @@ export class Player {
         this.onComplete = null;
 
         this._tick = this._tick.bind(this);
+    }
+
+    /**
+     * Enable/disable loop station mode (bar-grid aligned looping).
+     * @param {boolean} enabled
+     * @param {import('../audio/MasterClock.js').MasterClock|null} clock
+     */
+    setLoopStationMode(enabled, clock) {
+        this._loopStationMode = enabled;
+        this._clock = clock || null;
     }
 
     /**
@@ -81,6 +121,10 @@ export class Player {
 
         this._startTime = this._audioContext.currentTime;
         this._lastProcessedTime = 0;
+        this._currentIteration = 'A';
+        this._activeVoicesA.clear();
+        this._activeVoicesB.clear();
+        this._crossfadeStarted = false;
         this.isPlaying = true;
         this._rafId = requestAnimationFrame(this._tick);
     }
@@ -94,7 +138,8 @@ export class Player {
             cancelAnimationFrame(this._rafId);
             this._rafId = null;
         }
-        this._stopAllPlaybackVoices();
+        this._stopIterationVoices('A');
+        this._stopIterationVoices('B');
         this._lane = null;
     }
 
@@ -137,6 +182,30 @@ export class Player {
         return this._audioContext.currentTime - this._startTime;
     }
 
+    // --- Iteration helpers ---
+
+    /** @private */
+    _getCurrentBase() {
+        return this._currentIteration === 'A' ? SYNTHETIC_POINTER_BASE_A : SYNTHETIC_POINTER_BASE_B;
+    }
+
+    /** @private */
+    _getNextBase() {
+        return this._currentIteration === 'A' ? SYNTHETIC_POINTER_BASE_B : SYNTHETIC_POINTER_BASE_A;
+    }
+
+    /** @private */
+    _getCurrentActiveVoices() {
+        return this._currentIteration === 'A' ? this._activeVoicesA : this._activeVoicesB;
+    }
+
+    /** @private */
+    _getNextActiveVoices() {
+        return this._currentIteration === 'A' ? this._activeVoicesB : this._activeVoicesA;
+    }
+
+    // --- Main tick ---
+
     /** @private */
     _tick() {
         if (!this.isPlaying || !this._lane) return;
@@ -144,16 +213,37 @@ export class Player {
         const elapsed = this._audioContext.currentTime - this._startTime;
         const loopEnd = this._loopEnd > 0 ? this._loopEnd : this._duration;
 
-        // Check if playback has reached the end (or loop end point)
+        // === CROSSFADE PRE-START ===
+        // When within CROSSFADE_WINDOW of loop end, pre-start next iteration
+        if (this._loop && !this._crossfadeStarted && elapsed >= (loopEnd - CROSSFADE_WINDOW)) {
+            this._crossfadeStarted = true;
+            this._preStartNextIteration();
+        }
+
+        // === LOOP BOUNDARY ===
         if (elapsed >= loopEnd) {
             if (this._loop) {
-                // Stop all active voices, restart from loop start
-                this._stopAllPlaybackVoices();
-                this._startTime = this._audioContext.currentTime - this._loopStart;
+                // Release old iteration voices (grains play out naturally)
+                this._releaseIterationVoices(this._currentIteration);
+
+                // Swap iterations
+                this._currentIteration = this._currentIteration === 'A' ? 'B' : 'A';
+
+                // Reset timing
+                if (this._loopStationMode && this._clock) {
+                    // Align to bar grid on the master clock
+                    const now = this._audioContext.currentTime;
+                    const barAligned = this._clock.quantizeToBar(now);
+                    this._startTime = barAligned - this._loopStart;
+                } else {
+                    this._startTime = this._audioContext.currentTime - this._loopStart;
+                }
                 this._lastProcessedTime = this._loopStart;
+                this._crossfadeStarted = false;
             } else {
-                // Playback complete
-                this._stopAllPlaybackVoices();
+                // Non-looping: playback complete
+                this._stopIterationVoices('A');
+                this._stopIterationVoices('B');
                 this.isPlaying = false;
                 this._rafId = null;
                 if (this.onFrame) this.onFrame(this._duration, 1);
@@ -162,16 +252,18 @@ export class Player {
             }
         }
 
-        // Process events in the window [lastProcessedTime, currentElapsed)
+        // === NORMAL EVENT DISPATCH ===
         const currentElapsed = this._audioContext.currentTime - this._startTime;
         const events = this._lane.getEventsInRange(this._lastProcessedTime, currentElapsed);
+        const base = this._getCurrentBase();
+        const activeVoices = this._getCurrentActiveVoices();
 
         for (const event of events) {
-            const syntheticId = SYNTHETIC_POINTER_BASE + event.voiceIndex;
+            const syntheticId = base + event.voiceIndex;
 
             switch (event.type) {
                 case 'start':
-                    this._activeVoices.add(syntheticId);
+                    activeVoices.add(syntheticId);
                     if (this.onDispatch) {
                         this.onDispatch('start', syntheticId, event.params);
                     }
@@ -184,7 +276,7 @@ export class Player {
                     break;
 
                 case 'stop':
-                    this._activeVoices.delete(syntheticId);
+                    activeVoices.delete(syntheticId);
                     if (this.onDispatch) {
                         this.onDispatch('stop', syntheticId);
                     }
@@ -202,13 +294,85 @@ export class Player {
         this._rafId = requestAnimationFrame(this._tick);
     }
 
-    /** @private */
-    _stopAllPlaybackVoices() {
-        if (this.onDispatch) {
-            for (const syntheticId of this._activeVoices) {
+    /**
+     * Pre-start the next iteration by dispatching events from the loop start
+     * region using the next iteration's synthetic IDs. This creates the
+     * crossfade overlap: new voices start producing grains while old voices'
+     * pre-scheduled grains play out.
+     * @private
+     */
+    _preStartNextIteration() {
+        if (!this._lane) return;
+
+        const nextBase = this._getNextBase();
+        const nextVoices = this._getNextActiveVoices();
+        nextVoices.clear();
+
+        // Dispatch events from the first CROSSFADE_WINDOW of the loop
+        const windowEnd = this._loopStart + CROSSFADE_WINDOW;
+        const events = this._lane.getEventsInRange(this._loopStart, windowEnd);
+
+        for (const event of events) {
+            const syntheticId = nextBase + event.voiceIndex;
+
+            switch (event.type) {
+                case 'start':
+                    nextVoices.add(syntheticId);
+                    if (this.onDispatch) {
+                        this.onDispatch('start', syntheticId, event.params);
+                    }
+                    break;
+
+                case 'move':
+                    if (this.onDispatch) {
+                        this.onDispatch('move', syntheticId, event.params);
+                    }
+                    break;
+
+                case 'stop':
+                    nextVoices.delete(syntheticId);
+                    if (this.onDispatch) {
+                        this.onDispatch('stop', syntheticId);
+                    }
+                    break;
+            }
+        }
+    }
+
+    /**
+     * Release voices for an iteration — stops schedulers but lets pre-scheduled
+     * grains play out naturally. Used at loop boundaries for seamless crossfade.
+     * @param {'A'|'B'} iteration
+     * @private
+     */
+    _releaseIterationVoices(iteration) {
+        const voices = iteration === 'A' ? this._activeVoicesA : this._activeVoicesB;
+        if (this.onRelease) {
+            for (const syntheticId of voices) {
+                this.onRelease(syntheticId);
+            }
+        } else if (this.onDispatch) {
+            // Fallback: hard-stop if onRelease is not wired
+            for (const syntheticId of voices) {
                 this.onDispatch('stop', syntheticId);
             }
         }
-        this._activeVoices.clear();
+        voices.clear();
+    }
+
+    /**
+     * Hard-stop voices for an iteration (with gain fade).
+     * Used when stopping playback entirely.
+     * @param {'A'|'B'} iteration
+     * @private
+     */
+    _stopIterationVoices(iteration) {
+        const voices = iteration === 'A' ? this._activeVoicesA : this._activeVoicesB;
+        if (this.onDispatch) {
+            for (const syntheticId of voices) {
+                this.onDispatch('stop', syntheticId);
+            }
+        }
+        voices.clear();
     }
 }

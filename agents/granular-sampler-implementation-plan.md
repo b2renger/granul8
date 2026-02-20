@@ -1154,6 +1154,216 @@ Loop points are arbitrary time positions. If multiple layers loop independently 
 
 ---
 
+### Step 4.5g — Professional Loop Station System [DONE]
+
+Steps 4.5d-f provided basic loop editing and BPM snap, but had critical limitations for professional loop station use:
+
+1. **Audible gap at loop boundary** — Player hard-stopped all voices (`_stopAllPlaybackVoices()`) with a 30ms fade, then restarted from `loopStart` on the next RAF tick (~16ms later), creating a ~46ms audible gap.
+2. **No master clock** — Each tab looped independently with no shared timing reference. Layers drifted.
+3. **No metronome** — No audible or visual timing reference for recording.
+4. **No quantized transport** — Recording started/stopped at arbitrary times, not on beat/bar boundaries.
+5. **No time signature support** — Snap-to-grid assumed quarter-note grid only.
+
+This step replaces/enhances 4.5d-f with a professional-grade loop station system supporting hybrid free-form and loop station modes.
+
+#### 4.5g.1 — MasterClock (`src/audio/MasterClock.js`) [DONE]
+
+**Created** a passive timing calculator anchored to `AudioContext.currentTime`. Does not generate events — provides timing queries.
+
+- Properties: `bpm` (40–300), `numerator` (2–12, beats per bar), `denominator` (4/8/16, beat unit)
+- `_epoch`: reference time marking beat 0 / bar 0 (set when playback or recording begins)
+- Key methods:
+  - `getBeatDuration()` — `(60/bpm) * (4/denominator)` seconds (accounts for different beat units: 4/4 vs 6/8)
+  - `getBarDuration()` — `getBeatDuration() * numerator` seconds
+  - `setEpoch(time)` — anchor the clock
+  - `getBeatPhase(now)` — 0.0–1.0 fraction through current beat (for visual pulse)
+  - `getBeatInBar(now)` — 0-based beat index within bar
+  - `getNextBeatTime(now)` / `getNextBarTime(now)` — next boundary as AudioContext time
+  - `quantizeToBar(time)` / `quantizeToBeat(time)` — snap a time value to grid
+  - `quantizeDurationToBar(duration)` — snap a duration to nearest bar multiple (min 1 bar)
+
+**Modified** `MasterBus.js` — Added `this.clock = new MasterClock(this.audioContext)` in constructor.
+
+**Files:** Created `src/audio/MasterClock.js`, modified `src/audio/MasterBus.js`, `src/main.js`
+
+#### 4.5g.2 — Metronome (`src/audio/Metronome.js`) [DONE]
+
+**Created** an audible click track with count-in support. Uses the same look-ahead scheduling pattern as `GrainScheduler` (100ms ahead, 25ms timer interval) for sample-accurate timing.
+
+- **Audio:** Short oscillator sine bursts (~10ms). Downbeat (beat 0): 1000Hz, amplitude 0.8. Other beats: 800Hz, amplitude 0.4.
+- **Routing:** Dedicated `GainNode` → `masterBus.masterGain`. Own volume (0–1) and mute toggle. Mute silences audio but keeps timer running (visual beat still works).
+- **Count-in:** `startCountIn(callback)` — sets clock epoch to now, plays exactly 1 bar of clicks, then fires callback on the downbeat of the next bar (when recording actually starts).
+- **Visual:** `onBeat(beatIndex, isDownbeat)` callback fires (approximately) on each beat via setTimeout. Transport shows beat dots.
+
+**Modified** `MasterBus.js` — Added `this.metronome = new Metronome(this.audioContext, this.clock, this.masterGain)`.
+
+**Files:** Created `src/audio/Metronome.js`, modified `src/audio/MasterBus.js`
+
+#### 4.5g.3 — Voice Release + Pool Increase [DONE]
+
+**Voice.release()** — New method on `Voice.js` that stops the grain scheduler and sets `active = false`, but does NOT fade the voice gain node. Pre-scheduled grains (up to 100ms look-ahead) continue playing out naturally via their envelopes. This enables seamless crossfade at loop boundaries.
+
+**Pool increase** — `VoiceAllocator.MAX_VOICES` changed from 10 to 14. Accommodates both loop iterations during the ~50ms crossfade overlap window. Most recordings use 3–5 voices, so 14 provides ample headroom.
+
+**Engine release method** — New `GranularEngine.releaseVoice(pointerId)` calls `voice.release()` (scheduler stops, no gain fade) + removes from allocator map + updates voice gains.
+
+**Files:** Modified `src/audio/Voice.js`, `src/input/VoiceAllocator.js`, `src/audio/GranularEngine.js`
+
+#### 4.5g.4 — Player Crossfade Rewrite (`src/automation/Player.js`) [DONE]
+
+Major rewrite of loop boundary logic to eliminate the audible gap.
+
+**Crossfade mechanism — Ping-pong A/B iterations:**
+- Two alternating synthetic ID ranges: Iteration A uses IDs 1000–1013, Iteration B uses IDs 2000–2013.
+- Crossfade window: 50ms before loop end.
+
+**Flow:**
+1. Normal playback dispatches events using the current iteration's IDs.
+2. When `elapsed >= loopEnd - 50ms` and not already crossfading:
+   - Set `_crossfadeStarted = true`.
+   - Call `_preStartNextIteration(loopStart)` — dispatches 'start' events from the first 50ms of the loop using the NEXT iteration's IDs. New voices begin scheduling grains immediately.
+3. When `elapsed >= loopEnd`:
+   - Call `_releaseIterationVoices(currentIteration)` — calls `engine.releaseVoice()` (not `stopVoice()`) on all old iteration voices. Schedulers stop, but pre-scheduled grains play out naturally.
+   - Swap `_currentIteration` ('A' ↔ 'B').
+   - Reset `_startTime` and `_lastProcessedTime` to `loopStart`.
+   - Clear `_crossfadeStarted`.
+4. Next frame: normal event dispatch continues with the new iteration.
+
+**Result:** During the 50ms overlap, both old grains (playing out their envelopes) and new grains (freshly scheduled) coexist. No audible gap.
+
+**Loop station mode sync:** New `setLoopStationMode(enabled, clock)` method. When enabled + looping, loop restart aligns `_startTime` to the master clock's bar grid via `clock.quantizeToBar()`, ensuring all layers restart on the same global bar boundary.
+
+**New callback:** `onRelease(syntheticId)` — for releasing voices without gain fade (wired to `engine.releaseVoice()`).
+
+**Files:** Modified `src/automation/Player.js`, `src/state/InstanceManager.js` (wired `player.onRelease` in `createInstance()` and `restoreFromSession()`)
+
+#### 4.5g.5 — Transport UI Additions [DONE]
+
+**Modified `index.html`** — Added to transport area:
+- **Loop station toggle button** (`#btn-loop-station`) — "LS" label, accent color when active.
+- **Time signature controls** — Two `<select>` dropdowns: numerator (2–12, default 4) and denominator (4/8/16, default 4).
+- **Metronome controls** — Toggle button, volume slider (0–1), mute button.
+- **Beat indicator** (`#beat-indicator`) — Container for beat dots, populated by JS based on numerator.
+
+**Modified `TransportBar.js`:**
+- New transport state: `'count-in'` (between armed and recording).
+- `updateBeatIndicator(numBeats)` — creates N dot divs, first dot marked as downbeat.
+- `highlightBeat(beatIndex)` — toggles `.active` class on the correct dot.
+- `clearBeatIndicator()` — removes all `.active` classes.
+- `_updateButtons()` handles `'count-in'` state (same visual as armed).
+
+**Modified `style.css`:** Styles for `.loop-station-btn`, `.time-sig-control`, `.metronome-control`, `.metronome-btn`, `.metronome-mute-btn`, `.beat-indicator`, `.beat-dot`.
+
+**Files:** Modified `index.html`, `src/ui/TransportBar.js`, `style.css`
+
+#### 4.5g.6 — Main.js Wiring (All Components) [DONE]
+
+Central integration of all new loop station components in `main.js`:
+
+- **BPM sync:** BPM slider and tap tempo now also set `masterBus.clock.bpm`.
+- **Time signature:** `#time-sig-num` and `#time-sig-den` change events set `masterBus.clock.numerator/denominator` and update beat indicator.
+- **Metronome:** Toggle, mute, and volume controls wired to `masterBus.metronome`. `onBeat` callback fires `transport.highlightBeat()`.
+- **Loop station mode toggle:** `loopStationMode` boolean state. On toggle: updates all instance players via `player.setLoopStationMode(enabled, masterBus.clock)`.
+- **Modified record flow:**
+  - Loop station + metronome enabled: Click Record → `transport.setState('count-in')` → `masterBus.metronome.startCountIn(callback)` → callback fires on downbeat → `recorder.startRecording()` → `transport.setState('recording')`.
+  - Loop station + metronome disabled: Click Record → set epoch, `transport.setState('armed')` → first touch starts recording.
+  - Free mode (no loop station): Unchanged arm-to-record flow.
+- **Modified stop-recording flow:** In loop station mode, snaps recording duration to nearest bar boundary via `masterBus.clock.quantizeDurationToBar()`, auto-sets loop range to `[0, snappedDuration]`.
+- **Enhanced loop snap:** `transport.onLoopRangeChange` now snaps to bar boundaries (using `masterBus.clock.getBarDuration()`) in loop station mode, and to beat-level grid in free mode with snap.
+- **New instances** receive loop station mode configuration.
+
+**Files:** Modified `src/main.js`
+
+#### 4.5g.7 — Session Serialization (Loop Station State) [DONE]
+
+**Modified `SessionSerializer.js`:**
+- Session version bumped to 2.
+- New fields: `timeSignature: {numerator, denominator}`, `metronome: {enabled, volume, muted}`, `loopStationMode`.
+- Backward compatible: missing fields default to 4/4, metronome off, loop station off.
+
+**Modified `main.js`:**
+- New `getLoopStationState()` helper gathers current loop station state for serialization.
+- Both `serializeSession()` calls (auto-save and export) pass loop station state.
+- New `restoreLoopStationState(data)` function restores time signature (clock + UI selects + beat indicator), metronome state (enabled flag + button classes + volume + mute), and loop station mode (flag + button class).
+- Both `initializeSession()` and `importSessionFromFile()` call `restoreLoopStationState()` after await (to avoid TDZ issues) and apply loop station mode to all restored players.
+- BPM now syncs to `masterBus.clock.bpm` on both session restore and import.
+
+**Files:** Modified `src/state/SessionSerializer.js`, `src/main.js`
+
+#### Loop Station Files Summary
+
+| File | Action | Sub-step |
+|------|--------|----------|
+| `src/audio/MasterClock.js` | Created | 4.5g.1 |
+| `src/audio/Metronome.js` | Created | 4.5g.2 |
+| `src/audio/MasterBus.js` | Modified (added clock + metronome) | 4.5g.1, 4.5g.2 |
+| `src/audio/Voice.js` | Modified (added `release()`) | 4.5g.3 |
+| `src/input/VoiceAllocator.js` | Modified (10 → 14 voices) | 4.5g.3 |
+| `src/audio/GranularEngine.js` | Modified (added `releaseVoice()`) | 4.5g.3 |
+| `src/automation/Player.js` | Modified (crossfade rewrite) | 4.5g.4 |
+| `src/state/InstanceManager.js` | Modified (wired `onRelease`) | 4.5g.4 |
+| `src/ui/TransportBar.js` | Modified (count-in state, beat indicator) | 4.5g.5 |
+| `index.html` | Modified (loop station UI elements) | 4.5g.5 |
+| `style.css` | Modified (loop station styles) | 4.5g.5 |
+| `src/main.js` | Modified (central wiring + session restore) | 4.5g.6, 4.5g.7 |
+| `src/state/SessionSerializer.js` | Modified (version 2, new fields) | 4.5g.7 |
+
+#### Signal Flow (Loop Station)
+
+```
+Metronome (count-in clicks)
+    ↓ (GainNode with mute)
+    ↓
+MasterClock (passive timing) ← BPM slider / tap tempo / time sig selects
+    ↓ (provides timing queries)
+    ↓
+Player (crossfade A/B iterations)
+    ↓ onRelease → engine.releaseVoice() (scheduler stops, grains play out)
+    ↓ onDispatch → engine.startVoice() / updateVoice() / stopVoice()
+    ↓
+GranularEngine → instanceGain → masterGain → limiter → destination
+```
+
+**Deliverable:** Seamless gapless looping via 50ms crossfade overlap. Master clock keeps all layers in phase. Metronome with count-in provides timing reference. Configurable time signature (2–12 / 4/8/16). Loop boundaries snap to bar grid. Full session persistence of loop station state.
+
+---
+
+### Step 4.5h — Per-Tab Loop Station Mode with Forced Sync [DONE]
+
+Loop station mode was a global boolean applied to all tabs simultaneously. This was wrong — each tab should independently be either a loop station layer or a free-form instrument. The default should be loop station mode (not free), and when in loop station mode, sync must be forced.
+
+**What was implemented:**
+
+1. **Per-instance state** — Added `loopStationMode = true` to `InstanceState.js` constructor. Default is loop station ON. Serialized per-instance via `toJSON()`. Old sessions without the field get the new default `true` via `Object.assign` in `fromJSON()`.
+
+2. **Removed global variable** — Deleted `let loopStationMode = false` from `main.js`. All ~10 references replaced with `active.state.loopStationMode` or `entry.state.loopStationMode`.
+
+3. **Per-tab LS button** — The `#btn-loop-station` now toggles only the active tab's `state.loopStationMode` and calls `player.setLoopStationMode()` on that tab's player only.
+
+4. **`applyLoopStationUI(enabled)` helper** — Central function that updates all mode-dependent UI:
+   - When enabled (loop station): forces `transport.looping = true`, locks loop button (`loopBtn.disabled = true`, `.loop-forced` class), locks snap button (`.snap-forced` class).
+   - When disabled (free mode): unlocks loop and snap buttons, re-evaluates transport button states.
+   - Called on: LS button toggle, tab switch, tab add, session restore, session import, initial module load.
+
+5. **Tab-aware switching** — `onSwitch` callback calls `applyLoopStationUI(active.state.loopStationMode)` after switching. `onAdd` applies per-instance mode to the new tab's player.
+
+6. **Force sync in loop station mode**:
+   - Loop is always ON (button locked, can't be toggled off).
+   - Bar-aligned snapping is always active (snap button locked).
+   - Play flow forces `transport.looping = true` before starting playback.
+   - Recording auto-snaps to bar duration on stop.
+   - Count-in with metronome if enabled.
+
+7. **Session serialization updated** — Removed `loopStationMode` from session-level output in `SessionSerializer.js`. It's now per-instance via `InstanceState.toJSON()`. Backward compatible: old sessions without per-instance field get constructor default `true`.
+
+8. **CSS** — Added `.loop-forced` and `.snap-forced` styles (`opacity: 0.5; pointer-events: none`) to dim and lock buttons when loop station mode forces them on.
+
+**Files:** `src/state/InstanceState.js`, `src/main.js`, `src/state/SessionSerializer.js`, `style.css`
+
+**Deliverable:** Each tab independently toggles between loop station mode (default, with forced sync) and free mode. Loop station tabs have loop always on and bar snap always active. Free mode tabs have full control over loop and snap toggles.
+
+---
+
 ### Step 4.6 — Ghost Visualization
 
 Show recorded gestures as visual traces during playback.
@@ -1223,7 +1433,7 @@ Persist recordings for later use.
 | **Phase 1** | 1.1 – 1.10 | Single-voice granular sampler with waveform display, parameter controls, clean audio | COMPLETE |
 | **Phase 2** | 2.1 – 2.9 | Multi-touch support (10 voices), per-voice visuals, musical quantization, mobile polish | COMPLETE |
 | **Phase 3** | 3.1 – 3.9 | Multi-instance architecture with tab UI, arpeggiator, session persistence | COMPLETE |
-| **Phase 4** | 4.1 – 4.9 | Gesture recording, per-instance isolation, loop editing, playback, overdub, ghost visualization, save/load | **IN PROGRESS** (4.1–4.5f done, 4.6 next) |
+| **Phase 4** | 4.1 – 4.9 | Gesture recording, per-instance isolation, loop editing, loop station, playback, overdub, ghost visualization, save/load | **IN PROGRESS** (4.1–4.5h done, 4.6 next) |
 
 ---
 

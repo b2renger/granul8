@@ -9,9 +9,11 @@
 <body>
     <div id="audio-unlock-overlay">
         <div class="unlock-content">
+            <h1 class="unlock-title">Granul8</h1>
+            <p class="unlock-description">A granular sampler and loopstation<br>for the web and multitouch devices</p>
             <div class="unlock-icon"></div>
             <div class="unlock-text">Tap to start</div>
-            <div class="unlock-hint">Audio requires a user gesture</div>
+            <div class="unlock-credits">All sounds from <a href="https://freemusicarchive.org/home" target="_blank" rel="noopener">Free Music Archive</a></div>
         </div>
     </div>
 
@@ -27,6 +29,9 @@
                     <option value="samples/PulseBox - Smooth Jazz.mp3">PulseBox — Smooth Jazz</option>
                     <option value="samples/Jangwa - chiara's birthday.mp3">Jangwa — Chiara's Birthday</option>
                     <option value="samples/The Derek Piotr Fieldwork Archive - Till the Clouds Rolled By.mp3">Derek Piotr Fieldwork — Till the Clouds Rolled By</option>
+                    <option value="samples/Ketsa - You da Bossa.mp3">Ketsa — You da Bossa</option>
+                    <option value="samples/Samuel Corwin - Tibetan Monks Chanting at Gyuto Branch Monastery House No. 422, McLeod Ganj.mp3">Samuel Corwin — Tibetan Monks Chanting</option>
+                    <option value="samples/Veena Kinhal - Haratanaya Sree.mp3">Veena Kinhal — Haratanaya Sree</option>
                 </select>
                 <button id="load-sample-btn" type="button">Load File</button>
                 <input type="file" id="file-input" accept="audio/*" hidden>
@@ -76,6 +81,34 @@
                 <button id="btn-snap-grid" type="button" title="Snap loop to BPM grid" class="snap-btn">
                     <span class="snap-icon">⊞</span>
                 </button>
+                <button id="btn-loop-station" type="button" title="Loop station mode (bar-aligned sync)" class="loop-station-btn">LS</button>
+                <div id="time-sig-control" class="time-sig-control">
+                    <select id="time-sig-num" title="Beats per bar">
+                        <option value="2">2</option>
+                        <option value="3">3</option>
+                        <option value="4" selected>4</option>
+                        <option value="5">5</option>
+                        <option value="6">6</option>
+                        <option value="7">7</option>
+                        <option value="8">8</option>
+                        <option value="9">9</option>
+                        <option value="10">10</option>
+                        <option value="11">11</option>
+                        <option value="12">12</option>
+                    </select>
+                    <span class="time-sig-slash">/</span>
+                    <select id="time-sig-den" title="Beat unit">
+                        <option value="4" selected>4</option>
+                        <option value="8">8</option>
+                        <option value="16">16</option>
+                    </select>
+                </div>
+                <div id="metronome-control" class="metronome-control">
+                    <button id="btn-metronome" type="button" title="Toggle metronome click" class="metronome-btn">♩</button>
+                    <input type="range" id="metronome-volume" min="0" max="1" value="0.5" step="0.01" title="Metronome volume">
+                    <button id="btn-metronome-mute" type="button" title="Mute metronome" class="metronome-mute-btn">M</button>
+                </div>
+                <div id="beat-indicator" class="beat-indicator"></div>
                 <div id="level-meter" title="Output Level">
                     <div class="level-meter-fill"></div>
                 </div>

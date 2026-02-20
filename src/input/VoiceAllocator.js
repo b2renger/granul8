@@ -3,8 +3,10 @@
 
 import { Voice } from '../audio/Voice.js';
 
-/** Default maximum simultaneous voices (10 fingers). */
-const MAX_VOICES = 10;
+/** Default maximum simultaneous voices.
+ *  14 accommodates crossfade overlap at loop boundaries
+ *  (two iterations of up to ~7 voices can coexist briefly). */
+const MAX_VOICES = 14;
 
 export class VoiceAllocator {
     /**

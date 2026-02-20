@@ -149,6 +149,21 @@ export class Voice {
     }
 
     /**
+     * Release the voice — stop scheduling new grains but let existing
+     * pre-scheduled grains play out naturally through their envelopes.
+     * Does NOT fade the voice gain to zero.
+     * Used for crossfade overlap at loop boundaries in the Player.
+     */
+    release() {
+        this.active = false;
+        this.scheduler.stop();
+        // Gain node is left at its current value.
+        // Pre-scheduled grains (up to 100ms look-ahead) continue through
+        // their envelopes and fade naturally. After the look-ahead window
+        // expires, the voice goes silent as the last grains finish.
+    }
+
+    /**
      * Set the source AudioBuffer.
      * @param {AudioBuffer} buffer
      */

@@ -72,6 +72,7 @@ function getMasterBpm() {
 
 bpmSlider.addEventListener('input', () => {
     bpmDisplay.textContent = bpmSlider.value;
+    masterBus.clock.bpm = parseInt(bpmSlider.value, 10);
     // Refresh quantized displays in the panel
     params.refreshQuantizedDisplays();
     if (persistence) persistence.scheduleSave();
@@ -94,6 +95,7 @@ tapTempoBtn.addEventListener('click', () => {
         const clamped = Math.max(40, Math.min(300, bpm));
         bpmSlider.value = clamped;
         bpmDisplay.textContent = clamped;
+        masterBus.clock.bpm = clamped;
         params.refreshQuantizedDisplays();
         if (persistence) persistence.scheduleSave();
     }
@@ -454,10 +456,11 @@ const tabBar = new TabBar(
                 transport.resetDisplay();
             }
 
-            // Update sample display
+            // Update sample display and loop station UI
             if (active) {
                 sampleNameEl.textContent = active.state.sampleDisplayName;
                 sampleSelect.value = active.state.sampleUrl || '';
+                applyLoopStationUI(active.state.loopStationMode);
             }
         },
         onClose(id) {
@@ -474,6 +477,12 @@ const tabBar = new TabBar(
         },
         onAdd() {
             const id = instanceManager.createInstance();
+            // Apply per-instance loop station mode to the new instance's player
+            const entry = instanceManager.instances.get(id);
+            if (entry) {
+                entry.player.setLoopStationMode(entry.state.loopStationMode, masterBus.clock);
+                applyLoopStationUI(entry.state.loopStationMode);
+            }
             instanceManager.switchTo(id);
             sampleNameEl.textContent = 'No sample loaded';
             sampleSelect.value = '';
@@ -545,8 +554,24 @@ sampleSelect.addEventListener('change', () => {
 
 const bundledSampleUrls = getBundledSampleUrls(sampleSelect);
 
+/** Gather current global loop station state for session serialization. */
+function getLoopStationState() {
+    return {
+        timeSignature: {
+            numerator: masterBus.clock.numerator,
+            denominator: masterBus.clock.denominator,
+        },
+        metronome: {
+            enabled: metronomeEnabled,
+            volume: masterBus.metronome.volume,
+            muted: masterBus.metronome.muted,
+        },
+        // loopStationMode is now per-instance (in InstanceState), not global
+    };
+}
+
 persistence = new SessionPersistence(
-    () => serializeSession(instanceManager, params, getMasterBpm(), parseFloat(masterVolumeSlider.value))
+    () => serializeSession(instanceManager, params, getMasterBpm(), parseFloat(masterVolumeSlider.value), getLoopStationState())
 );
 
 /**
@@ -582,6 +607,33 @@ function markSampleMissing(state, entry) {
     }
 }
 
+/**
+ * Restore global loop station state (time signature, metronome) from session data.
+ * Loop station mode is now per-instance (stored in InstanceState).
+ * Must be called after all module-level variables are initialized (i.e., after an await in async init).
+ * @param {Object} data - Validated session data
+ */
+function restoreLoopStationState(data) {
+    // Restore time signature (default 4/4 for backward compatibility)
+    const ts = data.timeSignature || { numerator: 4, denominator: 4 };
+    masterBus.clock.numerator = ts.numerator;
+    masterBus.clock.denominator = ts.denominator;
+    timeSigNum.value = ts.numerator;
+    timeSigDen.value = ts.denominator;
+    transport.updateBeatIndicator(ts.numerator);
+
+    // Restore metronome state (default off for backward compatibility)
+    const met = data.metronome || { enabled: false, volume: 0.5, muted: false };
+    metronomeEnabled = met.enabled;
+    metronomeBtn.classList.toggle('active', metronomeEnabled);
+    masterBus.metronome.setVolume(met.volume ?? 0.5);
+    metronomeVolSlider.value = met.volume ?? 0.5;
+    masterBus.metronome.setMuted(met.muted ?? false);
+    metronomeMuteBtn.classList.toggle('active', met.muted ?? false);
+
+    // loopStationMode is now per-instance — restored via InstanceState.fromJSON()
+}
+
 function createDefaultSession() {
     instanceManager.createInstance('Sampler 1');
     tabBar.render(instanceManager.getTabList());
@@ -603,6 +655,7 @@ async function initializeSession() {
             const savedBpm = validation.data.masterBpm || 120;
             bpmSlider.value = savedBpm;
             bpmDisplay.textContent = savedBpm;
+            masterBus.clock.bpm = savedBpm;
 
             // Restore master volume from session (default 0.7 for backward compatibility)
             const savedMasterVol = validation.data.masterVolume ?? 0.7;
@@ -613,10 +666,19 @@ async function initializeSession() {
             await instanceManager.restoreFromSession(validation.data, restoreSampleForInstance);
             tabBar.render(instanceManager.getTabList());
 
+            // Restore global state (after await so all module vars are initialized)
+            restoreLoopStationState(validation.data);
+
+            // Apply per-instance loop station mode to all restored players
+            for (const [, entry] of instanceManager.instances) {
+                entry.player.setLoopStationMode(entry.state.loopStationMode, masterBus.clock);
+            }
+
             const active = instanceManager.getActive();
             if (active) {
                 sampleNameEl.textContent = active.state.sampleDisplayName;
                 sampleSelect.value = active.state.sampleUrl || '';
+                applyLoopStationUI(active.state.loopStationMode);
             }
 
             showNotification('Session restored');
@@ -641,7 +703,7 @@ const importBtn = document.getElementById('session-import-btn');
 const importInput = document.getElementById('session-import-input');
 
 exportBtn.addEventListener('click', () => {
-    const session = serializeSession(instanceManager, params, getMasterBpm(), parseFloat(masterVolumeSlider.value));
+    const session = serializeSession(instanceManager, params, getMasterBpm(), parseFloat(masterVolumeSlider.value), getLoopStationState());
     exportSessionFile(session);
     showNotification('Session exported');
 });
@@ -681,6 +743,7 @@ async function importSessionFromFile(file) {
         const importedBpm = validation.data.masterBpm || 120;
         bpmSlider.value = importedBpm;
         bpmDisplay.textContent = importedBpm;
+        masterBus.clock.bpm = importedBpm;
 
         // Restore master volume from imported session
         const importedMasterVol = validation.data.masterVolume ?? 0.7;
@@ -691,10 +754,19 @@ async function importSessionFromFile(file) {
         await instanceManager.restoreFromSession(validation.data, restoreSampleForInstance);
         tabBar.render(instanceManager.getTabList());
 
+        // Restore global state (time signature, metronome)
+        restoreLoopStationState(validation.data);
+
+        // Apply per-instance loop station mode to all restored players
+        for (const [, entry] of instanceManager.instances) {
+            entry.player.setLoopStationMode(entry.state.loopStationMode, masterBus.clock);
+        }
+
         const active = instanceManager.getActive();
         if (active) {
             sampleNameEl.textContent = active.state.sampleDisplayName;
             sampleSelect.value = active.state.sampleUrl || '';
+            applyLoopStationUI(active.state.loopStationMode);
         }
 
         persistence.enable();
@@ -781,16 +853,53 @@ transport.onRecord = () => {
         // Stop recording
         active.recorder.stopRecording();
         recorderPointerMap.clear();
+
+        // In loop station mode, snap recording duration to nearest bar
+        if (active.state.loopStationMode) {
+            const recDuration = active.recorder.getElapsedTime();
+            const snappedDuration = masterBus.clock.quantizeDurationToBar(recDuration);
+            active.player.setLoopRange(0, snappedDuration);
+            transport.setLoopRange(0, 1);
+        }
+
+        if (metronomeEnabled) {
+            masterBus.metronome.stop();
+            transport.clearBeatIndicator();
+        }
         transport.setState('idle');
         transport.setHasRecording(active.recorder.getRecording().length > 0);
-    } else if (transport.state === 'armed') {
-        // Disarm (toggle off)
+    } else if (transport.state === 'armed' || transport.state === 'count-in') {
+        // Cancel arm or count-in
+        if (metronomeEnabled) {
+            masterBus.metronome.stop();
+            transport.clearBeatIndicator();
+        }
         transport.setState('idle');
         transport.setHasRecording(active.recorder.getRecording().length > 0);
     } else {
-        // Arm recording — actual recording starts on first touch
+        // Arm recording
         if (active.player.isPlaying) active.player.stop();
-        transport.setState('armed');
+
+        if (active.state.loopStationMode && metronomeEnabled) {
+            // Count-in: play 1 bar of clicks, then start recording on the downbeat
+            masterBus.resume();
+            transport.setState('count-in');
+            masterBus.metronome.startCountIn(() => {
+                // Count-in complete — start recording on the downbeat
+                const stillActive = instanceManager.getActive();
+                if (stillActive && transport.state === 'count-in') {
+                    stillActive.recorder.startRecording();
+                    transport.setState('recording');
+                }
+            });
+        } else if (active.state.loopStationMode) {
+            // No metronome but loop station mode: set epoch and arm
+            masterBus.clock.setEpoch(masterBus.audioContext.currentTime);
+            transport.setState('armed');
+        } else {
+            // Free-form mode: traditional arm
+            transport.setState('armed');
+        }
     }
 };
 
@@ -800,8 +909,15 @@ transport.onPlay = () => {
     const lane = active.recorder.getRecording();
     if (lane.length === 0) return;
     masterBus.resume();
+    // In loop station mode, always play with loop enabled
+    if (active.state.loopStationMode) transport.looping = true;
     active.player.play(lane, transport.looping);
     transport.setState('playing');
+    // Start metronome during playback if enabled
+    if (metronomeEnabled && active.state.loopStationMode && !masterBus.metronome.running) {
+        masterBus.clock.setEpoch(masterBus.audioContext.currentTime);
+        masterBus.metronome.start();
+    }
 };
 
 transport.onStop = () => {
@@ -812,6 +928,11 @@ transport.onStop = () => {
     }
     if (active?.player.isPlaying) {
         active.player.stop();
+    }
+    // Stop metronome if running
+    if (masterBus.metronome.running) {
+        masterBus.metronome.stop();
+        transport.clearBeatIndicator();
     }
     transport.setState('idle');
     transport.setHasRecording(active?.recorder.getRecording().length > 0);
@@ -831,6 +952,109 @@ snapBtn.addEventListener('click', () => {
     snapBtn.classList.toggle('snap-active', loopSnapToGrid);
 });
 
+// --- Loop station mode toggle (per-tab) ---
+const loopStationBtn = document.getElementById('btn-loop-station');
+const loopBtn = document.getElementById('btn-loop');
+
+/**
+ * Update UI to reflect the active tab's loop station mode.
+ * Forces loop ON and snap locked when in loop station mode.
+ * @param {boolean} enabled
+ */
+function applyLoopStationUI(enabled) {
+    loopStationBtn.classList.toggle('active', enabled);
+
+    if (enabled) {
+        // Force loop ON and lock the button
+        transport.looping = true;
+        transport._updateLoopVisual();
+        loopBtn.disabled = true;
+        loopBtn.classList.add('loop-forced');
+
+        // Force snap locked
+        snapBtn.disabled = true;
+        snapBtn.classList.add('snap-forced');
+    } else {
+        // Unlock loop button
+        loopBtn.classList.remove('loop-forced');
+        transport._updateButtons(); // re-evaluates disabled state
+
+        // Unlock snap button
+        snapBtn.disabled = false;
+        snapBtn.classList.remove('snap-forced');
+    }
+}
+
+loopStationBtn.addEventListener('click', () => {
+    const active = instanceManager.getActive();
+    if (!active) return;
+    active.state.loopStationMode = !active.state.loopStationMode;
+    active.player.setLoopStationMode(active.state.loopStationMode, masterBus.clock);
+    applyLoopStationUI(active.state.loopStationMode);
+    if (persistence) persistence.scheduleSave();
+});
+
+// Apply initial loop station UI for the active tab (handles default session + async restore)
+{
+    const active = instanceManager.getActive();
+    if (active) {
+        active.player.setLoopStationMode(active.state.loopStationMode, masterBus.clock);
+        applyLoopStationUI(active.state.loopStationMode);
+    }
+}
+
+// --- Time signature controls ---
+const timeSigNum = document.getElementById('time-sig-num');
+const timeSigDen = document.getElementById('time-sig-den');
+
+timeSigNum.addEventListener('change', () => {
+    const num = parseInt(timeSigNum.value, 10);
+    masterBus.clock.numerator = num;
+    transport.updateBeatIndicator(num);
+    if (persistence) persistence.scheduleSave();
+});
+
+timeSigDen.addEventListener('change', () => {
+    masterBus.clock.denominator = parseInt(timeSigDen.value, 10);
+    if (persistence) persistence.scheduleSave();
+});
+
+// Initialize beat indicator with default time signature
+transport.updateBeatIndicator(masterBus.clock.numerator);
+
+// --- Metronome controls ---
+let metronomeEnabled = false;
+const metronomeBtn = document.getElementById('btn-metronome');
+const metronomeMuteBtn = document.getElementById('btn-metronome-mute');
+const metronomeVolSlider = document.getElementById('metronome-volume');
+
+metronomeBtn.addEventListener('click', () => {
+    metronomeEnabled = !metronomeEnabled;
+    metronomeBtn.classList.toggle('active', metronomeEnabled);
+    if (!metronomeEnabled) {
+        masterBus.metronome.stop();
+        transport.clearBeatIndicator();
+    }
+    if (persistence) persistence.scheduleSave();
+});
+
+metronomeMuteBtn.addEventListener('click', () => {
+    const muted = !masterBus.metronome.muted;
+    masterBus.metronome.setMuted(muted);
+    metronomeMuteBtn.classList.toggle('active', muted);
+    if (persistence) persistence.scheduleSave();
+});
+
+metronomeVolSlider.addEventListener('input', () => {
+    masterBus.metronome.setVolume(parseFloat(metronomeVolSlider.value));
+    if (persistence) persistence.scheduleSave();
+});
+
+// Visual beat callback
+masterBus.metronome.onBeat = (beatIndex, isDownbeat) => {
+    transport.highlightBeat(beatIndex);
+};
+
 transport.onLoopRangeChange = (startFrac, endFrac) => {
     const active = instanceManager.getActive();
     if (!active?.player) return;
@@ -840,14 +1064,19 @@ transport.onLoopRangeChange = (startFrac, endFrac) => {
     let loopStart = startFrac * duration;
     let loopEnd = endFrac * duration;
 
-    // Snap to BPM grid when enabled
-    if (loopSnapToGrid) {
-        const bpm = getMasterBpm();
-        loopStart = quantizeTimeToGrid(loopStart, bpm);
-        loopEnd = quantizeTimeToGrid(loopEnd, bpm);
-        // Ensure minimum loop length of one beat
-        if (loopEnd <= loopStart) {
-            loopEnd = loopStart + (60 / bpm);
+    if (loopSnapToGrid || active.state.loopStationMode) {
+        if (active.state.loopStationMode) {
+            // Snap to bar boundaries using the master clock
+            const barDur = masterBus.clock.getBarDuration();
+            loopStart = Math.round(loopStart / barDur) * barDur;
+            loopEnd = Math.round(loopEnd / barDur) * barDur;
+            if (loopEnd <= loopStart) loopEnd = loopStart + barDur;
+        } else {
+            // Original beat-grid snap
+            const bpm = getMasterBpm();
+            loopStart = quantizeTimeToGrid(loopStart, bpm);
+            loopEnd = quantizeTimeToGrid(loopEnd, bpm);
+            if (loopEnd <= loopStart) loopEnd = loopStart + (60 / bpm);
         }
         // Update handle positions to reflect snapped values
         transport.setLoopRange(loopStart / duration, loopEnd / duration);

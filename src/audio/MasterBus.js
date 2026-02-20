@@ -1,6 +1,9 @@
 // MasterBus.js — Shared AudioContext and master output chain.
 // All engine instances connect their output to masterBus.masterGain.
 
+import { MasterClock } from './MasterClock.js';
+import { Metronome } from './Metronome.js';
+
 export class MasterBus {
     constructor() {
         /** @type {AudioContext} */
@@ -32,6 +35,12 @@ export class MasterBus {
         this.limiter.connect(this.softClipper);
         this.softClipper.connect(this.analyser);
         this.analyser.connect(this.audioContext.destination);
+
+        // Master clock for loop station timing
+        this.clock = new MasterClock(this.audioContext);
+
+        // Metronome with dedicated gain (separate volume/mute)
+        this.metronome = new Metronome(this.audioContext, this.clock, this.masterGain);
     }
 
     /**

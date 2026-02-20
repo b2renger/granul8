@@ -461,6 +461,118 @@ html, body {
     color: var(--accent);
 }
 
+/* Loop station toggle */
+.loop-station-btn {
+    font-size: 11px;
+    font-weight: bold;
+    opacity: 0.5;
+    padding: 2px 5px;
+    letter-spacing: 0.5px;
+}
+
+.loop-station-btn.active {
+    opacity: 1;
+    background: var(--accent);
+    color: var(--bg-primary);
+    border-color: var(--accent);
+}
+
+/* Forced/locked state for loop and snap buttons when loop station mode is active */
+.loop-forced,
+.snap-forced {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+/* Time signature controls */
+.time-sig-control {
+    display: flex;
+    align-items: center;
+    gap: 1px;
+    font-size: 12px;
+}
+
+.time-sig-control select {
+    width: 36px;
+    padding: 1px 2px;
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.time-sig-slash {
+    color: var(--text-secondary);
+    font-size: 13px;
+    margin: 0 1px;
+}
+
+/* Metronome controls */
+.metronome-control {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+}
+
+.metronome-btn {
+    font-size: 14px;
+    opacity: 0.5;
+    padding: 2px 6px;
+}
+
+.metronome-btn.active {
+    opacity: 1;
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+#metronome-volume {
+    width: 50px;
+}
+
+.metronome-mute-btn {
+    font-size: 10px;
+    font-weight: bold;
+    opacity: 0.5;
+    padding: 2px 4px;
+}
+
+.metronome-mute-btn.active {
+    opacity: 1;
+    color: var(--accent-warm);
+    border-color: var(--accent-warm);
+}
+
+/* Beat indicator */
+.beat-indicator {
+    display: flex;
+    gap: 3px;
+    align-items: center;
+    padding: 0 4px;
+    min-width: 40px;
+}
+
+.beat-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    transition: background 0.05s, border-color 0.05s;
+}
+
+.beat-dot.active {
+    background: var(--accent);
+    border-color: var(--accent);
+}
+
+.beat-dot.downbeat.active {
+    background: var(--accent-warm, var(--accent));
+    border-color: var(--accent-warm, var(--accent));
+}
+
 /* Transport progress bar */
 #transport-progress {
     flex: 1;

@@ -47,6 +47,9 @@ export class InstanceState {
         this.arpCustomPattern = null; // null = use permutation, or { values: number[], muted: boolean[] }
         this.pitchRange = 2;
 
+        // --- Loop station mode (per-instance) ---
+        this.loopStationMode = true;
+
         // --- ADSR envelope state ---
         this.adsr = { a: 0.2, d: 0.15, s: 0.7, r: 0.2 };
     }

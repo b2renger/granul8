@@ -125,6 +125,21 @@ export class GranularEngine {
     }
 
     /**
+     * Release the voice mapped to the given pointer ID.
+     * Stops scheduling new grains but lets existing pre-scheduled grains
+     * play out naturally. Used for crossfade overlap at loop boundaries.
+     * @param {number} pointerId
+     */
+    releaseVoice(pointerId) {
+        const voice = this._allocator.getVoice(pointerId);
+        if (voice) {
+            voice.release();
+            this._allocator._pointerMap.delete(pointerId);
+            this._updateVoiceGains();
+        }
+    }
+
+    /**
      * Stop all active voices.
      */
     stopAllVoices() {
