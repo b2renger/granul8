@@ -1179,12 +1179,28 @@ html, body {
 #audio-unlock-overlay .unlock-content {
     text-align: center;
     color: var(--text-primary);
+    padding: 0 24px;
+}
+
+#audio-unlock-overlay .unlock-title {
+    font-size: 48px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    margin: 0 0 12px;
+    color: var(--accent);
+}
+
+#audio-unlock-overlay .unlock-description {
+    font-size: 18px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+    margin: 0 0 32px;
 }
 
 #audio-unlock-overlay .unlock-icon {
-    width: 64px;
-    height: 64px;
-    margin: 0 auto 16px;
+    width: 72px;
+    height: 72px;
+    margin: 0 auto 20px;
     border: 3px solid var(--accent);
     border-radius: 50%;
     display: flex;
@@ -1198,21 +1214,27 @@ html, body {
     width: 0;
     height: 0;
     border-style: solid;
-    border-width: 12px 0 12px 20px;
+    border-width: 14px 0 14px 24px;
     border-color: transparent transparent transparent var(--accent);
     margin-left: 4px;
 }
 
 #audio-unlock-overlay .unlock-text {
-    font-size: 16px;
+    font-size: 20px;
     font-weight: 500;
     letter-spacing: 0.02em;
 }
 
-#audio-unlock-overlay .unlock-hint {
-    font-size: 12px;
+#audio-unlock-overlay .unlock-credits {
+    font-size: 14px;
     color: var(--text-secondary);
-    margin-top: 6px;
+    margin-top: 32px;
+    opacity: 0.6;
+}
+
+#audio-unlock-overlay .unlock-credits a {
+    color: var(--accent);
+    text-decoration: underline;
 }
 
 /* === Arp Style Navigator === */
