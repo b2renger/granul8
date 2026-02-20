@@ -1556,6 +1556,19 @@ Comprehensive code review and bug-fix pass across all Phase 4 systems.
 | **Phase 2** | 2.1 – 2.9 | Multi-touch support (10 voices), per-voice visuals, musical quantization, mobile polish | COMPLETE |
 | **Phase 3** | 3.1 – 3.9 | Multi-instance architecture with tab UI, arpeggiator, session persistence | COMPLETE |
 | **Phase 4** | 4.1 – 4.9 | Gesture recording, per-instance isolation, loop editing, loop station, playback, overdub, ghost visualization, BPM/subdivision reorganization, fixed-length recording, save/load | **COMPLETE** |
+| **Phase 5** | 5.x | Finishing sprint — rapid iteration, bug fixing, UX refinements based on hands-on testing | **IN PROGRESS** |
+
+---
+
+## Phase 5 — Finishing Sprint (Rapid Iteration & Bug Fixing)
+
+Short-cycle feedback loop: test the app hands-on, report issues, fix immediately. No big architectural changes — focus on correctness, feel, and polish.
+
+**Workflow**: User tests → reports bugs/UX issues → immediate fix → re-test. Steps are numbered incrementally as issues arise.
+
+### Step 5.1 — (next reported issue)
+
+*(Awaiting user testing feedback)*
 
 ---
 
