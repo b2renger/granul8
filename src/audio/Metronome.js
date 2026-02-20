@@ -35,6 +35,9 @@ export class Metronome {
         this._onCountInComplete = null;
         this._countInBeatTime = 0;  // the time the count-in will complete (downbeat)
 
+        /** @type {number[]} Pending visual callback timeout IDs */
+        this._beatTimeoutIds = [];
+
         // Visual beat callback
         /** @type {((beatIndex: number, isDownbeat: boolean) => void)|null} */
         this.onBeat = null;
@@ -76,6 +79,9 @@ export class Metronome {
             clearTimeout(this._timerId);
             this._timerId = null;
         }
+        // Clear pending visual beat callbacks
+        for (const tid of this._beatTimeoutIds) clearTimeout(tid);
+        this._beatTimeoutIds = [];
         this._countInRemaining = 0;
         this._onCountInComplete = null;
     }
@@ -198,9 +204,14 @@ export class Metronome {
             const delay = Math.max(0, (when - this._ctx.currentTime) * 1000);
             const idx = beatIndex;
             const down = isDownbeat;
-            setTimeout(() => {
+            const tid = setTimeout(() => {
                 if (this.onBeat) this.onBeat(idx, down);
             }, delay);
+            this._beatTimeoutIds.push(tid);
+            // Prevent unbounded growth: trim already-fired entries
+            if (this._beatTimeoutIds.length > 32) {
+                this._beatTimeoutIds = this._beatTimeoutIds.slice(-16);
+            }
         }
     }
 }

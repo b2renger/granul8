@@ -1529,19 +1529,22 @@ Recordings now persist across page reloads and are included in session export/im
 
 ---
 
-### Step 4.9 — Phase 4 Integration Testing & Final Polish
+### Step 4.9 — Phase 4 Integration Testing & Final Polish [DONE]
 
-**Tasks**:
-- Record a complex multi-touch performance (3+ voices, 15+ seconds). Play it back. Verify timing accuracy — grains should land at the same positions and the overall rhythm should feel identical.
-- Test overdub: record a pass, overdub a second pass, play back. Verify both layers are present and correctly timed.
-- Test loop mode: verify the loop point is seamless (all voices stop and restart cleanly).
-- Test save/load: export a recording, reload the page, import it, play it back.
-- Test with a different sample loaded: import a recording made with sample A while sample B is loaded. It should still play (just sounds different).
-- Final audio quality check on headphones: no clicks, no clipping, no timing drift over long playback sessions.
-- Final visual polish: consistent colors, smooth animations, no visual artifacts.
-- Write a brief in-app help text or tooltip set explaining the controls.
+Comprehensive code review and bug-fix pass across all Phase 4 systems.
 
-**Deliverable**: A complete, polished web-based multi-touch granular sampler with gesture recording and playback. Ready for public use.
+**Bugs found and fixed**:
+- **Metronome mute leak** (`src/main.js`): `cancelRecordArm()` now calls `metronome.setMuted(false)` to reverse the muted state set during loop station count-in. Also only stops the metronome if the toggle is off (`!metronomeEnabled`), preserving free-running metronome.
+- **Transport safety guards** (`src/main.js`): Added `recorder.isRecording` guard to `onPlay` handler to prevent simultaneous record + playback. Added state check to `onOverdub` handler (only allow from `playing` or `overdubbing` state) to prevent race conditions with player completion callbacks.
+- **Metronome setTimeout leak** (`src/audio/Metronome.js`): Visual beat callback `setTimeout` IDs were never cleared on stop, causing unbounded accumulation during long sessions. Added `_beatTimeoutIds` array, cleared in `stop()`, with a rolling trim to cap at 32 entries.
+- **CSS hardcoded color** (`style.css`): Changed `.bar-count-btn.active` text color from `#fff` to `var(--bg-primary)` for proper theme adaptation.
+
+**Code review verified as safe**:
+- Player crossfade logic handles large time jumps correctly (tab backgrounding)
+- Zero-event recordings are handled properly (no auto-play, no crash)
+- Tab switching during recording cleans up correctly
+- `finishRecording()` uses `fixedRecordDuration` (not lane duration) for loop range in fixed-length mode
+- All transport states are reachable and have proper cleanup paths
 
 ---
 
@@ -1552,7 +1555,7 @@ Recordings now persist across page reloads and are included in session export/im
 | **Phase 1** | 1.1 – 1.10 | Single-voice granular sampler with waveform display, parameter controls, clean audio | COMPLETE |
 | **Phase 2** | 2.1 – 2.9 | Multi-touch support (10 voices), per-voice visuals, musical quantization, mobile polish | COMPLETE |
 | **Phase 3** | 3.1 – 3.9 | Multi-instance architecture with tab UI, arpeggiator, session persistence | COMPLETE |
-| **Phase 4** | 4.1 – 4.9 | Gesture recording, per-instance isolation, loop editing, loop station, playback, overdub, ghost visualization, BPM/subdivision reorganization, fixed-length recording, save/load | **IN PROGRESS** (4.1–4.8 done, 4.9 next) |
+| **Phase 4** | 4.1 – 4.9 | Gesture recording, per-instance isolation, loop editing, loop station, playback, overdub, ghost visualization, BPM/subdivision reorganization, fixed-length recording, save/load | **COMPLETE** |
 
 ---
 

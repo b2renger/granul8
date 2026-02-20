@@ -915,7 +915,8 @@ function finishRecording(active) {
  * @private
  */
 function cancelRecordArm() {
-    if (masterBus.metronome.running) {
+    masterBus.metronome.setMuted(false); // Reverse muted state from count-in
+    if (masterBus.metronome.running && !metronomeEnabled) {
         masterBus.metronome.stop();
     }
     transport.clearBeatIndicator();
@@ -966,7 +967,7 @@ transport.onRecord = () => {
 
 transport.onPlay = () => {
     const active = instanceManager.getActive();
-    if (!active) return;
+    if (!active || active.recorder.isRecording) return;
     const lane = active.recorder.getRecording();
     if (lane.length === 0) return;
     masterBus.resume();
@@ -1015,6 +1016,8 @@ transport.onLoopToggle = (looping) => {
 transport.onOverdub = () => {
     const active = instanceManager.getActive();
     if (!active) return;
+    // Guard: only allow overdub toggle from playing or overdubbing states
+    if (transport.state !== 'playing' && transport.state !== 'overdubbing') return;
 
     if (active.recorder.isOverdubbing) {
         // Stop overdub — merge happens inside stopRecording()

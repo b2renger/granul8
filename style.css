@@ -580,7 +580,7 @@ html, body {
 
 .bar-count-btn.active {
     background: var(--accent);
-    color: #fff;
+    color: var(--bg-primary);
     border-color: var(--accent);
     box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 50%, transparent);
 }
