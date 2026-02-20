@@ -164,20 +164,24 @@ export class Metronome {
 
     /**
      * Schedule an oscillator click at the given time.
-     * Downbeat (beat 0): 1000Hz, louder. Other beats: 800Hz, softer.
+     * Downbeat (beat 0): high-pitched accented click. Other beats: softer, lower click.
      * @param {number} when - AudioContext.currentTime to start the click.
      * @param {number} beatIndex - 0-based beat within bar.
      * @private
      */
     _scheduleClick(when, beatIndex) {
         const isDownbeat = beatIndex === 0;
-        const freq = isDownbeat ? 1000 : 800;
-        const amp = isDownbeat ? 0.8 : 0.4;
-        const clickDuration = 0.01; // 10ms sine burst
+        const freq = isDownbeat ? 1500 : 800;
+        const amp = isDownbeat ? 1.0 : 0.35;
+        const clickDuration = isDownbeat ? 0.03 : 0.015; // accent is longer for tonal clarity
 
         const osc = this._ctx.createOscillator();
         osc.type = 'sine';
         osc.frequency.setValueAtTime(freq, when);
+        // Pitch drop on the accent for a snappier "tick" character
+        if (isDownbeat) {
+            osc.frequency.exponentialRampToValueAtTime(900, when + clickDuration);
+        }
 
         const clickGain = this._ctx.createGain();
         clickGain.gain.setValueAtTime(amp, when);
@@ -187,7 +191,7 @@ export class Metronome {
         clickGain.connect(this.gainNode);
 
         osc.start(when);
-        osc.stop(when + clickDuration);
+        osc.stop(when + clickDuration + 0.01);
 
         // Fire visual beat callback (approximately timed via setTimeout)
         if (this.onBeat) {

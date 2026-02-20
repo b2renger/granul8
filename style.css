@@ -188,6 +188,38 @@ html, body {
     text-align: right;
 }
 
+/* === Tempo Control (BPM + Time Sig + Metronome in top bar) === */
+#tempo-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.tempo-bpm {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.tempo-bpm label {
+    font-size: 11px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.tempo-bpm input[type="range"] {
+    width: 80px;
+    accent-color: var(--accent);
+}
+
+.tempo-bpm .param-value {
+    font-size: 11px;
+    color: var(--text-secondary);
+    min-width: 24px;
+    text-align: right;
+}
+
 /* === Session Toast Notification === */
 .session-toast {
     position: fixed;
@@ -410,6 +442,39 @@ html, body {
     border-radius: 50%;
 }
 
+.overdub-icon {
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--record-red);
+    border-radius: 50%;
+    position: relative;
+}
+
+.overdub-icon::after {
+    content: '+';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 11px;
+    font-weight: bold;
+    color: var(--record-red);
+    line-height: 1;
+}
+
+#btn-overdub.overdubbing {
+    background: var(--record-red);
+}
+
+#btn-overdub.overdubbing .overdub-icon {
+    border-color: var(--bg-primary);
+    animation: record-pulse 1s ease-in-out infinite;
+}
+
+#btn-overdub.overdubbing .overdub-icon::after {
+    color: var(--bg-primary);
+}
+
 #btn-record.armed {
     border-color: var(--record-red);
     background: color-mix(in srgb, var(--record-red) 15%, var(--bg-surface));
@@ -484,6 +549,62 @@ html, body {
     pointer-events: none;
 }
 
+/* Bar count selector (visible only in loop station mode) */
+.bar-count-selector {
+    display: none;
+    gap: 2px;
+    align-items: center;
+}
+
+.bar-count-selector.visible {
+    display: flex;
+}
+
+.bar-count-btn {
+    width: 24px;
+    height: 24px;
+    font-size: 11px;
+    font-weight: 600;
+    background: var(--bg-surface);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    padding: 0;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.bar-count-btn:hover {
+    background: var(--border);
+}
+
+.bar-count-btn.active {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+    box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+/* Count-in display mode for time display */
+#time-display.count-in-display {
+    color: var(--accent);
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 2px;
+}
+
+/* Bar progress display mode */
+#time-display.bar-progress-display {
+    color: var(--record-red);
+    font-weight: 600;
+}
+
+/* Recording progress fill color */
+#transport-progress-fill.recording-progress {
+    background: var(--record-red);
+    opacity: 0.6;
+}
+
 /* Time signature controls */
 .time-sig-control {
     display: flex;
@@ -530,20 +651,9 @@ html, body {
 
 #metronome-volume {
     width: 50px;
+    accent-color: var(--accent);
 }
 
-.metronome-mute-btn {
-    font-size: 10px;
-    font-weight: bold;
-    opacity: 0.5;
-    padding: 2px 4px;
-}
-
-.metronome-mute-btn.active {
-    opacity: 1;
-    color: var(--accent-warm);
-    border-color: var(--accent-warm);
-}
 
 /* Beat indicator */
 .beat-indicator {
@@ -1001,16 +1111,6 @@ html, body {
     grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
 }
 
-.bpm-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.bpm-row input[type="range"] {
-    flex: 1;
-}
-
 #tap-tempo {
     padding: 4px 10px;
     font-size: 10px;
@@ -1043,8 +1143,8 @@ html, body {
 
 .toggle-row {
     display: flex;
-    gap: 16px;
-    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
 }
 
 .toggle-label {
@@ -1090,6 +1190,22 @@ html, body {
 .toggle-label input:checked + .toggle-switch::after {
     transform: translateX(14px);
     background: var(--accent);
+}
+
+.subdiv-select {
+    font-size: 11px;
+    padding: 2px 4px;
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    cursor: pointer;
+    margin-left: 4px;
+}
+
+.subdiv-select:disabled {
+    opacity: 0.3;
+    cursor: default;
 }
 
 /* === Theme Toggle === */

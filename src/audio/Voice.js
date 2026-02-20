@@ -2,7 +2,7 @@
 
 import { GrainScheduler } from './GrainScheduler.js';
 import { createGrain } from './grainFactory.js';
-import { quantizePitch, rateToSemitones, semitonesToRate, normalizedToSubdivision, getSubdivisionSeconds } from '../utils/musicalQuantizer.js';
+import { quantizePitch, rateToSemitones, semitonesToRate, getSubdivisionSeconds } from '../utils/musicalQuantizer.js';
 import { expMap } from '../utils/math.js';
 
 export class Voice {
@@ -117,10 +117,15 @@ export class Voice {
             this.scheduler.setInterOnset(params.interOnset * 1000);
         }
 
-        // Inter-onset quantization: pass BPM to scheduler for per-grain snapping
+        // Inter-onset quantization: pass BPM + divisor to scheduler for per-grain snapping
         if (params.interOnsetQuantize !== undefined) {
-            this.scheduler.quantizeBpm = params.interOnsetQuantize
-                ? params.interOnsetQuantize.bpm : null;
+            if (params.interOnsetQuantize) {
+                this.scheduler.quantizeBpm = params.interOnsetQuantize.bpm;
+                this.scheduler.quantizeDivisor = params.interOnsetQuantize.divisor;
+            } else {
+                this.scheduler.quantizeBpm = null;
+                this.scheduler.quantizeDivisor = null;
+            }
         }
 
         // Per-grain randomization ranges
@@ -199,9 +204,8 @@ export class Voice {
         if (rnd.grainSize) {
             const norm = rnd.grainSize[0] + Math.random() * (rnd.grainSize[1] - rnd.grainSize[0]);
             if (this.grainSizeQuantize) {
-                // Quantized: map normalized value to BPM subdivision
-                const sub = normalizedToSubdivision(1 - norm);
-                duration = getSubdivisionSeconds(this.grainSizeQuantize.bpm, sub.divisor);
+                // Quantized: use explicit subdivision divisor
+                duration = getSubdivisionSeconds(this.grainSizeQuantize.bpm, this.grainSizeQuantize.divisor);
             } else {
                 // Free: apply exponential mapping per grain
                 duration = expMap(norm, 0.001, 1.0);

@@ -98,4 +98,46 @@ export class AutomationLane {
         }
         return lane;
     }
+
+    /**
+     * Merge two lanes into one, interleaving events by time.
+     * Voice indices in laneB are offset to avoid collisions with laneA.
+     * @param {AutomationLane} laneA - Base recording
+     * @param {AutomationLane} laneB - Overdub recording
+     * @returns {AutomationLane}
+     */
+    static merge(laneA, laneB) {
+        // Find highest voice index in laneA to offset laneB voices
+        let maxVoiceA = -1;
+        for (const e of laneA.events) {
+            if (e.voiceIndex > maxVoiceA) maxVoiceA = e.voiceIndex;
+        }
+        const voiceOffset = maxVoiceA + 1;
+
+        const merged = new AutomationLane();
+        let iA = 0;
+        let iB = 0;
+        const a = laneA.events;
+        const b = laneB.events;
+
+        while (iA < a.length && iB < b.length) {
+            if (a[iA].time <= b[iB].time) {
+                merged.events.push({ ...a[iA] });
+                iA++;
+            } else {
+                merged.events.push({ ...b[iB], voiceIndex: b[iB].voiceIndex + voiceOffset });
+                iB++;
+            }
+        }
+        while (iA < a.length) {
+            merged.events.push({ ...a[iA] });
+            iA++;
+        }
+        while (iB < b.length) {
+            merged.events.push({ ...b[iB], voiceIndex: b[iB].voiceIndex + voiceOffset });
+            iB++;
+        }
+
+        return merged;
+    }
 }

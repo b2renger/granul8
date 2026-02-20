@@ -15,6 +15,7 @@ export class TransportBar {
     /**
      * @param {Object} els - DOM element references
      * @param {HTMLButtonElement} els.recordBtn
+     * @param {HTMLButtonElement} els.overdubBtn
      * @param {HTMLButtonElement} els.playBtn
      * @param {HTMLButtonElement} els.stopBtn
      * @param {HTMLButtonElement} els.loopBtn
@@ -24,7 +25,7 @@ export class TransportBar {
     constructor(els) {
         this._els = els;
 
-        /** @type {'idle'|'armed'|'count-in'|'recording'|'playing'} */
+        /** @type {'idle'|'armed'|'count-in'|'recording'|'playing'|'overdubbing'} */
         this.state = 'idle';
 
         // Beat indicator for metronome visualization
@@ -61,6 +62,9 @@ export class TransportBar {
         /** Called when the user clicks Stop. */
         this.onStop = null;
 
+        /** Called when the user clicks Overdub. */
+        this.onOverdub = null;
+
         /** Called when the user toggles Loop. */
         this.onLoopToggle = null;
 
@@ -74,6 +78,10 @@ export class TransportBar {
 
         els.recordBtn.addEventListener('click', () => {
             if (this.onRecord) this.onRecord();
+        });
+
+        els.overdubBtn.addEventListener('click', () => {
+            if (this.onOverdub) this.onOverdub();
         });
 
         els.playBtn.addEventListener('click', () => {
@@ -220,6 +228,42 @@ export class TransportBar {
         this.setProgress(0);
     }
 
+    // --- Special display modes (count-in / bar progress) ---
+
+    /**
+     * Show count-in beat countdown in the time display.
+     * @param {number} beatsLeft - Beats remaining before recording starts
+     */
+    setCountInDisplay(beatsLeft) {
+        this._els.timeDisplay.textContent = `- ${beatsLeft} -`;
+        this._els.timeDisplay.classList.add('count-in-display');
+    }
+
+    /**
+     * Show bar progress during fixed-length recording.
+     * @param {number} currentBar - Current bar number (1-based)
+     * @param {number} totalBars - Total bars to record
+     */
+    setBarProgressDisplay(currentBar, totalBars) {
+        this._els.timeDisplay.textContent = `Bar ${currentBar} / ${totalBars}`;
+        this._els.timeDisplay.classList.add('bar-progress-display');
+    }
+
+    /**
+     * Set progress bar fill with recording-style color.
+     * @param {number} fraction - 0 to 1
+     */
+    setRecordingProgress(fraction) {
+        this._els.progressBar.style.width = `${(Math.min(1, fraction) * 100).toFixed(2)}%`;
+        this._els.progressBar.classList.add('recording-progress');
+    }
+
+    /** Clear all special display modes, restore normal time display. */
+    clearSpecialDisplay() {
+        this._els.timeDisplay.classList.remove('count-in-display', 'bar-progress-display');
+        this._els.progressBar.classList.remove('recording-progress');
+    }
+
     // --- Beat indicator methods ---
 
     /**
@@ -257,11 +301,12 @@ export class TransportBar {
 
     /** @private */
     _updateButtons() {
-        const { recordBtn, playBtn, stopBtn, loopBtn } = this._els;
+        const { recordBtn, overdubBtn, playBtn, stopBtn, loopBtn } = this._els;
 
         // Clear all state classes first
         recordBtn.classList.remove('recording', 'armed');
         playBtn.classList.remove('playing');
+        overdubBtn.classList.remove('overdubbing');
 
         // Show/hide loop handles when a recording exists and loop is active
         const showHandles = this._hasRecording && this.looping;
@@ -271,6 +316,7 @@ export class TransportBar {
             case 'idle':
                 stopBtn.disabled = true;
                 recordBtn.disabled = false;
+                overdubBtn.disabled = !this._hasRecording;
                 playBtn.disabled = !this._hasRecording;
                 loopBtn.disabled = !this._hasRecording;
                 break;
@@ -279,6 +325,7 @@ export class TransportBar {
                 recordBtn.classList.add('armed');
                 stopBtn.disabled = false;
                 recordBtn.disabled = false;
+                overdubBtn.disabled = true;
                 playBtn.disabled = true;
                 loopBtn.disabled = true;
                 break;
@@ -287,6 +334,7 @@ export class TransportBar {
                 recordBtn.classList.add('armed');
                 stopBtn.disabled = false;
                 recordBtn.disabled = false;
+                overdubBtn.disabled = true;
                 playBtn.disabled = true;
                 loopBtn.disabled = true;
                 break;
@@ -295,6 +343,7 @@ export class TransportBar {
                 recordBtn.classList.add('recording');
                 stopBtn.disabled = false;
                 recordBtn.disabled = false;
+                overdubBtn.disabled = true;
                 playBtn.disabled = true;
                 loopBtn.disabled = true;
                 break;
@@ -303,7 +352,17 @@ export class TransportBar {
                 playBtn.classList.add('playing');
                 stopBtn.disabled = false;
                 recordBtn.disabled = true;
+                overdubBtn.disabled = false;
                 loopBtn.disabled = false;
+                break;
+
+            case 'overdubbing':
+                overdubBtn.classList.add('overdubbing');
+                stopBtn.disabled = false;
+                recordBtn.disabled = true;
+                overdubBtn.disabled = false;
+                playBtn.disabled = true;
+                loopBtn.disabled = true;
                 break;
         }
     }

@@ -92,6 +92,13 @@ export class Player {
          */
         this.onComplete = null;
 
+        /**
+         * Called at each loop boundary when looping wraps around.
+         * Used for loop-station overdub: commit overdub and restart with merged lane.
+         * @type {(() => void)|null}
+         */
+        this.onLoopWrap = null;
+
         this._tick = this._tick.bind(this);
     }
 
@@ -141,6 +148,16 @@ export class Player {
         this._stopIterationVoices('A');
         this._stopIterationVoices('B');
         this._lane = null;
+    }
+
+    /**
+     * Hot-swap the lane during playback (e.g. after overdub merge).
+     * Playback continues seamlessly with the new lane data.
+     * @param {import('./AutomationLane.js').AutomationLane} lane
+     */
+    setLane(lane) {
+        this._lane = lane;
+        this._duration = lane.getDuration();
     }
 
     /**
@@ -240,6 +257,9 @@ export class Player {
                 }
                 this._lastProcessedTime = this._loopStart;
                 this._crossfadeStarted = false;
+
+                // Notify loop wrap (used for overdub auto-commit)
+                if (this.onLoopWrap) this.onLoopWrap();
             } else {
                 // Non-looping: playback complete
                 this._stopIterationVoices('A');

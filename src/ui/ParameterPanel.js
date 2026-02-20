@@ -4,7 +4,7 @@
 import { ADSRWidget } from './ADSRWidget.js';
 import { expMap } from '../utils/math.js';
 import {
-    normalizedToSubdivision, getSubdivisionSeconds, getPermutations, applyArpType,
+    SUBDIVISIONS, getSubdivisionSeconds, getPermutations, applyArpType,
     buildNoteTable, selectArpNotes, semitonesToNoteName, SCALES,
 } from '../utils/musicalQuantizer.js';
 
@@ -157,6 +157,8 @@ export class ParameterPanel {
         this._quantizeGrainSize = document.getElementById('quantize-grain-size');
         this._quantizeDensity = document.getElementById('quantize-density');
         this._quantizePitch = document.getElementById('quantize-pitch');
+        this._subdivGrainSize = document.getElementById('subdiv-grain-size');
+        this._subdivDensity = document.getElementById('subdiv-density');
 
         this._rootNoteSelect.addEventListener('change', () => {
             this._redrawArpSvg();
@@ -169,16 +171,28 @@ export class ParameterPanel {
         });
 
         this._quantizeGrainSize.addEventListener('change', () => {
+            this._subdivGrainSize.disabled = !this._quantizeGrainSize.checked;
             this._refreshGrainSizeDisplay();
             this.callbacks.onChange(this.getParams());
         });
 
         this._quantizeDensity.addEventListener('change', () => {
+            this._subdivDensity.disabled = !this._quantizeDensity.checked;
             this._refreshDensityDisplay();
             this.callbacks.onChange(this.getParams());
         });
 
         this._quantizePitch.addEventListener('change', () => {
+            this.callbacks.onChange(this.getParams());
+        });
+
+        this._subdivGrainSize.addEventListener('change', () => {
+            this._refreshGrainSizeDisplay();
+            this.callbacks.onChange(this.getParams());
+        });
+
+        this._subdivDensity.addEventListener('change', () => {
+            this._refreshDensityDisplay();
             this.callbacks.onChange(this.getParams());
         });
 
@@ -272,7 +286,6 @@ export class ParameterPanel {
         this._spreadMinRow    = this._ranges.spread.minSlider.closest('.range-row');
         this._panMinRow       = this._ranges.pan.minSlider.closest('.range-row');
         // Param groups for musical controls
-        this._bpmGroup      = document.getElementById('param-bpm').closest('.param-group');
         this._rootNoteGroup = this._rootNoteSelect.closest('.param-group');
         this._scaleGroup    = this._scaleSelect.closest('.param-group');
     }
@@ -553,6 +566,8 @@ export class ParameterPanel {
             quantizeGrainSize: this._quantizeGrainSize.checked,
             quantizeDensity: this._quantizeDensity.checked,
             quantizePitch: this._quantizePitch.checked,
+            subdivGrainSize: parseInt(this._subdivGrainSize.value, 10),
+            subdivDensity: parseInt(this._subdivDensity.value, 10),
             randomGrainSize: this._randomGrainSize.checked,
             randomDensity: this._randomDensity.checked,
             randomPitch: this._randomPitch.checked,
@@ -615,10 +630,14 @@ export class ParameterPanel {
         this._rootNoteSelect.value = state.rootNote;
         this._scaleSelect.value = state.scale;
 
-        // --- Quantize toggles ---
+        // --- Quantize toggles + subdivision selects ---
         this._quantizeGrainSize.checked = state.quantizeGrainSize;
         this._quantizeDensity.checked = state.quantizeDensity;
         this._quantizePitch.checked = state.quantizePitch;
+        this._subdivGrainSize.value = state.subdivGrainSize || 4;
+        this._subdivDensity.value = state.subdivDensity || 4;
+        this._subdivGrainSize.disabled = !state.quantizeGrainSize;
+        this._subdivDensity.disabled = !state.quantizeDensity;
 
         // --- Randomize toggles ---
         this._randomGrainSize.checked = state.randomGrainSize;
@@ -699,12 +718,11 @@ export class ParameterPanel {
         const r = this._ranges.density;
         if (this._quantizeDensity.checked) {
             const bpm = parseInt(document.getElementById('param-bpm').value, 10);
-            const minSub = normalizedToSubdivision(1 - parseFloat(r.minSlider.value));
-            const maxSub = normalizedToSubdivision(1 - parseFloat(r.maxSlider.value));
-            const minMs = Math.round(getSubdivisionSeconds(bpm, minSub.divisor) * 1000);
-            const maxMs = Math.round(getSubdivisionSeconds(bpm, maxSub.divisor) * 1000);
-            r.minDisplay.textContent = `${minSub.label} (${minMs}ms)`;
-            r.maxDisplay.textContent = `${maxSub.label} (${maxMs}ms)`;
+            const divisor = parseInt(this._subdivDensity.value, 10);
+            const ms = Math.round(getSubdivisionSeconds(bpm, divisor) * 1000);
+            const label = SUBDIVISIONS.find(s => s.divisor === divisor)?.label || '?';
+            r.minDisplay.textContent = `${label} (${ms}ms)`;
+            r.maxDisplay.textContent = `${label} (${ms}ms)`;
         } else {
             r.minDisplay.textContent = r.display(r.minSlider.value);
             r.maxDisplay.textContent = r.display(r.maxSlider.value);
@@ -719,12 +737,11 @@ export class ParameterPanel {
         const r = this._ranges.grainSize;
         if (this._quantizeGrainSize.checked) {
             const bpm = parseInt(document.getElementById('param-bpm').value, 10);
-            const minSub = normalizedToSubdivision(1 - parseFloat(r.minSlider.value));
-            const maxSub = normalizedToSubdivision(1 - parseFloat(r.maxSlider.value));
-            const minMs = Math.round(getSubdivisionSeconds(bpm, minSub.divisor) * 1000);
-            const maxMs = Math.round(getSubdivisionSeconds(bpm, maxSub.divisor) * 1000);
-            r.minDisplay.textContent = `${minSub.label} (${minMs}ms)`;
-            r.maxDisplay.textContent = `${maxSub.label} (${maxMs}ms)`;
+            const divisor = parseInt(this._subdivGrainSize.value, 10);
+            const ms = Math.round(getSubdivisionSeconds(bpm, divisor) * 1000);
+            const label = SUBDIVISIONS.find(s => s.divisor === divisor)?.label || '?';
+            r.minDisplay.textContent = `${label} (${ms}ms)`;
+            r.maxDisplay.textContent = `${label} (${ms}ms)`;
         } else {
             r.minDisplay.textContent = r.display(r.minSlider.value);
             r.maxDisplay.textContent = r.display(r.maxSlider.value);
@@ -859,10 +876,6 @@ export class ParameterPanel {
         this._densityMinRow.classList.toggle('range-row-inactive', !denMinActive);
         this._spreadMinRow.classList.toggle('range-row-inactive', !sprMinActive);
         this._panMinRow.classList.toggle('range-row-inactive', !panMinActive);
-
-        // --- BPM + Tap Tempo: active when any quantize toggle is checked ---
-        const bpmActive = m.quantizeGrainSize || m.quantizeDensity || m.quantizePitch;
-        this._bpmGroup.classList.toggle('param-inactive', !bpmActive);
 
         // --- Root Note & Scale: active when quantize pitch, or arp pattern ≠ random ---
         const arpPattern = m.arpPattern || 'random';

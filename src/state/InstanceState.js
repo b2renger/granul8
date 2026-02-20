@@ -36,6 +36,8 @@ export class InstanceState {
         this.quantizeGrainSize = false;
         this.quantizeDensity = false;
         this.quantizePitch = false;
+        this.subdivGrainSize = 4;  // subdivision divisor (4 = quarter note)
+        this.subdivDensity = 4;    // subdivision divisor (4 = quarter note)
         this.randomGrainSize = false;
         this.randomDensity = false;
         this.randomPitch = false;
@@ -49,6 +51,7 @@ export class InstanceState {
 
         // --- Loop station mode (per-instance) ---
         this.loopStationMode = true;
+        this.recordBarCount = 4;  // fixed-length recording: 1, 2, 3, or 4 bars
 
         // --- ADSR envelope state ---
         this.adsr = { a: 0.2, d: 0.15, s: 0.7, r: 0.2 };

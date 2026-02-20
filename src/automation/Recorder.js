@@ -17,8 +17,17 @@ export class Recorder {
         /** @type {boolean} */
         this.isRecording = false;
 
+        /** @type {boolean} */
+        this.isOverdubbing = false;
+
         /** @type {AutomationLane} */
         this._lane = new AutomationLane();
+
+        /** @type {AutomationLane|null} Temp lane during overdub */
+        this._overdubLane = null;
+
+        /** @type {AutomationLane|null} Pre-overdub snapshot for undo */
+        this._undoSnapshot = null;
 
         /** @type {number} */
         this._startTime = 0;
@@ -32,17 +41,53 @@ export class Recorder {
      */
     startRecording() {
         this._lane.clear();
+        this._undoSnapshot = null;
         this._lastMoveTime.clear();
         this._startTime = this._audioContext.currentTime;
         this.isRecording = true;
+        this.isOverdubbing = false;
     }
 
     /**
-     * Stop recording.
+     * Start overdub recording. Captures into a temp lane while the original plays.
+     * @param {number} startTime - AudioContext.currentTime when playback started
+     */
+    startOverdub(startTime) {
+        this._undoSnapshot = AutomationLane.fromJSON(this._lane.toJSON());
+        this._overdubLane = new AutomationLane();
+        this._lastMoveTime.clear();
+        this._startTime = startTime;
+        this.isRecording = true;
+        this.isOverdubbing = true;
+    }
+
+    /**
+     * Stop recording. If overdubbing, merge the temp lane into the main lane.
      */
     stopRecording() {
+        if (this.isOverdubbing && this._overdubLane) {
+            this._lane = AutomationLane.merge(this._lane, this._overdubLane);
+            this._overdubLane = null;
+        }
         this.isRecording = false;
+        this.isOverdubbing = false;
         this._lastMoveTime.clear();
+    }
+
+    /**
+     * Undo the last overdub — revert to the pre-overdub snapshot.
+     * @returns {boolean} True if undo was applied.
+     */
+    undoOverdub() {
+        if (!this._undoSnapshot) return false;
+        this._lane = this._undoSnapshot;
+        this._undoSnapshot = null;
+        return true;
+    }
+
+    /** @returns {boolean} Whether an undo snapshot exists. */
+    get canUndo() {
+        return this._undoSnapshot !== null;
     }
 
     /**
@@ -70,7 +115,8 @@ export class Recorder {
     captureStart(voiceIndex, resolvedParams) {
         if (!this.isRecording) return;
         const time = this._audioContext.currentTime - this._startTime;
-        this._lane.addEvent({
+        const target = this._overdubLane || this._lane;
+        target.addEvent({
             time,
             voiceIndex,
             type: 'start',
@@ -97,7 +143,8 @@ export class Recorder {
         }
         this._lastMoveTime.set(voiceIndex, now);
 
-        this._lane.addEvent({
+        const target = this._overdubLane || this._lane;
+        target.addEvent({
             time,
             voiceIndex,
             type: 'move',
@@ -112,7 +159,8 @@ export class Recorder {
     captureStop(voiceIndex) {
         if (!this.isRecording) return;
         const time = this._audioContext.currentTime - this._startTime;
-        this._lane.addEvent({
+        const target = this._overdubLane || this._lane;
+        target.addEvent({
             time,
             voiceIndex,
             type: 'stop',

@@ -14,7 +14,7 @@ import { TransportBar } from './ui/TransportBar.js';
 import { expMap, lerp } from './utils/math.js';
 import {
     SCALES, quantizePitch, rateToSemitones, semitonesToRate,
-    normalizedToSubdivision, getSubdivisionSeconds, buildNoteTable,
+    getSubdivisionSeconds, buildNoteTable,
     selectArpNotes, getPermutations, applyArpType, quantizeTimeToGrid,
 } from './utils/musicalQuantizer.js';
 
@@ -117,6 +117,9 @@ masterVolumeSlider.addEventListener('input', () => {
 
 /** @type {Map<number, number>} pointerId → voiceIndex for active recording on current tab */
 const recorderPointerMap = new Map();
+
+/** Target recording duration in seconds, or null for free-form recording. */
+let fixedRecordDuration = null;
 
 // --- Level meter (reads combined output from all instances) ---
 
@@ -225,13 +228,11 @@ function resolveParams(p, g, m) {
     const bpm = getMasterBpm();
 
     if (m.quantizeGrainSize && !m.randomGrainSize) {
-        const sub = normalizedToSubdivision(1 - grainSizeNorm);
-        grainSize = getSubdivisionSeconds(bpm, sub.divisor);
+        grainSize = getSubdivisionSeconds(bpm, m.subdivGrainSize);
     }
 
     if (m.quantizeDensity && !m.randomDensity) {
-        const sub = normalizedToSubdivision(1 - densityNorm);
-        interOnset = getSubdivisionSeconds(bpm, sub.divisor);
+        interOnset = getSubdivisionSeconds(bpm, m.subdivDensity);
     }
 
     if (m.quantizePitch && !m.randomPitch) {
@@ -258,11 +259,11 @@ function resolveParams(p, g, m) {
         : null;
 
     const grainSizeQuantize = (m.quantizeGrainSize && m.randomGrainSize)
-        ? { bpm }
+        ? { bpm, divisor: m.subdivGrainSize }
         : null;
 
     const interOnsetQuantize = (m.quantizeDensity && m.randomDensity)
-        ? { bpm }
+        ? { bpm, divisor: m.subdivDensity }
         : null;
 
     const arpPattern = m.arpPattern || 'random';
@@ -375,6 +376,7 @@ const pointer = new PointerHandler(canvas, {
         // If armed, start actual recording on first touch
         if (transport.state === 'armed') {
             active.recorder.startRecording();
+            active.ghostRenderer.recording = true;
             transport.setState('recording');
         }
 
@@ -628,8 +630,7 @@ function restoreLoopStationState(data) {
     metronomeBtn.classList.toggle('active', metronomeEnabled);
     masterBus.metronome.setVolume(met.volume ?? 0.5);
     metronomeVolSlider.value = met.volume ?? 0.5;
-    masterBus.metronome.setMuted(met.muted ?? false);
-    metronomeMuteBtn.classList.toggle('active', met.muted ?? false);
+    masterBus.metronome.setMuted(false);
 
     // loopStationMode is now per-instance — restored via InstanceState.fromJSON()
 }
@@ -838,6 +839,7 @@ function updateGestureMeters() {
 
 const transport = new TransportBar({
     recordBtn:   document.getElementById('btn-record'),
+    overdubBtn:  document.getElementById('btn-overdub'),
     playBtn:     document.getElementById('btn-play'),
     stopBtn:     document.getElementById('btn-stop'),
     loopBtn:     document.getElementById('btn-loop'),
@@ -845,59 +847,116 @@ const transport = new TransportBar({
     progressBar: document.getElementById('transport-progress-fill'),
 });
 
+/**
+ * Begin fixed-length recording after count-in completes.
+ * @private
+ */
+function beginFixedRecording() {
+    const stillActive = instanceManager.getActive();
+    if (!stillActive || transport.state !== 'count-in') return;
+
+    const barCount = stillActive.state.recordBarCount || 4;
+    fixedRecordDuration = barCount * masterBus.clock.getBarDuration();
+
+    stillActive.recorder.startRecording();
+    stillActive.ghostRenderer.recording = true;
+    transport.setState('recording');
+    transport.clearSpecialDisplay();
+}
+
+/**
+ * Finish recording: stop, set loop range, auto-play in loop station mode.
+ * Called on auto-stop (fixed duration) or manual early stop.
+ * @param {Object} active - The active instance entry
+ * @private
+ */
+function finishRecording(active) {
+    active.recorder.stopRecording();
+    active.ghostRenderer.recording = false;
+    recorderPointerMap.clear();
+
+    // Use fixed duration for loop range (or snap to bar for free-form)
+    if (active.state.loopStationMode) {
+        const loopDuration = fixedRecordDuration
+            || masterBus.clock.quantizeDurationToBar(active.recorder.getElapsedTime());
+        active.player.setLoopRange(0, loopDuration);
+        transport.setLoopRange(0, 1);
+    }
+
+    // Keep metronome running for playback if enabled; otherwise stop the timing-only instance
+    if (!metronomeEnabled && masterBus.metronome.running) {
+        masterBus.metronome.stop();
+    }
+    transport.clearBeatIndicator();
+    transport.clearSpecialDisplay();
+    fixedRecordDuration = null;
+
+    transport.setState('idle');
+    transport.setHasRecording(active.recorder.getRecording().length > 0);
+
+    // Auto-play the recorded loop in loop station mode
+    if (active.state.loopStationMode && active.recorder.getRecording().length > 0) {
+        transport.looping = true;
+        active.ghostRenderer.active = true;
+        const lane = active.recorder.getRecording();
+        active.player.play(lane, true);
+        transport.setState('playing');
+        if (metronomeEnabled && !masterBus.metronome.running) {
+            masterBus.clock.setEpoch(masterBus.audioContext.currentTime);
+            masterBus.metronome.start();
+        }
+    }
+}
+
+/**
+ * Cancel arm or count-in state and return to idle.
+ * @private
+ */
+function cancelRecordArm() {
+    if (masterBus.metronome.running) {
+        masterBus.metronome.stop();
+    }
+    transport.clearBeatIndicator();
+    transport.clearSpecialDisplay();
+    fixedRecordDuration = null;
+    transport.setState('idle');
+    const active = instanceManager.getActive();
+    if (active) transport.setHasRecording(active.recorder.getRecording().length > 0);
+}
+
 transport.onRecord = () => {
     const active = instanceManager.getActive();
     if (!active) return;
 
     if (active.recorder.isRecording) {
-        // Stop recording
-        active.recorder.stopRecording();
-        recorderPointerMap.clear();
-
-        // In loop station mode, snap recording duration to nearest bar
-        if (active.state.loopStationMode) {
-            const recDuration = active.recorder.getElapsedTime();
-            const snappedDuration = masterBus.clock.quantizeDurationToBar(recDuration);
-            active.player.setLoopRange(0, snappedDuration);
-            transport.setLoopRange(0, 1);
-        }
-
-        if (metronomeEnabled) {
-            masterBus.metronome.stop();
-            transport.clearBeatIndicator();
-        }
-        transport.setState('idle');
-        transport.setHasRecording(active.recorder.getRecording().length > 0);
+        // Stop recording (early stop or manual)
+        finishRecording(active);
     } else if (transport.state === 'armed' || transport.state === 'count-in') {
         // Cancel arm or count-in
-        if (metronomeEnabled) {
-            masterBus.metronome.stop();
-            transport.clearBeatIndicator();
-        }
-        transport.setState('idle');
-        transport.setHasRecording(active.recorder.getRecording().length > 0);
+        cancelRecordArm();
     } else {
-        // Arm recording
+        // Start recording flow
         if (active.player.isPlaying) active.player.stop();
 
-        if (active.state.loopStationMode && metronomeEnabled) {
-            // Count-in: play 1 bar of clicks, then start recording on the downbeat
+        if (active.state.loopStationMode) {
+            // Always count-in in loop station mode
             masterBus.resume();
             transport.setState('count-in');
-            masterBus.metronome.startCountIn(() => {
-                // Count-in complete — start recording on the downbeat
-                const stillActive = instanceManager.getActive();
-                if (stillActive && transport.state === 'count-in') {
-                    stillActive.recorder.startRecording();
-                    transport.setState('recording');
-                }
-            });
-        } else if (active.state.loopStationMode) {
-            // No metronome but loop station mode: set epoch and arm
-            masterBus.clock.setEpoch(masterBus.audioContext.currentTime);
-            transport.setState('armed');
+
+            if (!metronomeEnabled) {
+                // Start metronome muted for timing-only count-in
+                masterBus.metronome.setMuted(true);
+                masterBus.metronome.startCountIn(() => {
+                    masterBus.metronome.setMuted(false);
+                    beginFixedRecording();
+                });
+            } else {
+                masterBus.metronome.startCountIn(() => {
+                    beginFixedRecording();
+                });
+            }
         } else {
-            // Free-form mode: traditional arm
+            // Free-form mode: traditional arm (start on first touch)
             transport.setState('armed');
         }
     }
@@ -911,6 +970,7 @@ transport.onPlay = () => {
     masterBus.resume();
     // In loop station mode, always play with loop enabled
     if (active.state.loopStationMode) transport.looping = true;
+    active.ghostRenderer.active = true;
     active.player.play(lane, transport.looping);
     transport.setState('playing');
     // Start metronome during playback if enabled
@@ -929,11 +989,17 @@ transport.onStop = () => {
     if (active?.player.isPlaying) {
         active.player.stop();
     }
-    // Stop metronome if running
-    if (masterBus.metronome.running) {
+    if (active) {
+        active.ghostRenderer.clear();
+        active.ghostRenderer.recording = false;
+    }
+    // Stop metronome unless the toggle is on (free-running metronome)
+    if (masterBus.metronome.running && !metronomeEnabled) {
         masterBus.metronome.stop();
         transport.clearBeatIndicator();
     }
+    fixedRecordDuration = null;
+    transport.clearSpecialDisplay();
     transport.setState('idle');
     transport.setHasRecording(active?.recorder.getRecording().length > 0);
     transport.setProgress(0);
@@ -942,6 +1008,44 @@ transport.onStop = () => {
 transport.onLoopToggle = (looping) => {
     const active = instanceManager.getActive();
     if (active?.player) active.player.setLoop(looping);
+};
+
+transport.onOverdub = () => {
+    const active = instanceManager.getActive();
+    if (!active) return;
+
+    if (active.recorder.isOverdubbing) {
+        // Stop overdub — merge happens inside stopRecording()
+        active.recorder.stopRecording();
+        active.ghostRenderer.recording = false;
+        recorderPointerMap.clear();
+        // Keep playing after overdub stops
+        transport.setState('playing');
+        transport.setHasRecording(true);
+    } else {
+        // Start overdub — requires an existing recording
+        const lane = active.recorder.getRecording();
+        if (lane.length === 0) return;
+        masterBus.resume();
+
+        // If not already playing, start playback
+        if (!active.player.isPlaying) {
+            if (active.state.loopStationMode) transport.looping = true;
+            active.ghostRenderer.active = true;
+            active.player.play(lane, transport.looping);
+        }
+
+        // Start overdub recording aligned to playback start time
+        active.recorder.startOverdub(active.player._startTime);
+        active.ghostRenderer.recording = true;
+        transport.setState('overdubbing');
+
+        // Start metronome if enabled in loop station mode
+        if (metronomeEnabled && active.state.loopStationMode && !masterBus.metronome.running) {
+            masterBus.clock.setEpoch(masterBus.audioContext.currentTime);
+            masterBus.metronome.start();
+        }
+    }
 };
 
 // --- Loop snap-to-grid toggle ---
@@ -961,10 +1065,33 @@ const loopBtn = document.getElementById('btn-loop');
  * Forces loop ON and snap locked when in loop station mode.
  * @param {boolean} enabled
  */
+// --- Bar-count selector (fixed-length recording in loop station mode) ---
+const barCountSelector = document.getElementById('bar-count-selector');
+const barCountBtns = barCountSelector.querySelectorAll('.bar-count-btn');
+
+barCountBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+        const active = instanceManager.getActive();
+        if (!active) return;
+        const bars = parseInt(btn.dataset.bars, 10);
+        active.state.recordBarCount = bars;
+        barCountBtns.forEach(b => b.classList.toggle('active', b === btn));
+        if (persistence) persistence.scheduleSave();
+    });
+});
+
 function applyLoopStationUI(enabled) {
     loopStationBtn.classList.toggle('active', enabled);
+    barCountSelector.classList.toggle('visible', enabled);
 
     if (enabled) {
+        // Sync bar-count selector to current instance
+        const active = instanceManager.getActive();
+        const count = active?.state.recordBarCount ?? 4;
+        barCountBtns.forEach(b =>
+            b.classList.toggle('active', parseInt(b.dataset.bars, 10) === count)
+        );
+
         // Force loop ON and lock the button
         transport.looping = true;
         transport._updateLoopVisual();
@@ -1025,23 +1152,24 @@ transport.updateBeatIndicator(masterBus.clock.numerator);
 // --- Metronome controls ---
 let metronomeEnabled = false;
 const metronomeBtn = document.getElementById('btn-metronome');
-const metronomeMuteBtn = document.getElementById('btn-metronome-mute');
 const metronomeVolSlider = document.getElementById('metronome-volume');
 
 metronomeBtn.addEventListener('click', () => {
     metronomeEnabled = !metronomeEnabled;
     metronomeBtn.classList.toggle('active', metronomeEnabled);
-    if (!metronomeEnabled) {
-        masterBus.metronome.stop();
-        transport.clearBeatIndicator();
+    if (metronomeEnabled) {
+        masterBus.resume();
+        if (!masterBus.metronome.running) {
+            masterBus.clock.setEpoch(masterBus.audioContext.currentTime);
+            masterBus.metronome.start();
+        }
+    } else {
+        // Only stop metronome if not currently recording or in count-in
+        if (transport.state !== 'recording' && transport.state !== 'count-in') {
+            masterBus.metronome.stop();
+            transport.clearBeatIndicator();
+        }
     }
-    if (persistence) persistence.scheduleSave();
-});
-
-metronomeMuteBtn.addEventListener('click', () => {
-    const muted = !masterBus.metronome.muted;
-    masterBus.metronome.setMuted(muted);
-    metronomeMuteBtn.classList.toggle('active', muted);
     if (persistence) persistence.scheduleSave();
 });
 
@@ -1050,9 +1178,16 @@ metronomeVolSlider.addEventListener('input', () => {
     if (persistence) persistence.scheduleSave();
 });
 
-// Visual beat callback
+// Visual beat callback (extended for count-in countdown)
 masterBus.metronome.onBeat = (beatIndex, isDownbeat) => {
     transport.highlightBeat(beatIndex);
+
+    // During count-in, show beats-left countdown in the time display
+    if (transport.state === 'count-in') {
+        const numBeats = masterBus.clock.numerator;
+        const beatsLeft = numBeats - beatIndex;
+        transport.setCountInDisplay(beatsLeft);
+    }
 };
 
 transport.onLoopRangeChange = (startFrac, endFrac) => {
@@ -1093,6 +1228,15 @@ document.addEventListener('keydown', (e) => {
         e.preventDefault();
         if (transport.onRecord) transport.onRecord();
     }
+    // Ctrl+Z: undo last overdub
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        const active = instanceManager.getActive();
+        if (active && active.recorder.canUndo && transport.state === 'idle') {
+            e.preventDefault();
+            active.recorder.undoOverdub();
+            transport.setHasRecording(active.recorder.getRecording().length > 0);
+        }
+    }
 });
 
 // --- Player callbacks routed through InstanceManager ---
@@ -1104,10 +1248,38 @@ instanceManager.onPlayerFrame = (elapsed, progress) => {
 
 instanceManager.onPlayerComplete = () => {
     const active = instanceManager.getActive();
+    // If overdubbing when playback ends, stop the overdub (merge)
+    if (active?.recorder.isOverdubbing) {
+        active.recorder.stopRecording();
+        active.ghostRenderer.recording = false;
+        recorderPointerMap.clear();
+    }
     transport.setState('idle');
     transport.setHasRecording(true);
     transport.setProgress(0);
     if (active) transport.setTime(active.recorder.getRecording().getDuration());
+};
+
+/**
+ * Loop-station overdub auto-commit: at each loop boundary, merge the overdub
+ * into the main lane so the new content plays on the next iteration.
+ * Then start a fresh overdub pass so the user can keep layering.
+ */
+instanceManager.onPlayerLoopWrap = (instanceId) => {
+    const inst = instanceManager.instances.get(instanceId);
+    if (!inst || !inst.recorder.isOverdubbing) return;
+
+    // 1. Commit current overdub (merge into main lane)
+    inst.recorder.stopRecording();
+
+    // 2. Hot-swap the player's lane so the merged content plays immediately
+    inst.player.setLane(inst.recorder.getRecording());
+
+    // 3. Start a fresh overdub pass for continuous layering
+    inst.recorder.startOverdub(inst.player._startTime);
+
+    // 4. Persist the merged state
+    if (persistence) persistence.scheduleSave();
 };
 
 // --- Render loop ---
@@ -1115,9 +1287,10 @@ instanceManager.onPlayerComplete = () => {
 function render() {
     waveform.draw();
 
-    // Grain overlay for the active instance
+    // Grain overlay and ghost visualization for the active instance
     const active = instanceManager.getActive();
     if (active) {
+        active.ghostRenderer.draw(waveform.ctx, canvas.width, canvas.height);
         active.grainOverlay.draw(waveform.ctx, canvas.width, canvas.height, masterBus.audioContext.currentTime);
     }
 
@@ -1127,9 +1300,26 @@ function render() {
     params.updateRandomIndicators(params.getMusicalParams());
     params.updateParamRelevance();
 
-    // Update transport time display during recording
+    // Update transport display during recording
     if (active?.recorder.isRecording) {
-        transport.setTime(active.recorder.getElapsedTime());
+        const elapsed = active.recorder.getElapsedTime();
+
+        if (fixedRecordDuration !== null) {
+            // Fixed-length recording: show bar progress and auto-stop
+            const barDur = masterBus.clock.getBarDuration();
+            const totalBars = active.state.recordBarCount || 4;
+            const currentBar = Math.min(Math.floor(elapsed / barDur) + 1, totalBars);
+            transport.setBarProgressDisplay(currentBar, totalBars);
+            transport.setRecordingProgress(elapsed / fixedRecordDuration);
+
+            // Auto-stop when target duration reached
+            if (elapsed >= fixedRecordDuration) {
+                finishRecording(active);
+            }
+        } else {
+            // Free-form recording: show elapsed time
+            transport.setTime(elapsed);
+        }
     }
 
     requestAnimationFrame(render);

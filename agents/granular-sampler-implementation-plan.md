@@ -1364,35 +1364,150 @@ Loop station mode was a global boolean applied to all tabs simultaneously. This 
 
 ---
 
-### Step 4.6 — Ghost Visualization
+### Step 4.6 — Ghost Visualization [DONE]
 
 Show recorded gestures as visual traces during playback.
 
-**Tasks**:
-- During playback, the Player emits the same visual events that live pointers do (position, voice color, grain events).
-- Draw "ghost" pointer circles on the waveform canvas — same shape as live pointers but with reduced opacity (e.g., 40%) and a slightly different outline style (dashed or with a glow).
-- Ghost grain overlays also appear at reduced opacity.
-- During recording, show a subtle red tint on the waveform background to indicate recording is active.
-- During playback, show a timeline cursor (vertical line or thin bar) sweeping across the bottom of the canvas at the playback rate.
+**Implementation:**
 
-**Deliverable**: During playback, the user sees ghost fingers moving across the waveform, recreating their performance visually. Clear distinction between live interaction and recorded playback.
+1. **Created `src/ui/GhostRenderer.js`** — New class that tracks ghost pointer positions from Player dispatch events and draws them with distinct visual style:
+   - Ghost pointers use **dashed circle outlines** (4px dash pattern) to distinguish from live pointers' solid outlines.
+   - Opacity reduced to ~40% of live pointers.
+   - Slower pulse animation (half speed of live pointers).
+   - Fainter vertical position lines.
+   - Fade-out on voice stop (0.4s duration).
+
+2. **Wired GhostRenderer to Player events in `InstanceManager.js`** — Each instance gets its own `GhostRenderer`. The Player's `onDispatch` callback feeds both the GranularEngine (for audio) and the GhostRenderer (for visuals). `onFrame` updates ghost progress, `onComplete` clears ghost state.
+
+3. **Recording tint** — When `ghostRenderer.recording = true`, draws a subtle semi-transparent red overlay (`rgba(224, 60, 60, 0.06)`) over the entire waveform canvas.
+
+4. **Timeline cursor** — During playback, draws a vertical white line (`rgba(255, 255, 255, 0.25)`) at the current playback progress position, sweeping across the canvas.
+
+5. **Render loop order** (bottom to top):
+   - Waveform background (cached)
+   - Ghost renderer (recording tint → ghost pointers → timeline cursor)
+   - Grain overlay (grain rectangles from both live and playback)
+   - Live pointer indicators (solid circles)
+
+6. **State management in `main.js`** — `ghostRenderer.recording` set/cleared on recording start/stop transitions. `ghostRenderer.active` set on play, `ghostRenderer.clear()` on stop.
+
+**Files:** `src/ui/GhostRenderer.js` (new), `src/state/InstanceManager.js`, `src/main.js`
+
+**Deliverable**: During playback, ghost fingers with dashed outlines move across the waveform, recreating the performance visually. Red tint during recording. Timeline cursor during playback. Clear visual distinction between live and recorded interaction.
 
 ---
 
-### Step 4.7 — Overdub Mode
+### Step 4.7 — Overdub Mode [DONE]
 
 Allow layering new gestures on top of an existing recording.
 
-**Tasks**:
-- Add an **Overdub** mode (button or toggle on the transport bar).
-- When Overdub is active and the user presses Record:
-  - Existing recording plays back (with ghost visuals).
-  - New live gestures are captured and appended to the automation lane (with the same time reference).
-  - The result is a merged recording containing both the original and new events.
-- Implementation detail: don't modify the original lane during overdub. Instead, record into a new temporary lane, then merge the two lanes (interleave events by time, sort) when overdub stops.
-- A simple **Undo** for overdub: keep the pre-overdub lane as a snapshot. If the user doesn't like the result, revert to the snapshot.
+**Implementation:**
 
-**Deliverable**: User can build up complex multi-voice compositions by layering gesture recordings one pass at a time.
+1. **`AutomationLane.merge(laneA, laneB)`** — New static method that interleaves two lanes by time. Voice indices in laneB are offset by `max(laneA voiceIndex) + 1` to avoid collisions. Uses a standard merge-sort merge on the time-sorted event arrays.
+
+2. **Recorder overdub support** — New methods:
+   - `startOverdub(startTime)` — Saves a pre-overdub snapshot (`_undoSnapshot`), creates a temp `_overdubLane`, and begins capturing events into it (aligned to playback timing).
+   - `stopRecording()` — Updated to detect overdub and call `AutomationLane.merge()` to combine the original lane with the overdub lane.
+   - `undoOverdub()` — Reverts `_lane` to the pre-overdub snapshot.
+   - `canUndo` getter — Returns `true` if an undo snapshot exists.
+   - Capture methods (`captureStart/Move/Stop`) — Now write to `_overdubLane` when overdubbing, `_lane` when normal recording.
+
+3. **Overdub button** — New `#btn-overdub` button in HTML (circle outline with "+" icon, red themed). Placed between Record and Play buttons. CSS: `.overdub-icon` with `::after` for the "+" symbol, `.overdubbing` class for active state.
+
+4. **TransportBar** — New `overdubbing` state added to the state machine. New `onOverdub` callback. Button states updated:
+   - Overdub enabled when idle with a recording, or during playback
+   - During overdub: stop button and overdub toggle enabled, other buttons disabled
+   - Clicking overdub again stops overdub (merge), returns to playing state
+
+5. **Overdub flow in main.js** — `transport.onOverdub`:
+   - If not overdubbing: starts playback (if not already playing), then starts overdub recording aligned to player's start time. Sets ghost renderer states.
+   - If overdubbing: stops recording (merge happens inside `stopRecording()`), clears overdub state, returns to playing.
+   - Stop button during overdub: stops both recording and playback.
+   - `onPlayerComplete` during overdub: auto-stops the overdub (non-looping case).
+
+6. **Undo** — Ctrl+Z / Cmd+Z in idle state reverts the last overdub via `recorder.undoOverdub()`.
+
+**Files:** `src/automation/AutomationLane.js`, `src/automation/Recorder.js`, `src/ui/TransportBar.js`, `src/main.js`, `index.html`, `style.css`
+
+**Deliverable**: User can build up complex multi-voice compositions by layering gesture recordings one pass at a time. Ctrl+Z undoes the last overdub.
+
+---
+
+### Step 4.7b — Master BPM/Metronome to Top Bar + Per-Instance Subdivisions [DONE]
+
+Moved global tempo/metronome controls out of the parameter panel and transport bar into the top bar, and replaced slider-to-subdivision mapping with explicit per-instance subdivision dropdowns.
+
+**Changes**:
+- **`index.html`**: Moved BPM slider + TAP tempo, time signature selects, metronome controls (toggle/volume/mute), and beat indicator into a new `#tempo-control` group in `#top-bar` (between master volume and theme toggle). Removed BPM `param-group` from the "Rhythm and Harmony" section. Added `<select id="subdiv-grain-size">` and `<select id="subdiv-density">` dropdown menus next to each quantize checkbox (grain size and density). Each select lists all subdivisions from 1/1 to 1/32 including triplets, with value = divisor integer. Selects are `disabled` when the corresponding quantize checkbox is unchecked.
+- **`style.css`**: Added `#tempo-control`, `.tempo-bpm` styles for top bar layout. Added `.subdiv-select` and `.subdiv-select:disabled` styles. Removed `.bpm-row` styles (no longer needed).
+- **`src/state/InstanceState.js`**: Added `subdivGrainSize = 4` and `subdivDensity = 4` (defaults to quarter note). These are per-instance, serialized via spread in `toJSON()`, restored via `Object.assign` in `fromJSON()` (backward-compatible: old sessions default to 4).
+- **`src/ui/ParameterPanel.js`**: Added `_subdivGrainSize` and `_subdivDensity` select references. Quantize checkbox listeners now enable/disable the corresponding subdivision select. Subdivision select `change` events refresh display labels. `getMusicalParams()` includes `subdivGrainSize` and `subdivDensity`. `setFullState()` restores subdivision values and select enabled state. `_refreshGrainSizeDisplay()` and `_refreshDensityDisplay()` use the explicit subdivision divisor + `SUBDIVISIONS` array for labels instead of `normalizedToSubdivision()`. Removed `_bpmGroup` reference and BPM dimming logic from `updateParamRelevance()`.
+- **`src/main.js`**: `resolveParams()` now uses `m.subdivGrainSize` and `m.subdivDensity` directly instead of `normalizedToSubdivision(1 - norm)`. The `grainSizeQuantize` and `interOnsetQuantize` objects now include `divisor` alongside `bpm`. Removed `normalizedToSubdivision` from imports.
+- **`src/audio/Voice.js`**: Grain size quantization uses explicit `this.grainSizeQuantize.divisor` instead of mapping from normalized value. Passes both `quantizeBpm` and `quantizeDivisor` to scheduler. Removed `normalizedToSubdivision` import.
+- **`src/audio/GrainScheduler.js`**: Added `quantizeDivisor` field. Inter-onset quantization uses explicit `this.quantizeDivisor` instead of `normalizedToSubdivision`. Removed `normalizedToSubdivision` import.
+
+**Backward compatibility**: Old sessions without `subdivGrainSize`/`subdivDensity` fields default to divisor 4 (quarter note) via `InstanceState` constructor defaults and `|| 4` fallbacks in `setFullState()`.
+
+---
+
+### Step 4.7c — Fixed-Length Bar-Count Recording with Count-In [DONE]
+
+Standard loop station recording workflow: choose bar count, count-in, fixed-length recording, auto-play.
+
+**Changes**:
+- **`src/state/InstanceState.js`**: Added `recordBarCount = 4` (per-instance, 1-4 bars, backward-compatible default).
+- **`index.html`**: Added `#bar-count-selector` div with 4 buttons (1, 2, 3, 4) before `#btn-record` in the transport bar. Hidden by default, shown via `.visible` class when loop station mode is active.
+- **`style.css`**: Added `.bar-count-selector`, `.bar-count-btn` styles (compact 24px buttons, accent highlight for active). Added `#time-display.count-in-display` (accent color, large font for beat countdown), `#time-display.bar-progress-display` (record red for bar progress), `#transport-progress-fill.recording-progress` (red progress bar during recording).
+- **`src/ui/TransportBar.js`**: Added `setCountInDisplay(beatsLeft)` (shows "- 3 -" countdown), `setBarProgressDisplay(currentBar, totalBars)` (shows "Bar 2 / 4"), `setRecordingProgress(fraction)` (fills progress bar with recording color), `clearSpecialDisplay()` (removes all special CSS classes).
+- **`src/main.js`**:
+  - Added `fixedRecordDuration` module-level variable (null for free-form, seconds for fixed-length).
+  - Added `beginFixedRecording()`: called when count-in completes, computes `barCount * barDuration`, starts recorder.
+  - Added `finishRecording(active)`: stops recording, sets loop range to `fixedRecordDuration`, auto-plays the recorded loop. Handles metronome cleanup.
+  - Added `cancelRecordArm()`: cancels count-in/armed state, cleans up metronome and display.
+  - Rewrote `transport.onRecord`: in loop station mode, **always** does count-in (even with metronome disabled — starts muted metronome for timing). In free-form mode, uses traditional armed state.
+  - Updated `transport.onStop`: clears `fixedRecordDuration` and special display.
+  - Updated `masterBus.metronome.onBeat`: during count-in, shows beats-left countdown via `transport.setCountInDisplay()`.
+  - Updated render loop: during fixed-length recording, shows bar progress and recording progress; auto-stops when elapsed >= target duration.
+  - Added `barCountSelector` + `barCountBtns` wiring with click handlers to update `active.state.recordBarCount`.
+  - Updated `applyLoopStationUI()`: shows/hides bar-count selector, syncs active button to current instance's `recordBarCount`.
+
+---
+
+### Step 4.7d — Overdub Auto-Commit at Loop Boundary (Classic Loop Station) [DONE]
+
+Fixed overdub to behave like a classic loop station: overdubbed content plays back on the very next loop iteration instead of requiring manual stop.
+
+**Changes**:
+- **`src/automation/Player.js`**:
+  - Added `onLoopWrap` callback, fired at each loop boundary when looping wraps around.
+  - Added `setLane(lane)` method for hot-swapping the automation lane during playback without stopping (used after overdub merge).
+- **`src/state/InstanceManager.js`**: Added `onPlayerLoopWrap` callback. Wired `player.onLoopWrap` in both `createInstance()` and `restoreSession()` to forward loop-wrap events with the instance ID.
+- **`src/main.js`**: Added `instanceManager.onPlayerLoopWrap` handler that implements the classic loop station overdub cycle:
+  1. **Commit**: stops overdub recording, merging the overdub lane into the main lane.
+  2. **Hot-swap**: calls `player.setLane()` so the merged content plays on the next iteration.
+  3. **Re-arm**: starts a fresh overdub pass (`recorder.startOverdub()`) so the user can keep layering continuously.
+  4. The cycle repeats each loop boundary until the user presses overdub to stop.
+
+---
+
+### Step 4.7e — UI Polish & Metronome Free-Run [DONE]
+
+Small UX improvements across the transport bar and parameter panel.
+
+**Changes**:
+- **Metronome free-run** (`src/main.js`): Metronome now starts immediately when toggled on, even without recording armed. Toggling off only stops the metronome if not currently recording/counting-in. The `transport.onStop` handler preserves the metronome when the toggle is enabled.
+- **Master volume label** (`index.html`): Changed label from "Master" to "Main Volume" in the top bar.
+- **Bar-count button highlight** (`style.css`): Made `.bar-count-btn.active` more prominent — solid `var(--accent)` background, white text, and a subtle glow via `color-mix()` box-shadow.
+
+---
+
+### Step 4.7f — Subdivision Dropdown UX (Ternary Grouping & Positioning) [DONE]
+
+Improved the quantize subdivision dropdowns for discoverability and layout.
+
+**Changes**:
+- **`index.html`**: Reorganized both `#subdiv-grain-size` and `#subdiv-density` dropdowns with `<optgroup>` labels — **Binary** (1/1, 1/2, 1/4, 1/8, 1/16, 1/32) and **Ternary** (1/2T, 1/4T, 1/8T, 1/16T). Triplet subdivisions were already present but now clearly separated.
+- **`style.css`**: Fixed `.toggle-row` gap from `16px` to `6px`. Changed `.subdiv-select` from `margin-left: auto` (pushed to far right) to `margin-left: 4px` so the dropdown sits right next to its toggle label.
 
 ---
 
@@ -1433,7 +1548,7 @@ Persist recordings for later use.
 | **Phase 1** | 1.1 – 1.10 | Single-voice granular sampler with waveform display, parameter controls, clean audio | COMPLETE |
 | **Phase 2** | 2.1 – 2.9 | Multi-touch support (10 voices), per-voice visuals, musical quantization, mobile polish | COMPLETE |
 | **Phase 3** | 3.1 – 3.9 | Multi-instance architecture with tab UI, arpeggiator, session persistence | COMPLETE |
-| **Phase 4** | 4.1 – 4.9 | Gesture recording, per-instance isolation, loop editing, loop station, playback, overdub, ghost visualization, save/load | **IN PROGRESS** (4.1–4.5h done, 4.6 next) |
+| **Phase 4** | 4.1 – 4.9 | Gesture recording, per-instance isolation, loop editing, loop station, playback, overdub, ghost visualization, BPM/subdivision reorganization, fixed-length recording, save/load | **IN PROGRESS** (4.1–4.7f done, 4.8 next) |
 
 ---
 

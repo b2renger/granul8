@@ -1,6 +1,6 @@
 // GrainScheduler.js — Look-ahead timer that spawns grains on schedule
 
-import { normalizedToSubdivision, getSubdivisionSeconds } from '../utils/musicalQuantizer.js';
+import { getSubdivisionSeconds } from '../utils/musicalQuantizer.js';
 import { expMap } from '../utils/math.js';
 
 export class GrainScheduler {
@@ -26,6 +26,8 @@ export class GrainScheduler {
 
         /** BPM for per-grain inter-onset quantization, or null for continuous. */
         this.quantizeBpm = null;
+        /** Subdivision divisor for per-grain inter-onset quantization. */
+        this.quantizeDivisor = null;
 
         /** @type {number} audioContext.currentTime of the next grain */
         this.nextGrainTime = 0;
@@ -94,10 +96,9 @@ export class GrainScheduler {
                 // Random jitter: pick in normalized space, then map per grain
                 const norm = this.interOnsetRange[0]
                     + Math.random() * (this.interOnsetRange[1] - this.interOnsetRange[0]);
-                if (this.quantizeBpm !== null) {
-                    // Quantized: map to BPM subdivision (1-norm for correct direction)
-                    const sub = normalizedToSubdivision(1 - norm);
-                    iot = getSubdivisionSeconds(this.quantizeBpm, sub.divisor);
+                if (this.quantizeBpm !== null && this.quantizeDivisor !== null) {
+                    // Quantized: use explicit subdivision divisor
+                    iot = getSubdivisionSeconds(this.quantizeBpm, this.quantizeDivisor);
                 } else {
                     // Free: exponential mapping for perceptually uniform distribution
                     iot = expMap(norm, 0.005, 0.5);

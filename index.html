@@ -19,7 +19,7 @@
 
     <div id="app">
         <header id="top-bar">
-            <h1>Granular Sampler</h1>
+            <h1>Granul8</h1>
             <div id="file-controls">
                 <select id="sample-select">
                     <option value="">— Select a sample —</option>
@@ -42,46 +42,17 @@
                 <input type="file" id="session-import-input" accept=".json,application/json" hidden>
             </div>
             <div id="master-volume-control">
-                <label for="master-volume" title="Master Volume">Master</label>
+                <label for="master-volume" title="Main Volume">Main Volume</label>
                 <input type="range" id="master-volume" min="0" max="1" value="0.7" step="0.01">
                 <span class="param-value" id="val-master-volume">0.70</span>
             </div>
-            <button id="theme-toggle" type="button" title="Toggle theme">
-                <span class="theme-icon">
-                    <span class="theme-icon-sun"></span>
-                    <span class="theme-icon-moon"></span>
-                </span>
-            </button>
-        </header>
-
-        <div id="tab-bar">
-            <div id="tab-list"></div>
-            <button id="tab-add" type="button" title="Add instance">+</button>
-        </div>
-
-        <main id="main-area">
-            <div id="waveform-container">
-                <canvas id="waveform-canvas"></canvas>
-                <div id="drop-overlay" hidden>Drop audio file here</div>
-            </div>
-
-            <div id="transport-bar">
-                <button id="btn-record" type="button" title="Record">
-                    <span class="icon record-icon"></span>
-                </button>
-                <button id="btn-play" type="button" title="Play" disabled>
-                    <span class="icon play-icon"></span>
-                </button>
-                <button id="btn-stop" type="button" title="Stop" disabled>
-                    <span class="icon stop-icon"></span>
-                </button>
-                <button id="btn-loop" type="button" title="Loop" disabled>
-                    <span class="icon loop-icon"></span>
-                </button>
-                <button id="btn-snap-grid" type="button" title="Snap loop to BPM grid" class="snap-btn">
-                    <span class="snap-icon">⊞</span>
-                </button>
-                <button id="btn-loop-station" type="button" title="Loop station mode (bar-aligned sync)" class="loop-station-btn">LS</button>
+            <div id="tempo-control">
+                <div class="tempo-bpm">
+                    <label for="param-bpm">BPM</label>
+                    <input type="range" id="param-bpm" min="40" max="300" value="120" step="1">
+                    <span class="param-value" id="val-bpm">120</span>
+                    <button id="tap-tempo" type="button" title="Tap tempo">TAP</button>
+                </div>
                 <div id="time-sig-control" class="time-sig-control">
                     <select id="time-sig-num" title="Beats per bar">
                         <option value="2">2</option>
@@ -106,9 +77,54 @@
                 <div id="metronome-control" class="metronome-control">
                     <button id="btn-metronome" type="button" title="Toggle metronome click" class="metronome-btn">♩</button>
                     <input type="range" id="metronome-volume" min="0" max="1" value="0.5" step="0.01" title="Metronome volume">
-                    <button id="btn-metronome-mute" type="button" title="Mute metronome" class="metronome-mute-btn">M</button>
                 </div>
                 <div id="beat-indicator" class="beat-indicator"></div>
+            </div>
+            <button id="theme-toggle" type="button" title="Toggle theme">
+                <span class="theme-icon">
+                    <span class="theme-icon-sun"></span>
+                    <span class="theme-icon-moon"></span>
+                </span>
+            </button>
+        </header>
+
+        <div id="tab-bar">
+            <div id="tab-list"></div>
+            <button id="tab-add" type="button" title="Add instance">+</button>
+        </div>
+
+        <main id="main-area">
+            <div id="waveform-container">
+                <canvas id="waveform-canvas"></canvas>
+                <div id="drop-overlay" hidden>Drop audio file here</div>
+            </div>
+
+            <div id="transport-bar">
+                <div id="bar-count-selector" class="bar-count-selector">
+                    <button class="bar-count-btn" data-bars="1">1</button>
+                    <button class="bar-count-btn" data-bars="2">2</button>
+                    <button class="bar-count-btn" data-bars="3">3</button>
+                    <button class="bar-count-btn active" data-bars="4">4</button>
+                </div>
+                <button id="btn-record" type="button" title="Record">
+                    <span class="icon record-icon"></span>
+                </button>
+                <button id="btn-overdub" type="button" title="Overdub — layer new gestures on existing recording" disabled>
+                    <span class="icon overdub-icon"></span>
+                </button>
+                <button id="btn-play" type="button" title="Play" disabled>
+                    <span class="icon play-icon"></span>
+                </button>
+                <button id="btn-stop" type="button" title="Stop" disabled>
+                    <span class="icon stop-icon"></span>
+                </button>
+                <button id="btn-loop" type="button" title="Loop" disabled>
+                    <span class="icon loop-icon"></span>
+                </button>
+                <button id="btn-snap-grid" type="button" title="Snap loop to BPM grid" class="snap-btn">
+                    <span class="snap-icon">⊞</span>
+                </button>
+                <button id="btn-loop-station" type="button" title="Loop station mode (bar-aligned sync)" class="loop-station-btn">LS</button>
                 <div id="level-meter" title="Output Level">
                     <div class="level-meter-fill"></div>
                 </div>
@@ -125,13 +141,6 @@
                 <details class="panel-section" open>
                     <summary>Rhythm and Harmony</summary>
                     <div class="section-content musical-content">
-                        <div class="param-group">
-                            <label for="param-bpm">BPM <span class="param-value" id="val-bpm">120</span></label>
-                            <div class="bpm-row">
-                                <input type="range" id="param-bpm" min="40" max="300" value="120" step="1">
-                                <button id="tap-tempo" type="button" title="Tap tempo">TAP</button>
-                            </div>
-                        </div>
                         <div class="param-group">
                             <label for="param-root-note">Root Note</label>
                             <select id="param-root-note">
@@ -176,11 +185,47 @@
                                     <span class="toggle-switch"></span>
                                     Grain Size
                                 </label>
+                                <select id="subdiv-grain-size" class="subdiv-select" disabled>
+                                    <optgroup label="Binary">
+                                        <option value="1">1/1</option>
+                                        <option value="2">1/2</option>
+                                        <option value="4" selected>1/4</option>
+                                        <option value="8">1/8</option>
+                                        <option value="16">1/16</option>
+                                        <option value="32">1/32</option>
+                                    </optgroup>
+                                    <optgroup label="Ternary">
+                                        <option value="3">1/2T</option>
+                                        <option value="6">1/4T</option>
+                                        <option value="12">1/8T</option>
+                                        <option value="24">1/16T</option>
+                                    </optgroup>
+                                </select>
+                            </div>
+                            <div class="toggle-row">
                                 <label class="toggle-label">
                                     <input type="checkbox" id="quantize-density">
                                     <span class="toggle-switch"></span>
                                     Density
                                 </label>
+                                <select id="subdiv-density" class="subdiv-select" disabled>
+                                    <optgroup label="Binary">
+                                        <option value="1">1/1</option>
+                                        <option value="2">1/2</option>
+                                        <option value="4" selected>1/4</option>
+                                        <option value="8">1/8</option>
+                                        <option value="16">1/16</option>
+                                        <option value="32">1/32</option>
+                                    </optgroup>
+                                    <optgroup label="Ternary">
+                                        <option value="3">1/2T</option>
+                                        <option value="6">1/4T</option>
+                                        <option value="12">1/8T</option>
+                                        <option value="24">1/16T</option>
+                                    </optgroup>
+                                </select>
+                            </div>
+                            <div class="toggle-row">
                                 <label class="toggle-label">
                                     <input type="checkbox" id="quantize-pitch">
                                     <span class="toggle-switch"></span>

@@ -4,6 +4,7 @@
 
 import { GranularEngine } from '../audio/GranularEngine.js';
 import { GrainOverlay } from '../ui/GrainOverlay.js';
+import { GhostRenderer } from '../ui/GhostRenderer.js';
 import { InstanceState } from './InstanceState.js';
 import { Recorder } from '../automation/Recorder.js';
 import { Player } from '../automation/Player.js';
@@ -19,7 +20,7 @@ export class InstanceManager {
         this.panel = panel;
         this.waveform = waveform;
 
-        /** @type {Map<string, { state: InstanceState, engine: GranularEngine, grainOverlay: GrainOverlay, buffer: AudioBuffer|null, recorder: Recorder, player: Player }>} */
+        /** @type {Map<string, { state: InstanceState, engine: GranularEngine, grainOverlay: GrainOverlay, ghostRenderer: GhostRenderer, buffer: AudioBuffer|null, recorder: Recorder, player: Player }>} */
         this.instances = new Map();
 
         /** @type {string|null} */
@@ -33,6 +34,9 @@ export class InstanceManager {
 
         /** Called when the active instance's player completes playback. */
         this.onPlayerComplete = null;
+
+        /** Called when any instance's player wraps at a loop boundary. */
+        this.onPlayerLoopWrap = null;
 
         /** Instance counter for default naming. */
         this._counter = 0;
@@ -48,16 +52,18 @@ export class InstanceManager {
         const state = new InstanceState(name || `Sampler ${this._counter}`);
         const engine = new GranularEngine(this.masterBus.audioContext, this.masterBus.masterGain);
         const grainOverlay = new GrainOverlay();
+        const ghostRenderer = new GhostRenderer();
         const recorder = new Recorder(this.masterBus.audioContext);
         const player = new Player(this.masterBus.audioContext);
 
-        // Wire player to dispatch directly to this instance's engine
+        // Wire player to dispatch directly to this instance's engine + ghost renderer
         player.onDispatch = (type, syntheticId, eventParams) => {
             switch (type) {
                 case 'start': engine.startVoice(syntheticId, eventParams); break;
                 case 'move':  engine.updateVoice(syntheticId, eventParams); break;
                 case 'stop':  engine.stopVoice(syntheticId); break;
             }
+            ghostRenderer.dispatch(type, syntheticId, eventParams);
         };
 
         // Wire release callback for crossfade at loop boundaries
@@ -68,17 +74,24 @@ export class InstanceManager {
         // Wire frame/complete callbacks with active-tab guard
         const instanceId = state.id;
         player.onFrame = (elapsed, progress) => {
+            ghostRenderer.progress = progress;
             if (this.activeId === instanceId && this.onPlayerFrame) {
                 this.onPlayerFrame(elapsed, progress);
             }
         };
         player.onComplete = () => {
+            ghostRenderer.clear();
             if (this.activeId === instanceId && this.onPlayerComplete) {
                 this.onPlayerComplete();
             }
         };
+        player.onLoopWrap = () => {
+            if (this.onPlayerLoopWrap) {
+                this.onPlayerLoopWrap(instanceId);
+            }
+        };
 
-        this.instances.set(state.id, { state, engine, grainOverlay, buffer: null, recorder, player });
+        this.instances.set(state.id, { state, engine, grainOverlay, ghostRenderer, buffer: null, recorder, player });
 
         // Apply initial per-instance volume from state defaults
         engine.setInstanceVolume(state.volume);
@@ -251,16 +264,18 @@ export class InstanceManager {
                 this.masterBus.masterGain
             );
             const grainOverlay = new GrainOverlay();
+            const ghostRenderer = new GhostRenderer();
             const recorder = new Recorder(this.masterBus.audioContext);
             const player = new Player(this.masterBus.audioContext);
 
-            // Wire player dispatch to this instance's engine
+            // Wire player dispatch to this instance's engine + ghost renderer
             player.onDispatch = (type, syntheticId, eventParams) => {
                 switch (type) {
                     case 'start': engine.startVoice(syntheticId, eventParams); break;
                     case 'move':  engine.updateVoice(syntheticId, eventParams); break;
                     case 'stop':  engine.stopVoice(syntheticId); break;
                 }
+                ghostRenderer.dispatch(type, syntheticId, eventParams);
             };
 
             // Wire release callback for crossfade at loop boundaries
@@ -270,17 +285,24 @@ export class InstanceManager {
 
             const instanceId = state.id;
             player.onFrame = (elapsed, progress) => {
+                ghostRenderer.progress = progress;
                 if (this.activeId === instanceId && this.onPlayerFrame) {
                     this.onPlayerFrame(elapsed, progress);
                 }
             };
             player.onComplete = () => {
+                ghostRenderer.clear();
                 if (this.activeId === instanceId && this.onPlayerComplete) {
                     this.onPlayerComplete();
                 }
             };
+            player.onLoopWrap = () => {
+                if (this.onPlayerLoopWrap) {
+                    this.onPlayerLoopWrap(instanceId);
+                }
+            };
 
-            this.instances.set(state.id, { state, engine, grainOverlay, buffer: null, recorder, player });
+            this.instances.set(state.id, { state, engine, grainOverlay, ghostRenderer, buffer: null, recorder, player });
 
             // Apply restored per-instance volume
             engine.setInstanceVolume(state.volume);
