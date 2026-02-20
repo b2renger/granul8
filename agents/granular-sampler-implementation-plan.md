@@ -1511,17 +1511,21 @@ Improved the quantize subdivision dropdowns for discoverability and layout.
 
 ---
 
-### Step 4.8 — Save & Load Recordings
+### Step 4.8 — Save & Load Recordings [DONE]
 
-Persist recordings for later use.
+Recordings now persist across page reloads and are included in session export/import files.
 
-**Tasks**:
-- **Export**: serialize the `AutomationLane` to JSON. Trigger a browser download of the JSON file (using `URL.createObjectURL` + `<a download>`). Filename format: `granular-recording-YYYY-MM-DD-HHMMSS.json`.
-- **Import**: add a "Load Recording" button (or accept `.json` files via drag-and-drop alongside audio files). Parse the JSON, create an `AutomationLane` from the data, enable the Play button.
-- The JSON file also stores metadata: source sample name (not the audio data itself — that would be too large), recording duration, date, number of voices used.
-- On import, if the current sample doesn't match the recording's metadata, show a warning but allow playback anyway (the positions are normalized 0–1 so they work with any sample).
+**Changes**:
+- **`src/automation/Recorder.js`**: Added `setRecording(lane)` method to replace the internal lane with a pre-existing one (used during session restore).
+- **`src/state/SessionSerializer.js`**: `serializeSession()` now includes recording data per instance. For each instance with a non-empty recording, the serialized data includes `recording: { lane: lane.toJSON(), loopRange: { start, end } }`.
+- **`src/state/InstanceManager.js`**: Added `AutomationLane` import. `restoreFromSession()` now checks each saved instance for `recording` data and restores the `AutomationLane` via `recorder.setRecording()` and the loop range via `player.setLoopRange()`.
+- **`src/main.js`**: Both `initializeSession()` and `importSessionFromFile()` now call `transport.setHasRecording()` after restore so the play/overdub buttons are correctly enabled when a recording exists.
 
-**Deliverable**: Recordings survive page reloads. Users can share their gesture compositions as lightweight JSON files.
+**How it works**:
+- **Auto-save**: Recordings are included in the debounced localStorage auto-save. Page reload restores them automatically.
+- **Session export**: The JSON file contains all recording events alongside instance parameters. Recordings are lightweight (events store only position, amplitude, pitch, grain params — no audio data).
+- **Session import**: Imported sessions restore recordings and loop ranges, enabling immediate playback.
+- **Tab switching**: Already handled — `transport.setHasRecording()` on tab switch reflects the active instance's recording state.
 
 ---
 
@@ -1548,7 +1552,7 @@ Persist recordings for later use.
 | **Phase 1** | 1.1 – 1.10 | Single-voice granular sampler with waveform display, parameter controls, clean audio | COMPLETE |
 | **Phase 2** | 2.1 – 2.9 | Multi-touch support (10 voices), per-voice visuals, musical quantization, mobile polish | COMPLETE |
 | **Phase 3** | 3.1 – 3.9 | Multi-instance architecture with tab UI, arpeggiator, session persistence | COMPLETE |
-| **Phase 4** | 4.1 – 4.9 | Gesture recording, per-instance isolation, loop editing, loop station, playback, overdub, ghost visualization, BPM/subdivision reorganization, fixed-length recording, save/load | **IN PROGRESS** (4.1–4.7f done, 4.8 next) |
+| **Phase 4** | 4.1 – 4.9 | Gesture recording, per-instance isolation, loop editing, loop station, playback, overdub, ghost visualization, BPM/subdivision reorganization, fixed-length recording, save/load | **IN PROGRESS** (4.1–4.8 done, 4.9 next) |
 
 ---
 

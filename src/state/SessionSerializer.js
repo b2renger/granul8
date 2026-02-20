@@ -23,7 +23,18 @@ export function serializeSession(instanceManager, panel, masterBpm, masterVolume
     // Collect all instance states in insertion order (Map preserves order)
     const instances = [];
     for (const [, entry] of instanceManager.instances) {
-        instances.push(entry.state.toJSON());
+        const instanceData = entry.state.toJSON();
+
+        // Include recording data if present
+        const lane = entry.recorder.getRecording();
+        if (lane.length > 0) {
+            instanceData.recording = {
+                lane: lane.toJSON(),
+                loopRange: entry.player.getLoopRange(),
+            };
+        }
+
+        instances.push(instanceData);
     }
 
     return {

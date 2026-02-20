@@ -680,6 +680,7 @@ async function initializeSession() {
                 sampleNameEl.textContent = active.state.sampleDisplayName;
                 sampleSelect.value = active.state.sampleUrl || '';
                 applyLoopStationUI(active.state.loopStationMode);
+                transport.setHasRecording(active.recorder.getRecording().length > 0);
             }
 
             showNotification('Session restored');
@@ -768,6 +769,7 @@ async function importSessionFromFile(file) {
             sampleNameEl.textContent = active.state.sampleDisplayName;
             sampleSelect.value = active.state.sampleUrl || '';
             applyLoopStationUI(active.state.loopStationMode);
+            transport.setHasRecording(active.recorder.getRecording().length > 0);
         }
 
         persistence.enable();

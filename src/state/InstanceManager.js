@@ -8,6 +8,7 @@ import { GhostRenderer } from '../ui/GhostRenderer.js';
 import { InstanceState } from './InstanceState.js';
 import { Recorder } from '../automation/Recorder.js';
 import { Player } from '../automation/Player.js';
+import { AutomationLane } from '../automation/AutomationLane.js';
 
 export class InstanceManager {
     /**
@@ -303,6 +304,18 @@ export class InstanceManager {
             };
 
             this.instances.set(state.id, { state, engine, grainOverlay, ghostRenderer, buffer: null, recorder, player });
+
+            // Restore recording data if present in saved state
+            if (savedState.recording && savedState.recording.lane) {
+                const lane = AutomationLane.fromJSON(savedState.recording.lane);
+                recorder.setRecording(lane);
+                if (savedState.recording.loopRange) {
+                    player.setLoopRange(
+                        savedState.recording.loopRange.start,
+                        savedState.recording.loopRange.end
+                    );
+                }
+            }
 
             // Apply restored per-instance volume
             engine.setInstanceVolume(state.volume);

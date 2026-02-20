@@ -99,6 +99,15 @@ export class Recorder {
     }
 
     /**
+     * Replace the current lane with a pre-existing one (e.g. restored from session).
+     * @param {AutomationLane} lane
+     */
+    setRecording(lane) {
+        this._lane = lane;
+        this._undoSnapshot = null;
+    }
+
+    /**
      * Get elapsed recording time in seconds.
      * @returns {number}
      */
