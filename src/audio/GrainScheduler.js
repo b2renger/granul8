@@ -3,6 +3,12 @@
 import { getSubdivisionSeconds } from '../utils/musicalQuantizer.js';
 import { expMap } from '../utils/math.js';
 
+/**
+ * Hard cap on grains scheduled in a single tick. The clamp below already drops
+ * missed grains, so this only bounds pathological cases (a stall arriving mid-tick).
+ */
+const MAX_GRAINS_PER_TICK = 256;
+
 export class GrainScheduler {
     /**
      * @param {AudioContext} audioContext
@@ -86,9 +92,21 @@ export class GrainScheduler {
     _tick() {
         if (!this._running) return;
 
-        const deadline = this.audioContext.currentTime + this.scheduleAhead;
+        const now = this.audioContext.currentTime;
 
-        while (this.nextGrainTime < deadline) {
+        // Re-anchor after a timer stall. setTimeout is throttled to >=1 s in a
+        // hidden tab and blocked outright by decodeAudioData, GC or a session
+        // import, while audioContext.currentTime keeps running. Without this the
+        // loop below would run (stall / interOnset) times with `when` in the past,
+        // and source.start(when < currentTime) starts immediately — so every
+        // missed grain fires in the same render quantum.
+        // Missed grains are dropped, not replayed.
+        if (this.nextGrainTime < now) this.nextGrainTime = now;
+
+        const deadline = now + this.scheduleAhead;
+
+        let budget = MAX_GRAINS_PER_TICK;
+        while (this.nextGrainTime < deadline && budget-- > 0) {
             this.onScheduleGrain(this.nextGrainTime);
 
             let iot;
