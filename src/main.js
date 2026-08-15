@@ -787,6 +787,23 @@ window.addEventListener('beforeunload', () => {
     persistence.saveNow();
 });
 
+// --- Backgrounded tab: silence live voices ---
+// Grain production runs on setTimeout, which survives a hidden tab. Pointer
+// voices have no recorded stop event to end them, so without this they drone
+// until the tab is focused again. Automation playback is left running — it is
+// transport-driven and now delivers its own stops (Player uses setTimeout).
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) return;
+    for (const [, entry] of instanceManager.instances) {
+        for (const [pointerId] of pointer.pointers) {
+            entry.engine.stopVoice(pointerId);
+        }
+    }
+    pointer.pointers.clear();
+    pointer._fading = [];
+    params.hideGestureIndicators();
+});
+
 // --- Toast notification ---
 
 function showNotification(message, isError = false) {

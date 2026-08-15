@@ -1,5 +1,7 @@
 // Player.js — Replays recorded automation events through the engine.
-// Uses requestAnimationFrame for frame-accurate event dispatch.
+// Driven by a setTimeout look-ahead tick, not requestAnimationFrame: rAF is
+// suspended entirely in a hidden tab, which would let voices drone silently
+// (or drop stops) while a backgrounded tab is away.
 //
 // Crossfade looping: alternates between two synthetic ID ranges (A/B).
 // When approaching the loop end, pre-starts the next iteration's voices
@@ -11,6 +13,15 @@ const SYNTHETIC_POINTER_BASE_B = 2000;
 
 /** Pre-start window: start next iteration this many seconds before loop end. */
 const CROSSFADE_WINDOW = 0.050; // 50ms
+
+/**
+ * Transport tick interval (ms). Matches GrainScheduler's timer so both run on
+ * the same cadence. rAF is not usable here: browsers suspend it entirely in a
+ * hidden tab, while grain production runs on setTimeout and keeps going — so an
+ * rAF-driven transport lets voices drone for as long as the tab is away and then
+ * drops whole loop iterations on return.
+ */
+const TICK_MS = 25;
 
 export class Player {
     /**
@@ -62,8 +73,8 @@ export class Player {
         /** @type {import('../audio/MasterClock.js').MasterClock|null} */
         this._clock = null;
 
-        /** @type {number|null} */
-        this._rafId = null;
+        /** @type {number|null} setTimeout id for the transport tick */
+        this._timerId = null;
 
         // --- Callbacks ---
 
@@ -133,7 +144,8 @@ export class Player {
         this._activeVoicesB.clear();
         this._crossfadeStarted = false;
         this.isPlaying = true;
-        this._rafId = requestAnimationFrame(this._tick);
+        this._timerId = setTimeout(this._tick, TICK_MS);
+        this._tick();
     }
 
     /**
@@ -141,9 +153,9 @@ export class Player {
      */
     stop() {
         this.isPlaying = false;
-        if (this._rafId !== null) {
-            cancelAnimationFrame(this._rafId);
-            this._rafId = null;
+        if (this._timerId !== null) {
+            clearTimeout(this._timerId);
+            this._timerId = null;
         }
         this._stopIterationVoices('A');
         this._stopIterationVoices('B');
@@ -225,6 +237,7 @@ export class Player {
 
     /** @private */
     _tick() {
+        if (this._timerId !== null) { clearTimeout(this._timerId); this._timerId = null; }
         if (!this.isPlaying || !this._lane) return;
 
         const elapsed = this._audioContext.currentTime - this._startTime;
@@ -265,7 +278,7 @@ export class Player {
                 this._stopIterationVoices('A');
                 this._stopIterationVoices('B');
                 this.isPlaying = false;
-                this._rafId = null;
+                if (this._timerId !== null) { clearTimeout(this._timerId); this._timerId = null; }
                 if (this.onFrame) this.onFrame(this._duration, 1);
                 if (this.onComplete) this.onComplete();
                 return;
@@ -311,7 +324,7 @@ export class Player {
             this.onFrame(currentElapsed, currentElapsed / this._duration);
         }
 
-        this._rafId = requestAnimationFrame(this._tick);
+        this._timerId = setTimeout(this._tick, TICK_MS);
     }
 
     /**
