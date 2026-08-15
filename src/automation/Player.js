@@ -253,22 +253,34 @@ export class Player {
         // === LOOP BOUNDARY ===
         if (elapsed >= loopEnd) {
             if (this._loop) {
+                const loopLen = loopEnd - this._loopStart;
+                if (loopLen <= 0) { this._timerId = setTimeout(this._tick, TICK_MS); return; }
+
+                const didCrossfade = this._crossfadeStarted;
+
                 // Release old iteration voices (grains play out naturally)
                 this._releaseIterationVoices(this._currentIteration);
 
                 // Swap iterations
                 this._currentIteration = this._currentIteration === 'A' ? 'B' : 'A';
 
-                // Reset timing
-                if (this._loopStationMode && this._clock) {
-                    // Align to bar grid on the master clock
-                    const now = this._audioContext.currentTime;
-                    const barAligned = this._clock.quantizeToBar(now);
-                    this._startTime = barAligned - this._loopStart;
-                } else {
-                    this._startTime = this._audioContext.currentTime - this._loopStart;
+                // Advance the anchor by whole loop lengths rather than resetting it
+                // to `now`. Resetting discarded the frame overshoot, making every
+                // iteration one tick too long — unbounded drift. A long stall can
+                // span several iterations, so consume them all.
+                let overshoot = elapsed - loopEnd;
+                this._startTime += loopLen;
+                while (overshoot >= loopLen) {
+                    this._startTime += loopLen;
+                    overshoot -= loopLen;
                 }
-                this._lastProcessedTime = this._loopStart;
+
+                // _preStartNextIteration already dispatched
+                // [loopStart, loopStart + CROSSFADE_WINDOW) on the incoming voices.
+                // Resume after that window so those events do not fire a second time.
+                const alreadySent = didCrossfade ? CROSSFADE_WINDOW : 0;
+                this._lastProcessedTime = this._loopStart + Math.max(alreadySent, overshoot);
+
                 this._crossfadeStarted = false;
 
                 // Notify loop wrap (used for overdub auto-commit)
@@ -317,7 +329,11 @@ export class Player {
             }
         }
 
-        this._lastProcessedTime = currentElapsed;
+        // Monotonic: on a boundary tick the block above may have jumped
+        // _lastProcessedTime past the crossfade window (or, with a stall,
+        // past several loop lengths) to a point ahead of currentElapsed —
+        // never let this fall back below that.
+        this._lastProcessedTime = Math.max(this._lastProcessedTime, currentElapsed);
 
         // Report frame progress
         if (this.onFrame) {

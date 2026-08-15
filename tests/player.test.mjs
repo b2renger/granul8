@@ -73,3 +73,59 @@ test('onFrame reports monotonically increasing elapsed time', () => {
         }
     } finally { restore(); }
 });
+
+test('the loop anchor advances by exact loop lengths and never drifts', () => {
+    const { timers, ctx, p, restore } = harness();
+    try {
+        const wraps = [];
+        p.onLoopWrap = () => wraps.push(ctx.currentTime);
+        const l = lane([
+            { time: 0.0, voiceIndex: 0, type: 'start', params: P('a') },
+            { time: 1.9, voiceIndex: 0, type: 'stop' },
+            { time: 2.0, voiceIndex: 0, type: 'start', params: P('b') },
+        ]);
+        p.setLoopRange(0, 2.0);
+        p.play(l, true);
+        advance(ctx, timers, 60.0);
+
+        assert.ok(wraps.length >= 25, `expected ~29 wraps, got ${wraps.length}`);
+        // Each wrap must land on an exact multiple of the loop length. With the old
+        // reset-to-now behaviour each iteration was one frame too long, accumulating
+        // ~0.42 s of drift over a minute.
+        for (let i = 0; i < wraps.length; i++) {
+            const ideal = 2.0 * (i + 1);
+            assert.ok(Math.abs(wraps[i] - ideal) < 0.05,
+                `wrap ${i}: ${wraps[i].toFixed(3)} vs ideal ${ideal.toFixed(3)}`);
+        }
+        const totalDrift = Math.abs(wraps.at(-1) - 2.0 * wraps.length);
+        assert.ok(totalDrift < 0.05, `accumulated drift ${totalDrift.toFixed(3)} s`);
+        p.stop();
+    } finally { restore(); }
+});
+
+test('crossfade pre-dispatched events do not fire twice at the wrap', () => {
+    const { timers, ctx, p, dispatched, restore } = harness();
+    try {
+        // An event at 0.02 s sits inside the 50 ms crossfade window.
+        const l = lane([
+            { time: 0.02, voiceIndex: 0, type: 'start', params: P('early') },
+            { time: 1.5, voiceIndex: 0, type: 'stop' },
+        ]);
+        p.setLoopRange(0, 2.0);
+        p.play(l, true);
+        advance(ctx, timers, 6.5);      // three wraps
+
+        // Group starts by which synthetic id range they used. Each iteration should
+        // start 'early' exactly once.
+        const starts = dispatched.filter(d => d.type === 'start' && d.tag === 'early');
+        const byId = new Map();
+        for (const s of starts) byId.set(s.id, (byId.get(s.id) ?? 0) + 1);
+        for (const [id, count] of byId) {
+            assert.ok(count <= 3, `synthetic id ${id} started 'early' ${count} times`);
+        }
+        // Total starts should be ~one per iteration (3-4), not two per iteration.
+        assert.ok(starts.length <= 5,
+            `expected ~4 starts across 3 wraps, got ${starts.length} (double-firing)`);
+        p.stop();
+    } finally { restore(); }
+});
