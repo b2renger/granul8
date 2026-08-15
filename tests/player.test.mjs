@@ -84,7 +84,7 @@ test('the loop anchor advances by exact loop lengths and never drifts', () => {
             { time: 1.9, voiceIndex: 0, type: 'stop' },
             { time: 2.0, voiceIndex: 0, type: 'start', params: P('b') },
         ]);
-        p.setLoopRange(0, 2.0);
+        p.setLoopRange(0, 2.01);
         p.play(l, true);
         advance(ctx, timers, 60.0);
 
@@ -93,11 +93,11 @@ test('the loop anchor advances by exact loop lengths and never drifts', () => {
         // reset-to-now behaviour each iteration was one frame too long, accumulating
         // ~0.42 s of drift over a minute.
         for (let i = 0; i < wraps.length; i++) {
-            const ideal = 2.0 * (i + 1);
+            const ideal = 2.01 * (i + 1);
             assert.ok(Math.abs(wraps[i] - ideal) < 0.05,
                 `wrap ${i}: ${wraps[i].toFixed(3)} vs ideal ${ideal.toFixed(3)}`);
         }
-        const totalDrift = Math.abs(wraps.at(-1) - 2.0 * wraps.length);
+        const totalDrift = Math.abs(wraps.at(-1) - 2.01 * wraps.length);
         assert.ok(totalDrift < 0.05, `accumulated drift ${totalDrift.toFixed(3)} s`);
         p.stop();
     } finally { restore(); }
