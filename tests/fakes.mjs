@@ -6,19 +6,87 @@ class FakeParam {
     constructor(ctx, name, value = 0) {
         this._ctx = ctx;
         this.name = name;
-        this.value = value;
+        this._base = value;
         /** @type {Array<{method:string, args:number[], at:number}>} */
         this.events = [];
     }
+
+    /**
+     * `.value` is COMPUTED from the scheduled timeline at the context's current
+     * time — it is not the last target that was scheduled.
+     *
+     * This distinction is load-bearing. Code under test reads `gain.value` to
+     * anchor a new ramp against whatever the param is doing right now (see
+     * Voice.start). If a pending `linearRampToValueAtTime(0, t+0.03)` made
+     * `.value` read 0 the instant it was scheduled, that code would anchor at
+     * silence and the fake would report a bug that does not exist in a browser.
+     */
+    get value() { return this.valueAt(this._ctx.currentTime); }
+
+    /** Direct assignment sets the base value the timeline starts from. */
+    set value(v) { this._base = v; }
+
     _rec(method, args) {
         this.events.push({ method, args, at: this._ctx.currentTime });
         return this;
     }
-    setValueAtTime(v, t) { this.value = v; return this._rec('setValueAtTime', [v, t]); }
-    linearRampToValueAtTime(v, t) { this.value = v; return this._rec('linearRampToValueAtTime', [v, t]); }
-    exponentialRampToValueAtTime(v, t) { this.value = v; return this._rec('exponentialRampToValueAtTime', [v, t]); }
+    setValueAtTime(v, t) { return this._rec('setValueAtTime', [v, t]); }
+    linearRampToValueAtTime(v, t) { return this._rec('linearRampToValueAtTime', [v, t]); }
+    exponentialRampToValueAtTime(v, t) { return this._rec('exponentialRampToValueAtTime', [v, t]); }
     setValueCurveAtTime(curve, t, dur) { return this._rec('setValueCurveAtTime', [curve, t, dur]); }
     cancelScheduledValues(t) { return this._rec('cancelScheduledValues', [t]); }
+
+    /**
+     * The param's value at time `q`, honouring cancellations and interpolating
+     * across a ramp in progress.
+     *
+     * Ramps interpolate from the preceding event's time and value, which is what
+     * the Web Audio spec does. `setValueCurveAtTime` is modelled coarsely — it
+     * holds the curve's first sample from its start and its last from its end,
+     * with no interpolation between. That is enough here because grain envelope
+     * curves are written to per-grain nodes that nothing ever reads back.
+     */
+    valueAt(q) {
+        const live = this._liveEvents();
+        let value = this._base;
+        let prevTime = -Infinity;
+        for (const e of live) {
+            const t = e.args[1];
+            if (t <= q) {
+                value = e.method === 'setValueCurveAtTime'
+                    ? (q >= t + e.args[2] ? e.args[0][e.args[0].length - 1] : e.args[0][0])
+                    : e.args[0];
+                prevTime = t;
+                continue;
+            }
+            // The next event is in the future. A ramp toward it is already under
+            // way, so interpolate; anything else holds the previous value.
+            if ((e.method === 'linearRampToValueAtTime' || e.method === 'exponentialRampToValueAtTime')
+                && prevTime > -Infinity) {
+                const span = t - prevTime;
+                const frac = span > 0 ? (q - prevTime) / span : 1;
+                return value + (e.args[0] - value) * frac;
+            }
+            break;
+        }
+        return value;
+    }
+
+    /** Scheduled events that survive every cancellation, in time order. @private */
+    _liveEvents() {
+        const live = [];
+        for (const e of this.events) {
+            if (e.method === 'cancelScheduledValues') {
+                const from = e.args[0];
+                for (let i = live.length - 1; i >= 0; i--) {
+                    if (live[i].args[1] >= from) live.splice(i, 1);
+                }
+                continue;
+            }
+            if (e.args[1] !== undefined) live.push(e);
+        }
+        return live.sort((a, b) => a.args[1] - b.args[1]);
+    }
     /**
      * Events that would still be on the param's timeline at or after `t`.
      *
@@ -29,20 +97,7 @@ class FakeParam {
      * Voice.start() still look broken.
      */
     pendingAfter(t) {
-        const live = [];
-        for (const e of this.events) {
-            if (e.method === 'cancelScheduledValues') {
-                const from = e.args[0];
-                for (let i = live.length - 1; i >= 0; i--) {
-                    if (live[i].args[1] >= from) live.splice(i, 1);
-                }
-                continue;
-            }
-            // args[1] is the time for every scheduling method, including
-            // setValueCurveAtTime(curve, startTime, duration).
-            if (e.args[1] !== undefined) live.push(e);
-        }
-        return live.filter(e => e.args[1] >= t);
+        return this._liveEvents().filter(e => e.args[1] >= t);
     }
 }
 

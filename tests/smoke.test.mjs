@@ -15,8 +15,17 @@ test('FakeAudioContext supports the nodes the engine constructs', () => {
     const ctx = new FakeAudioContext();
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.5, 1.0);
-    assert.equal(g.gain.value, 0.5);
+    // .value is computed from the timeline at the CURRENT time, not snapped to
+    // the last scheduled target. An event one second out has not happened yet.
+    assert.equal(g.gain.value, 1, 'scheduled for t=1.0, not yet in effect at t=0');
+    ctx.currentTime = 1.0;
+    assert.equal(g.gain.value, 0.5, 'in effect once the clock reaches it');
     assert.equal(g.gain.events[0].method, 'setValueAtTime');
+
+    // A ramp interpolates rather than jumping to its target.
+    g.gain.linearRampToValueAtTime(0, 1.1);
+    ctx.currentTime = 1.05;
+    assert.ok(Math.abs(g.gain.value - 0.25) < 1e-9, `mid-ramp, got ${g.gain.value}`);
     const buf = makeBuffer(ctx, 2);
     assert.equal(buf.duration, 2);
     assert.equal(buf.sampleRate, 48000);
