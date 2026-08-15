@@ -129,3 +129,59 @@ test('crossfade pre-dispatched events do not fire twice at the wrap', () => {
         p.stop();
     } finally { restore(); }
 });
+
+const { MasterClock } = await import(SRC + 'audio/MasterClock.js');
+
+test('loop-station playback phase-locks to the bar grid once and stays locked', () => {
+    const { timers, ctx, p, restore } = harness();
+    try {
+        const clock = new MasterClock(ctx);
+        clock.bpm = 120;                       // bar = 2.0 s at 4/4
+        clock.setEpoch(0);
+        p.setLoopStationMode(true, clock);
+
+        const wraps = [];
+        p.onLoopWrap = () => wraps.push(ctx.currentTime);
+        const l = lane([
+            { time: 0.0, voiceIndex: 0, type: 'start', params: P('a') },
+            { time: 3.9, voiceIndex: 0, type: 'stop' },
+        ]);
+        p.setLoopRange(0, 4.0);                // 2 bars
+
+        ctx.currentTime = 3.3;                 // launch off-grid, mid-bar
+        p.play(l, true);
+        advance(ctx, timers, 20.0);
+
+        // Every wrap must sit on a bar boundary (a multiple of 2.0 s from the epoch).
+        for (const w of wraps) {
+            const offGrid = Math.abs(w / 2.0 - Math.round(w / 2.0)) * 2.0;
+            assert.ok(offGrid < 0.05, `wrap at ${w.toFixed(3)} is ${offGrid.toFixed(3)} s off the bar grid`);
+        }
+        assert.ok(wraps.length >= 3, `expected several wraps, got ${wraps.length}`);
+        p.stop();
+    } finally { restore(); }
+});
+
+test('the playhead never jumps backwards at a loop-station wrap', () => {
+    const { timers, ctx, p, restore } = harness();
+    try {
+        const clock = new MasterClock(ctx);
+        clock.bpm = 120;
+        clock.setEpoch(0);
+        p.setLoopStationMode(true, clock);
+
+        const elapsedSeen = [];
+        p.onFrame = (e) => elapsedSeen.push(e);
+        p.setLoopRange(0, 4.0);
+        ctx.currentTime = 1.1;
+        p.play(lane([{ time: 3.9, voiceIndex: 0, type: 'stop' }]), true);
+        advance(ctx, timers, 20.0);
+
+        assert.ok(elapsedSeen.length > 0, 'onFrame was called');
+        for (const e of elapsedSeen) {
+            assert.ok(e >= 0, `onFrame reported a negative elapsed time: ${e}`);
+            assert.ok(e <= 4.1, `onFrame reported elapsed beyond the loop: ${e}`);
+        }
+        p.stop();
+    } finally { restore(); }
+});

@@ -137,8 +137,17 @@ export class Player {
 
         if (this._duration === 0) return;
 
-        this._startTime = this._audioContext.currentTime;
-        this._lastProcessedTime = 0;
+        // Phase-lock to the bar grid exactly once, at launch. Thereafter the anchor
+        // advances by exact loop lengths (see the wrap handler), so it cannot drift
+        // off the grid and never needs re-snapping. Re-snapping per wrap with
+        // Math.round used to teleport the playhead up to half a bar in either
+        // direction, replaying material outside the loop range.
+        if (this._loopStationMode && this._clock) {
+            this._startTime = this._clock.getNextBarTime() - this._loopStart;
+        } else {
+            this._startTime = this._audioContext.currentTime;
+        }
+        this._lastProcessedTime = this._loopStart;
         this._currentIteration = 'A';
         this._activeVoicesA.clear();
         this._activeVoicesB.clear();
@@ -241,6 +250,16 @@ export class Player {
         if (!this.isPlaying || !this._lane) return;
 
         const elapsed = this._audioContext.currentTime - this._startTime;
+
+        // Pre-roll: in loop-station mode the anchor sits on the next bar boundary,
+        // so elapsed is negative until the launch point arrives. Do nothing until
+        // then — no dispatch, no onFrame (a negative time would print a garbage
+        // clock and a negative CSS width).
+        if (elapsed < this._loopStart) {
+            this._timerId = setTimeout(this._tick, TICK_MS);
+            return;
+        }
+
         const loopEnd = this._loopEnd > 0 ? this._loopEnd : this._duration;
 
         // === CROSSFADE PRE-START ===
@@ -274,6 +293,11 @@ export class Player {
                     this._startTime += loopLen;
                     overshoot -= loopLen;
                 }
+
+                // No re-grid here. The anchor was phase-locked to the bar at play()
+                // and only ever advances by whole loop lengths, so it stays on the
+                // grid by construction. Re-snapping per wrap with quantizeToBar
+                // (Math.round) used to teleport the playhead up to half a bar.
 
                 // _preStartNextIteration already dispatched
                 // [loopStart, loopStart + CROSSFADE_WINDOW) on the incoming voices.
