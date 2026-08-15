@@ -61,11 +61,18 @@ class FakeParam {
             }
             // The next event is in the future. A ramp toward it is already under
             // way, so interpolate; anything else holds the previous value.
-            if ((e.method === 'linearRampToValueAtTime' || e.method === 'exponentialRampToValueAtTime')
-                && prevTime > -Infinity) {
-                const span = t - prevTime;
-                const frac = span > 0 ? (q - prevTime) / span : 1;
-                return value + (e.args[0] - value) * frac;
+            if (e.method === 'linearRampToValueAtTime' || e.method === 'exponentialRampToValueAtTime') {
+                // A ramp with no preceding event still ramps — from the value the
+                // param held when the ramp was *scheduled*. `e.at` is that call
+                // time. Without this, a first-ever ramp reads flat until its target
+                // time, which is wrong and would silently mislead any test that
+                // reads .value on a never-started voice (VoiceAllocator.setGainLevel
+                // loops over the whole pool, virgin voices included).
+                const from = prevTime > -Infinity ? prevTime : e.at;
+                const span = t - from;
+                const frac = span > 0 ? (q - from) / span : 1;
+                if (q <= from) return value;
+                return value + (e.args[0] - value) * Math.min(1, frac);
             }
             break;
         }
