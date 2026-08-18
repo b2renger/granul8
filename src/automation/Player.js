@@ -410,7 +410,16 @@ export class Player {
                 // _preStartNextIteration already dispatched
                 // [loopStart, loopStart + CROSSFADE_WINDOW) on the incoming voices.
                 // Resume after that window so those events do not fire a second time.
-                const alreadySent = didCrossfade ? CROSSFADE_WINDOW : 0;
+                //
+                // Clamped to loopLen: a loop shorter than the crossfade window
+                // (reachable — TransportBar only enforces a 1% handle separation)
+                // would otherwise credit the pre-start with more than the loop
+                // contains and push the cursor PAST loopEnd, where the tail's
+                // Math.max() pins it and getEventsInRange() returns nothing for
+                // the inverted range. The pre-start does cover the whole of such a
+                // loop, so nothing is dropped either way; this keeps the cursor
+                // inside the window the rest of _tick() assumes it is in.
+                const alreadySent = didCrossfade ? Math.min(CROSSFADE_WINDOW, loopLen) : 0;
                 this._lastProcessedTime = loopStart + Math.max(alreadySent, overshoot);
 
                 this._crossfadeStarted = false;

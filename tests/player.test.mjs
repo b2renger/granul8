@@ -472,3 +472,42 @@ test('the pre-roll guard compares elapsed against the resolved loop start, not t
         p.stop();
     } finally { restore(); }
 });
+
+test('the dispatch cursor never leaves the loop window, even for a loop shorter than the crossfade', () => {
+    // A 20 ms loop is reachable: TransportBar only enforces endFrac >= startFrac
+    // + 0.01, so 1% of a 2 s take is 20 ms, and with the seconds denominator fixed
+    // that stays where the user put it. loopLen (0.020) is then below
+    // CROSSFADE_WINDOW (0.050), and the wrap block credited the pre-start with
+    // having dispatched a full 50 ms of a 20 ms loop: _lastProcessedTime was set
+    // to loopStart + 0.050, i.e. PAST loopEnd. getEventsInRange() returns nothing
+    // for an inverted range and the tail's Math.max() pins the cursor there, so
+    // the normal dispatch path is inert for the rest of that iteration.
+    //
+    // Measured scope, stated honestly: in this regime _preStartNextIteration()'s
+    // window covers the WHOLE loop, so nothing is lost either way -- 160 dispatches
+    // across 80 wraps (every event, every iteration) both before and after this
+    // clamp. What the clamp restores is the invariant that the dispatch cursor
+    // stays inside the loop window, which the rest of _tick() assumes.
+    const { timers, ctx, p, dispatched, restore } = harness();
+    try {
+        const LOOP_END = 0.02;
+        const l = lane([
+            { time: 0.005, voiceIndex: 0, type: 'start', params: P('tiny') },
+            { time: 0.015, voiceIndex: 0, type: 'stop' },
+            { time: 1.0, voiceIndex: 1, type: 'stop' },   // gives the lane a real duration
+        ]);
+        p.setLoopRange(0, LOOP_END);
+        let wraps = 0;
+        p.onLoopWrap = () => wraps++;
+        p.play(l, true);
+        advance(ctx, timers, 2.0);
+
+        assert.ok(wraps >= 50, `expected the 20 ms loop to keep wrapping, got ${wraps}`);
+        assert.ok(dispatched.length > 0, 'the loop must still produce voices');
+        assert.ok(p._lastProcessedTime >= 0,
+            `dispatch cursor ${p._lastProcessedTime} is before the loop start`);
+        assert.ok(p._lastProcessedTime <= LOOP_END + 1e-9,
+            `dispatch cursor ${p._lastProcessedTime} is past loopEnd (${LOOP_END}) — it can never come back inside this iteration`);
+        p.stop();
+    } finally { restore(); }
+});
