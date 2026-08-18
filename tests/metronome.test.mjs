@@ -151,6 +151,91 @@ test('startCountIn while already running does not defer the first beat to a late
     } finally { restore(); }
 });
 
+test('startCountIn while already running schedules the bar-line click synchronously after a stall, with no duplicate', () => {
+    // The test above has the bar line ~0.7s away when startCountIn is called —
+    // outside the 100ms look-ahead — so it never proves the synchronous _tick()
+    // call does anything on the already-running path (an async tick would give
+    // the same result). Landing inside the window while already running turns
+    // out to usually be claimed by the metronome's OWN background loop first:
+    // it uses the same 100ms window on a 25ms timer, so by the time a caller's
+    // `now` is inside the window, a background tick has very often already
+    // fired within the preceding <=25ms and scheduled the click. A swept check
+    // (T = 3.85..3.95 in 5ms steps, same setup as below) confirms this
+    // structurally: the transition happens exactly when a periodic tick lands
+    // past the `now + 0.1 >= barStart` threshold, independent of the specific
+    // instant chosen — so a smooth advance() up to the window essentially never
+    // leaves anything for the synchronous tick to do here.
+    //
+    // The only way to reliably exercise the already-running branch's own
+    // synchronous scheduling is to deny the background loop a tick near the
+    // boundary first — e.g. a stalled/backgrounded tab, the same scenario (and
+    // the same technique: jump ctx.currentTime directly, bypassing the timer
+    // queue) as "a stall does not replay every missed beat" above.
+    const { timers, ctx, clock, met, restore } = harness(120);   // bar = 2.0s
+    try {
+        met.start();
+        advance(ctx, timers, 1.0);               // run normally for a while
+        ctx.currentTime = 1.95;                  // stall, then resume: next bar
+                                                   // (2.0) is 50ms out; nothing has
+                                                   // ticked since the jump
+        const beats = [];
+        met.onBeat = (idx) => beats.push(idx);
+        const before = ctx.oscillators.length;
+        let completedAt = null;
+        met.startCountIn((at) => { completedAt = at; });
+
+        // No advance()/runUntil between the call and this check: only the
+        // synchronous tick inside startCountIn could have scheduled anything yet.
+        const scheduled = ctx.oscillators.slice(before);
+        assert.equal(scheduled.length, 1,
+            'expected exactly one click scheduled synchronously, before any timer fired');
+        assert.equal(scheduled[0].started, 2.0,
+            `expected the click at the bar line (2.0), got ${scheduled[0].started}`);
+
+        advance(ctx, timers, 3.0);
+        const times = ctx.oscillators.map(o => o.started).filter(t => t >= 1.5 && t <= 4.5);
+        assert.deepEqual(times, [2, 2.5, 3, 3.5, 4, 4.5],
+            `expected a clean grid from the bar line with no gap or duplicate, got ${times}`);
+        assert.equal(beats[0], 0, 'expected the first beat index to be 0 (the accent)');
+        assert.equal(completedAt, 4.0, `expected completion one bar after the bar line, got ${completedAt}`);
+        met.stop();
+    } finally { restore(); }
+});
+
+test('startCountIn while already running does not duplicate a click the background loop already scheduled', () => {
+    // Companion to the test above: this is the common case it could NOT cover —
+    // metronome running normally, no stall, and the bar line enters the 100ms
+    // window while the background loop is still ticking every 25ms. As the
+    // comment above found, the background loop almost always schedules that
+    // click itself before startCountIn is ever called. This test settles the
+    // question the investigation raised: does Math.max(_nextBeatTime, barStart)
+    // then re-schedule a duplicate, or silently drop something? Answer: neither
+    // — asserted explicitly here rather than left to argument. (It cannot be
+    // used to prove the synchronous tick fires, since — as shown above — there
+    // is usually nothing left for it to do in this exact regime; that is
+    // covered by the stall-based test instead.)
+    const { timers, ctx, clock, met, restore } = harness(120);   // bar = 2.0s
+    try {
+        met.start();
+        advance(ctx, timers, 3.95);              // running normally; bar 4.0 is
+                                                   // 50ms out and, per the sweep
+                                                   // above, already claimed by the
+                                                   // background loop by this point
+        assert.equal(ctx.oscillators.filter(o => o.started === 4).length, 1,
+            'sanity: the running loop should have already scheduled the bar-line click');
+
+        met.startCountIn(() => {});
+        assert.equal(ctx.oscillators.filter(o => o.started === 4).length, 1,
+            'startCountIn must not schedule a duplicate click at a bar line the running loop already claimed');
+
+        advance(ctx, timers, 3.0);
+        const times = ctx.oscillators.map(o => o.started).filter(t => t >= 3.5 && t <= 6.5);
+        assert.deepEqual(times, [3.5, 4, 4.5, 5, 5.5, 6, 6.5],
+            `expected an unbroken half-beat grid with no gap or duplicate, got ${times}`);
+        met.stop();
+    } finally { restore(); }
+});
+
 test('startCountIn does not move the epoch under already-playing layers', () => {
     const { timers, ctx, clock, met, restore } = harness(120);
     try {
