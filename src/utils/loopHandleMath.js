@@ -53,6 +53,13 @@ export function barLoopToFractions(startBar, lengthBars, totalBars) {
 // point, so it can never widen back. It is worse than the bar-path variant: the
 // seconds path only writes the handles back inside the snap-to-grid branch, so
 // with snap off the handles sit still under the pointer while the loop collapses.
+//
+// This rests on a second invariant, in Player: setLoopStationMode(false, ...)
+// CLEARS _loopBars. main.js routes a musical loop through the bar path above and
+// only reaches this one for a plain seconds take -- but that split is by
+// state.loopStationMode, so if a bar-based loop could outlive the mode being
+// switched off it would arrive here with getLoopableDuration() still resolving
+// through the bars, and the objection this comment dismisses would be live again.
 
 /**
  * Convert loop-handle fractions to a seconds loop window.

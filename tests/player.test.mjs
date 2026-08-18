@@ -371,9 +371,23 @@ test('retime() keeps the loop anchored to the bar grid across a MID-loop tempo c
         assert.equal(wraps.length, 1, `expected exactly one wrap, got ${wraps.length}`);
 
         const bar = clock.getBarDuration();    // 1.714286
+
+        // Assert on the ANCHOR, not on the wrap timestamp. `wraps[0]` is the time
+        // of the tick that OBSERVED the wrap, so it can be up to TICK_MS (25 ms)
+        // late; the anchor is the quantity retime() actually sets and it is exact.
+        // The first draft of this assertion used the wrap timestamp against a
+        // 0.01 threshold and passed with 0.0071 of headroom -- pure luck about
+        // where the true bar line fell between two ticks, and red against correct
+        // code for most other choices of BPM.
+        const anchorBars = (p._startTime + p._resolveLoop().start - clock._epoch) / bar;
+        assert.ok(Math.abs(anchorBars - Math.round(anchorBars)) < 1e-9,
+            `the loop anchor is ${anchorBars.toFixed(6)} bars from the epoch — off the 140 bpm grid`);
+
+        const TICK = 0.025;                    // Player's TICK_MS, in seconds
         const bars = (wraps[0] - clock._epoch) / bar;
-        assert.ok(Math.abs(bars - Math.round(bars)) * bar < 0.01,
-            `wrap at ${wraps[0].toFixed(4)} is ${bars.toFixed(4)} bars from the epoch — off the 140 bpm grid`);
+        assert.ok(Math.abs(bars - Math.round(bars)) * bar <= TICK + 1e-9,
+            `wrap observed at ${wraps[0].toFixed(4)} is ${bars.toFixed(4)} bars from the epoch — ` +
+            `further off the 140 bpm grid than one transport tick can explain`);
 
         // Continuity bound. A grid-aligned anchor that ignored the playhead
         // entirely could satisfy the assertion above; this one cannot move the
