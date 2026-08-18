@@ -511,3 +511,49 @@ test('the dispatch cursor never leaves the loop window, even for a loop shorter 
         p.stop();
     } finally { restore(); }
 });
+
+test('play() anchors the clock epoch before it reads the bar grid', () => {
+    // main.js removes the unlock overlay outright when audioContext.state is
+    // already 'running' at load, so dismissUnlockOverlay() -- the only
+    // unconditional load-time anchor -- never runs on a warm context. Restore a
+    // session, press Play with the metronome off, and play() reaches
+    // getNextBarTime() against an unanchored _epoch of 0. The handler's own
+    // ensureEpoch() sits AFTER play() and is gated on the metronome, so the first
+    // thing that does anchor -- switching the metronome on -- moves the epoch to
+    // that instant and the whole bar grid jumps under the already-playing layer.
+    const { timers, ctx, p, restore } = harness();
+    try {
+        const clock = new MasterClock(ctx);     // deliberately NOT anchored
+        clock.bpm = 120;                        // bar = 2.0 s
+        assert.equal(clock.isAnchored, false, 'sanity: nothing has anchored the grid yet');
+        p.setLoopStationMode(true, clock);
+        p.setLoopBars(0, 2);                    // 2 bars = 4.0 s
+
+        ctx.currentTime = 3.3;                  // audio has been running for a while
+        const wraps = [];
+        p.onLoopWrap = () => wraps.push(ctx.currentTime);
+        p.play(lane([{ time: 3.9, voiceIndex: 0, type: 'stop' }]), true);
+
+        assert.equal(clock.isAnchored, true,
+            'play() phase-locks to getNextBarTime(), so it must anchor the epoch first');
+        const anchoredAt = clock._epoch;
+
+        advance(ctx, timers, 6.0);
+        // Now the user switches the metronome on. ensureEpoch() must find the grid
+        // already anchored and leave it exactly where the layer locked to it.
+        clock.ensureEpoch();
+        assert.equal(clock._epoch, anchoredAt,
+            `enabling the metronome moved the epoch from ${anchoredAt} to ${clock._epoch} — the grid jumped under a playing layer`);
+
+        advance(ctx, timers, 14.0);
+        const bar = clock.getBarDuration();
+        assert.ok(wraps.length >= 3, `expected several wraps, got ${wraps.length}`);
+        for (const w of wraps) {
+            const beats = (w - clock._epoch) / bar;
+            const off = Math.abs(beats - Math.round(beats)) * bar;
+            assert.ok(off < 0.05,
+                `wrap at ${w.toFixed(3)} is ${off.toFixed(3)} s off the metronome's bar grid`);
+        }
+        p.stop();
+    } finally { restore(); }
+});

@@ -168,6 +168,16 @@ export class Player {
         // direction, replaying material outside the loop range.
         const { start: loopStart } = this._resolveLoop();
         if (this._loopStationMode && this._clock) {
+            // Anchor the shared grid before reading it — mirroring
+            // Metronome.startCountIn, and for the same reason. Callers cannot be
+            // relied on: main.js's unlock overlay is skipped entirely when the
+            // AudioContext is already running at load, and the ensureEpoch() in
+            // each transport handler sits AFTER play() and is gated on the
+            // metronome. Reading getNextBarTime() against an unanchored epoch
+            // phase-locks the layer to a grid that the first real anchor then
+            // moves out from under it. Idempotent, so a clock anchored by any
+            // other entry point is untouched.
+            this._clock.ensureEpoch();
             this._startTime = this._clock.getNextBarTime() - loopStart;
         } else {
             // Subtract loopStart here too. The pre-roll guard below blocks
