@@ -1,7 +1,16 @@
 // Metronome.js — Audible click track with count-in support.
 // Uses look-ahead scheduling (same pattern as GrainScheduler) for sample-accurate timing.
 
-/** Bound on clicks scheduled per tick, so a stall cannot burst. */
+/**
+ * Bound on clicks scheduled per tick, so a stall cannot burst.
+ *
+ * Unreachable through the public API — don't try to write a test for it. The
+ * fastest configurable beat is (60/300) * (4/16) = 0.05 s (bpm 300, sixteenths)
+ * against a fixed 100 ms look-ahead, so at most 3 boundaries fall in one window;
+ * and _tick's re-derive jumps straight to the next boundary after a stall rather
+ * than replaying missed ones. Kept as insurance against a future change to that
+ * re-derive. GrainScheduler's MAX_GRAINS_PER_TICK has the same property.
+ */
 const MAX_CLICKS_PER_TICK = 8;
 
 /** Nudge past exact boundaries so float equality never stalls the walk. */

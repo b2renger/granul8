@@ -418,6 +418,12 @@ export class Player {
         if (this._timerId !== null) { clearTimeout(this._timerId); this._timerId = null; }
         if (!this.isPlaying || !this._lane) return;
 
+        // Read once here for the guards and the loop boundary; the dispatch
+        // section below re-reads currentTime into `currentElapsed`. The two can
+        // differ, but only by however long this tick's own work took — well under
+        // one render quantum in a single-threaded event loop — and using the later
+        // read for dispatch is the correct choice: it dispatches everything due as
+        // of the moment the events are actually sent.
         const elapsed = this._audioContext.currentTime - this._startTime;
 
         const { start: loopStart, end: loopEnd } = this._resolveLoop();
