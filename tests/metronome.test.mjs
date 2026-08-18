@@ -181,6 +181,28 @@ test('the count-in callback receives the exact downbeat time, one bar out', () =
     } finally { restore(); }
 });
 
+test('startCountIn schedules the first click synchronously when the bar line is inside the look-ahead window', () => {
+    // The other count-in tests all call startCountIn when the bar line is well
+    // outside the 100ms _scheduleAhead window, so a later async tick would have
+    // produced the same result — they don't actually exercise the synchronous
+    // _tick() call. This one puts the bar line 50ms out, inside the window, and
+    // checks ctx.oscillators immediately after startCountIn returns, with no
+    // runUntil/advance in between: only the synchronous tick could have
+    // scheduled anything yet.
+    const { ctx, clock, met, restore } = harness(120);   // bar = 2.0 s
+    try {
+        ctx.currentTime = 1.95;                 // next bar (2.0) is 50ms out
+        const before = ctx.oscillators.length;
+        met.startCountIn(() => {});
+        const scheduled = ctx.oscillators.slice(before);
+        assert.equal(scheduled.length, 1,
+            'expected the first count-in click to be scheduled synchronously, before any timer fired');
+        assert.equal(scheduled[0].started, 2.0,
+            `expected the click scheduled at the bar line (2.0), got ${scheduled[0].started}`);
+        met.stop();
+    } finally { restore(); }
+});
+
 test('ensureEpoch is idempotent', () => {
     // Deliberately NOT using harness(): it calls clock.setEpoch(0) internally to
     // give every other test a known grid, which pre-anchors the epoch and makes
