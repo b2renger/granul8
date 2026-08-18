@@ -101,14 +101,28 @@ export class Metronome {
         const now = this._ctx.currentTime;
         this._clock.setEpoch(now);
         this._nextBeatTime = now;
+        // Seed _lastBeatDuration so _tick's guard doesn't mistake this deliberate
+        // placement for a stale/changed grid and re-derive past it (see _tick).
+        this._lastBeatDuration = this._clock.getBeatDuration();
 
         // Pre-compute when the count-in completes (= 1 bar from now)
         this._countInEndTime = now + this._clock.getBarDuration();
 
-        if (!this._running) {
-            this._running = true;
-            this._tick();
+        // Drive the first tick synchronously, on both the fresh-instance and
+        // already-running paths. _tick's re-derive guard assumes any call to it is
+        // asynchronous relative to when _nextBeatTime was last set — true for the
+        // normal look-ahead loop, but not here: _nextBeatTime was just pinned to
+        // `now` on purpose, for beat 0 (the accent). A pending tick from before this
+        // call would fire up to _timerInterval later, by which point `now` has moved
+        // on and the guard's staleness check would re-derive past this beat. Ticking
+        // synchronously closes that window; clearing any pending timer first avoids
+        // scheduling the same beat twice.
+        if (this._timerId !== null) {
+            clearTimeout(this._timerId);
+            this._timerId = null;
         }
+        this._running = true;
+        this._tick();
     }
 
     /**

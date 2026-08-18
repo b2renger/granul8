@@ -22,18 +22,8 @@ function harness(bpm = 120) {
     return { timers, ctx, clock, met, restore };
 }
 
-/**
- * The `when` of every scheduled click, in order.
- *
- * Filtered by `'started' in n` rather than `n.type === 'oscillator'`: FakeNode uses `.type`
- * as its node-kind marker, but OscillatorNode.type is also a real Web Audio property (the
- * waveform shape), and Metronome._scheduleClick legitimately sets `osc.type = 'sine'` —
- * overwriting the marker before any test ever reads it. `started` is unique to FakeOsc among
- * the fakes (FakeSource uses `startArgs` instead), so it survives that overwrite. Filtering on
- * `n.type` as originally written matches zero nodes, in both the buggy and the fixed code —
- * a defect in the test helper, not in Metronome.
- */
-const clickTimes = (ctx) => ctx.nodes.filter(n => 'started' in n).map(o => o.started);
+/** The `when` of every scheduled click, in order. */
+const clickTimes = (ctx) => ctx.oscillators.map(o => o.started);
 
 test('clicks land on the clock beat grid', () => {
     const { timers, ctx, clock, met, restore } = harness(120);
@@ -99,6 +89,52 @@ test('a stall does not replay every missed beat', () => {
         advance(ctx, timers, 0.05);
         const added = clickTimes(ctx).length - before;
         assert.ok(added <= 4, `expected a bounded catch-up, got ${added} clicks`);
+        met.stop();
+    } finally { restore(); }
+});
+
+test('startCountIn on a fresh instance places the first click at now on beat 0', () => {
+    const { timers, ctx, clock, met, restore } = harness(120);
+    try {
+        const beats = [];
+        met.onBeat = (idx) => beats.push(idx);
+        let completedAt = null;
+        let completions = 0;
+        met.startCountIn((at) => { completedAt = at; completions++; });
+        advance(ctx, timers, 2.5);              // 1 bar (2.0 s) + margin
+
+        const times = clickTimes(ctx);
+        assert.equal(times[0], 0, `expected the first click at t=0, got ${times[0]}`);
+        assert.equal(beats[0], 0, `expected the first beat index to be 0 (the accent), got ${beats[0]}`);
+        // 4/4: the count-in is one full bar, so indices run 0,1,2,3.
+        assert.deepEqual(beats.slice(0, 4), [0, 1, 2, 3], `expected the count-in to cycle 0..3, got ${beats.slice(0, 4)}`);
+
+        assert.equal(completions, 1, `expected the completion callback exactly once, got ${completions}`);
+        assert.equal(completedAt, clock.getBarDuration(), `expected completion at the bar boundary, got ${completedAt}`);
+        met.stop();
+    } finally { restore(); }
+});
+
+test('startCountIn while already running does not defer the first beat to a later tick', () => {
+    const { timers, ctx, clock, met, restore } = harness(120);
+    try {
+        met.start();
+        advance(ctx, timers, 3.3);               // arbitrary mid-beat running time
+        const beats = [];
+        met.onBeat = (idx) => beats.push(idx);
+        const before = clickTimes(ctx).length;
+        const startTime = ctx.currentTime;
+        let completedAt = null;
+        let completions = 0;
+        met.startCountIn((at) => { completedAt = at; completions++; });
+        advance(ctx, timers, 2.5);               // 1 bar (2.0 s) + margin
+
+        const added = clickTimes(ctx).slice(before);
+        assert.equal(added[0], startTime, `expected the first click at ${startTime} (the moment startCountIn was called), got ${added[0]}`);
+        assert.equal(beats[0], 0, `expected the first beat index to be 0 (the accent), got ${beats[0]}`);
+
+        assert.equal(completions, 1, `expected the completion callback exactly once, got ${completions}`);
+        assert.equal(completedAt, startTime + clock.getBarDuration(), `expected completion one bar after ${startTime}, got ${completedAt}`);
         met.stop();
     } finally { restore(); }
 });
