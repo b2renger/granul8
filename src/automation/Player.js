@@ -596,6 +596,17 @@ export class Player {
      * region using the next iteration's synthetic IDs. This creates the
      * crossfade overlap: new voices start producing grains while old voices'
      * pre-scheduled grains play out.
+     *
+     * KNOWN GAP: the window below is not clamped to loopEnd. It runs from
+     * loopStart to loopStart + CROSSFADE_WINDOW, so a loop SHORTER than the
+     * 50 ms crossfade reaches past its own end and dispatches events from
+     * outside it -- material the user excluded with the loop handles -- on every
+     * iteration. Reachable: TransportBar enforces only a 1% handle separation,
+     * and 1% of a 2 s take is 20 ms. Left alone deliberately; what a loop
+     * shorter than its own crossfade should do is a design decision, not a
+     * patch. (This is also why the dispatch-cursor clamp at the wrap handler
+     * changes no behaviour in that regime: the pre-start covers the whole
+     * iteration, so the normal dispatch path has nothing left to send.)
      * @private
      */
     _preStartNextIteration() {
