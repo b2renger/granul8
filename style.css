@@ -36,6 +36,7 @@
        the card does the delineating. */
     --card-bg: #262220;
     --card-edge: #4a4139;
+    --card-shelf: #1f1c1a;
 
     /* Canvas-drawn colors (read by JS via getComputedStyle) */
     --canvas-bg: #1a1816;
@@ -83,6 +84,7 @@
        1.57 edge-to-card — so the panel has identical structure in both themes. */
     --card-bg: #e4dcd3;
     --card-edge: #bcb0a1;
+    --card-shelf: #d9d0c5;
 
     --canvas-bg: #ede8e2;
     --canvas-waveform: rgba(180, 110, 60, 0.7);
@@ -115,6 +117,14 @@ html, body {
 /* === Top Bar === */
 #top-bar {
     display: flex;
+    /* Wraps at every width, not only under 768px. Three children are
+       flex-shrink: 0 and the title is nowrap, so the bar's minimum came to about
+       1345px; under body { overflow: hidden } everything past that — the theme
+       toggle, beat indicator, metronome, time signature, TAP — was simply off
+       the right edge and unreachable. iPad landscape at 1024px sits inside that
+       dead zone, and it is one of the two stated devices. */
+    flex-wrap: wrap;
+    row-gap: 8px;
     align-items: center;
     gap: 16px;
     padding: 8px 16px;
@@ -862,12 +872,12 @@ html, body {
    had no visible hierarchy: every line of text carried equal weight. */
 .panel-section summary {
     padding: 20px 24px 10px;
-    /* Was 11px — the smallest text in the panel, ranked below the 13px parameter
-       names it governs. Hierarchy was carried entirely by hue, which is the
-       weakest cue in a dark room and the first to go for a colour-blind player.
-       13px uppercase at 0.14em tracking reads considerably larger than 13px
-       sentence case, so this now leads on size, weight AND colour. */
-    font-size: 13px;
+    /* 15px against the parameter names' 13px. An earlier pass set this to 13px
+       on the theory that uppercase at 0.14em tracking "reads larger" — it does
+       not: tracking widens the line, cap height is unchanged, so heading and
+       parameter name were the same rank and only hue separated them. Size does
+       the work now, with the rule below reinforcing it. */
+    font-size: 15px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.14em;
@@ -878,6 +888,16 @@ html, body {
     min-height: 44px;
     display: flex;
     align-items: center;
+    gap: 10px;
+}
+
+/* A hairline carrying the heading across the panel, so a section reads as a band
+   and not as one more line of text in a column of them. */
+.panel-section > summary::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--card-edge);
 }
 
 .panel-section summary::-webkit-details-marker {
@@ -933,7 +953,8 @@ html, body {
    It is also the panel's second rank of text, so it is set at --text-primary:
    at 12px/--text-secondary it was indistinguishable from the helper words
    underneath it, and only font-weight separated a name from its own footnote. */
-.param-group > label {
+.param-group > label,
+.param-group > .param-name {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
@@ -943,6 +964,7 @@ html, body {
     letter-spacing: 0.01em;
     color: var(--text-primary);
     user-select: none;
+    margin: 0;
 }
 
 /* A switch and the word it names are one unit and are never spread apart, no
@@ -952,6 +974,10 @@ html, body {
 }
 
 .param-value {
+    /* An explicit size. Without one this inherited from its context and rendered
+       at 13px inside a parameter's own label — the same rank as the name it sits
+       opposite — and at 11px inside a range row. One class, three renderings. */
+    font-size: 11px;
     color: var(--accent);
     font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
 }
@@ -1011,7 +1037,8 @@ html, body {
 }
 
 /* === Range Slider Rows === */
-.param-group > label {
+.param-group > label,
+.param-group > .param-name {
     margin-bottom: -2px;
 }
 
@@ -1031,6 +1058,10 @@ html, body {
 }
 
 .range-row .param-value {
+    /* One rule, not two. There were two `.range-row .param-value` blocks of equal
+       specificity setting 88px and 52px; the later won and the 88px comment
+       described a number that never rendered. 88px is the one that holds
+       "1/16T (31ms)" without stealing width from the slider mid-drag. */
     flex: 0 0 auto;
     min-width: 88px;
     text-align: right;
@@ -1089,13 +1120,7 @@ html, body {
     border: none;
 }
 
-.range-row .param-value {
-    font-size: 11px;
-    min-width: 52px;
-    text-align: right;
-    flex-shrink: 0;
-    white-space: nowrap;
-}
+
 
 /* === Inactive parameter dimming === */
 /* Dimming only. `pointer-events: none` used to live here, which blocks the mouse
@@ -1104,12 +1129,19 @@ html, body {
    now carry the real `disabled` attribute (see ParameterPanel.updateParamRelevance),
    so keyboard, screen readers and the screen finally agree. */
 .param-inactive {
-    opacity: 0.35;
+    /* 0.55, not 0.35. At 0.35 --text-secondary over --card-bg composites to
+       1.71:1 — not a dimmed control, an unreadable one. The `disabled` attribute
+       set alongside this is what actually conveys "inactive"; the opacity only
+       has to hint at it. */
+    opacity: 0.55;
     transition: opacity 0.2s;
 }
 
+/* Retained for any row dimmed without being hidden. The panel no longer uses it
+   for MIN rows — at 0.35 over --card-bg the tag measured 1.71:1 and the value
+   2.15:1, so "dimmed" meant "illegible" rather than "inactive". */
 .range-row-inactive {
-    opacity: 0.35;
+    opacity: 0.55;
     transition: opacity 0.2s;
 }
 
@@ -1523,13 +1555,19 @@ html, body {
 .arp-style-nav {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 8px;
+    /* Was nowrap with every child flex-shrink: 0, needing 272px inside a card
+       that offers 216px at 1920px and 152px at 400px — so the "next" button and
+       part of the preview rendered outside the card's own border, over the gap
+       or the neighbouring card, at EVERY width. The preview yields instead. */
     flex-wrap: nowrap;
+    min-width: 0;
 }
 
 .arp-style-nav button {
     width: 44px;
     height: 44px;
+    flex: 0 0 auto;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1551,7 +1589,10 @@ html, body {
 }
 
 .arp-style-preview {
-    width: 160px;
+    width: 100%;
+    min-width: 0;
+    max-width: 160px;
+    flex: 1 1 auto;
     aspect-ratio: 2 / 1;
     flex-shrink: 0;
     background: var(--bg-surface);
@@ -1625,7 +1666,12 @@ html, body {
     margin: 4px -16px -16px;
     padding: 10px 16px 12px;
     border-top: 1px solid var(--card-edge);
-    background: var(--bg-primary);
+    /* NOT --bg-primary. That is the panel's own ground, so the strip rendered
+       pixel-identical to the gap between cards: a hole through the bottom of
+       every card, with the toggles floating on the page rather than sitting in
+       the object they modify. --card-shelf is a slight step DOWN from --card-bg,
+       enough to read as a shelf and not as a different surface. */
+    background: var(--card-shelf);
     border-radius: 0 0 7px 7px;
 }
 
@@ -1658,6 +1704,20 @@ html, body {
     color: var(--text-secondary);
     margin-right: 2px;
     user-select: none;
+}
+
+/* A value the subdivision select is driving, not the slider. The slider is
+   disabled, so this only has to say WHY it is: the readout keeps full strength
+   because it is the live answer, and the track recedes. */
+.range-row-derived input[type="range"] {
+    opacity: 0.4;
+}
+
+/* A range collapsed to a single value: no MIN/MAX to distinguish, so the tag
+   goes and the card's own name does the labelling. Reserving the tag's 30px
+   would leave a blank column with nothing in it. */
+.range-row-solo .range-label {
+    display: none;
 }
 
 /* === Focus visibility ===
@@ -1703,9 +1763,12 @@ html, body {
         flex: 1;
     }
 
+    /* padding-top stays non-zero. At 0 the heading-to-first-card gap equals the
+       card-to-card gap exactly, so a section stops binding to its own content on
+       precisely the device this breakpoint exists for. */
     .section-content {
         gap: 10px;
-        padding: 0 12px 10px;
+        padding: 4px 12px 16px;
     }
 }
 
@@ -1731,9 +1794,12 @@ html, body {
     }
 
     .section-content {
-        grid-template-columns: 1fr 1fr;
-        gap: 8px;
-        padding: 0 10px 8px;
+        /* One column, not two. Forcing 1fr 1fr regardless of how narrow the
+           viewport is gives ~186px columns at 400px, which cannot hold a slider,
+           its tag and its value on one line. Same padding-top argument as 768. */
+        grid-template-columns: 1fr;
+        gap: 10px;
+        padding: 4px 10px 14px;
     }
 
     #transport-bar {
@@ -1746,7 +1812,11 @@ html, body {
     }
 
     .panel-section summary {
-        padding: 8px 10px;
+        /* Asymmetric, like the desktop rule: more above than below, so the
+           heading stays bound to the content under it rather than floating
+           equidistant between two sections. */
+        padding: 16px 10px 8px;
+        font-size: 14px;
     }
 }
 

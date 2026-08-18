@@ -285,6 +285,15 @@ export class ParameterPanel {
         this._densityMinRow   = this._ranges.density.minSlider.closest('.range-row');
         this._spreadMinRow    = this._ranges.spread.minSlider.closest('.range-row');
         this._panMinRow       = this._ranges.pan.minSlider.closest('.range-row');
+        // Max rows cached too: updateParamRelevance runs from main.js's render
+        // loop, so a closest() per parameter per frame is 240 DOM walks a second
+        // in an app whose whole point is not stalling the audio thread's feeder.
+        this._maxRows = {
+            grainSize: this._ranges.grainSize.maxSlider.closest('.range-row'),
+            density:   this._ranges.density.maxSlider.closest('.range-row'),
+            spread:    this._ranges.spread.maxSlider.closest('.range-row'),
+            pan:       this._ranges.pan.maxSlider.closest('.range-row'),
+        };
         // Param groups for musical controls
         this._rootNoteGroup = this._rootNoteSelect.closest('.param-group');
         this._scaleGroup    = this._scaleSelect.closest('.param-group');
@@ -872,20 +881,39 @@ export class ParameterPanel {
 
         const panMinActive = m.randomPan || hasMapping('pan');
 
-        // The class dims; the `disabled` attribute is what actually takes the
-        // control out of reach. Dimming alone was `pointer-events: none`, which
-        // blocks the mouse and nothing else — these sliders stayed in the tab
-        // order, focusable, announced as active, and adjustable with the arrow
-        // keys while looking inert. Setting both keeps the screen, the keyboard
-        // and the accessibility tree telling the same story.
-        const setRow = (row, slider, active) => {
-            row.classList.toggle('range-row-inactive', !active);
-            slider.disabled = !active;
+        // A range needs two ends; a single value does not. With randomize off and
+        // no gesture mapped, MIN is not a control the user can use for anything,
+        // and every Sound Engine card shipped in that state — so the instrument's
+        // PRIMARY sound control was the slider labelled "MAX", sitting under a
+        // greyed twin showing the same number. That reads as a broken card.
+        //
+        // Dimming it was worse than useless: opacity 0.35 over --card-bg puts the
+        // MIN tag at 1.71:1 and its value at 2.15:1, well under the 3:1 floor, so
+        // it was not a dimmed row but a smear. Hide the row instead — the idiom
+        // this panel already uses for a control that means nothing right now —
+        // and drop the MAX tag with it, because with one row there is no min and
+        // max to tell apart: the card's own name is the label.
+        // Quantized means the value is derived from BPM and the subdivision, so
+        // the sliders contribute nothing to it. They were left live and
+        // draggable while BOTH readouts were overwritten with one identical
+        // string (see _refreshGrainSizeDisplay) — two sliders you could drag
+        // across their whole travel while the numbers never moved and never
+        // differed. Nothing on screen said whether the control or the user was
+        // at fault. Disable them and let the subdivision select be the control.
+        const setRows = (minRow, key, active, quantized) => {
+            const r = this._ranges[key];
+            const maxRow = this._maxRows[key];
+            const showMin = active && !quantized;
+            minRow.hidden = !showMin;
+            r.minSlider.disabled = !showMin;
+            maxRow.classList.toggle('range-row-solo', !showMin);
+            r.maxSlider.disabled = quantized;
+            maxRow.classList.toggle('range-row-derived', quantized);
         };
-        setRow(this._grainSizeMinRow, this._ranges.grainSize.minSlider, gsMinActive);
-        setRow(this._densityMinRow,   this._ranges.density.minSlider,   denMinActive);
-        setRow(this._spreadMinRow,    this._ranges.spread.minSlider,    sprMinActive);
-        setRow(this._panMinRow,       this._ranges.pan.minSlider,       panMinActive);
+        setRows(this._grainSizeMinRow, 'grainSize', gsMinActive, this._quantizeGrainSize.checked);
+        setRows(this._densityMinRow, 'density', denMinActive, this._quantizeDensity.checked);
+        setRows(this._spreadMinRow, 'spread', sprMinActive, false);
+        setRows(this._panMinRow, 'pan', panMinActive, false);
 
         // --- Root Note & Scale: active when quantize pitch, or arp pattern ≠ random ---
         const arpPattern = m.arpPattern || 'random';

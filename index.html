@@ -145,7 +145,7 @@
                     <summary>Rhythm and Harmony</summary>
                     <div class="section-content musical-content">
                         <div class="param-group" id="pitch-mod-group">
-                            <label>Pitch</label>
+                            <h3 class="param-name">Pitch</h3>
                             <div class="param-modifiers">
                                 <label class="toggle-label">
                                     <input type="checkbox" id="quantize-pitch">
@@ -218,7 +218,7 @@
                             </select>
                         </div>
                         <div class="param-group arp-style-group" id="arp-style-group" style="display: none;">
-                            <label>Arp Shape <span class="param-value" id="val-arp-style">1/24</span></label>
+                            <h3 class="param-name">Arp Shape <span class="param-value" id="val-arp-style">1 / 24</span></h3>
                             <div class="arp-style-nav">
                                 <button type="button" id="arp-style-prev" title="Previous pattern">&lsaquo;</button>
                                 <svg id="arp-style-svg" class="arp-style-preview" viewBox="0 0 100 50"></svg>
@@ -232,7 +232,7 @@
                     <summary>Sound Engine</summary>
                     <div class="section-content">
                         <div class="param-group range-group">
-                            <label>Grain Size</label>
+                            <h3 class="param-name">Grain Size</h3>
                             <div class="range-row">
                                 <span class="range-label">Min</span>
                                 <input type="range" id="param-grain-size-min" aria-label="Grain size minimum" aria-describedby="val-grain-size-min" min="0" max="1" value="0.8674" step="0.001">
@@ -292,15 +292,15 @@
                             </div>
                         </div>
                         <div class="param-group range-group">
-                            <label>Density</label>
+                            <h3 class="param-name">Grain Spacing</h3>
                             <div class="range-row">
                                 <span class="range-label">Min</span>
-                                <input type="range" id="param-density-min" aria-label="Density minimum" aria-describedby="val-density-min" min="0" max="1" value="0.651" step="0.001">
+                                <input type="range" id="param-density-min" aria-label="Grain spacing minimum" aria-describedby="val-density-min" min="0" max="1" value="0.651" step="0.001">
                                 <span class="param-value" id="val-density-min">100 ms</span>
                             </div>
                             <div class="range-row">
                                 <span class="range-label">Max</span>
-                                <input type="range" id="param-density-max" aria-label="Density maximum" aria-describedby="val-density-max" min="0" max="1" value="0.651" step="0.001">
+                                <input type="range" id="param-density-max" aria-label="Grain spacing maximum" aria-describedby="val-density-max" min="0" max="1" value="0.651" step="0.001">
                                 <span class="param-value" id="val-density-max">100 ms</span>
                             </div>
                             <div class="gesture-indicator" data-param="density"></div>
@@ -311,7 +311,7 @@
                                     <span class="toggle-switch"></span>
                                     Quantize
                                 </label>
-                                <select id="subdiv-density" aria-label="Density quantize subdivision" class="subdiv-select" disabled>
+                                <select id="subdiv-density" aria-label="Grain spacing quantize subdivision" class="subdiv-select" disabled>
                                     <optgroup label="Binary">
                                         <option value="1">1/1</option>
                                         <option value="2">1/2</option>
@@ -335,21 +335,21 @@
                             </div>
                         </div>
                         <div class="param-group range-group">
-                            <label>Spread</label>
+                            <h3 class="param-name">Position Scatter</h3>
                             <div class="range-row">
                                 <span class="range-label">Min</span>
-                                <input type="range" id="param-spread-min" aria-label="Spread minimum" aria-describedby="val-spread-min" min="0" max="1" value="0" step="0.01">
+                                <input type="range" id="param-spread-min" aria-label="Position scatter minimum" aria-describedby="val-spread-min" min="0" max="1" value="0" step="0.01">
                                 <span class="param-value" id="val-spread-min">0.00</span>
                             </div>
                             <div class="range-row">
                                 <span class="range-label">Max</span>
-                                <input type="range" id="param-spread-max" aria-label="Spread maximum" aria-describedby="val-spread-max" min="0" max="1" value="0" step="0.01">
+                                <input type="range" id="param-spread-max" aria-label="Position scatter maximum" aria-describedby="val-spread-max" min="0" max="1" value="0" step="0.01">
                                 <span class="param-value" id="val-spread-max">0.00</span>
                             </div>
                             <div class="gesture-indicator" data-param="spread"></div>
                         </div>
                         <div class="param-group range-group">
-                            <label>Pan</label>
+                            <h3 class="param-name">Pan</h3>
                             <div class="range-row">
                                 <span class="range-label">Min</span>
                                 <input type="range" id="param-pan-min" aria-label="Pan minimum" aria-describedby="val-pan-min" min="-1" max="1" value="0" step="0.01">
@@ -388,8 +388,8 @@
                             <select id="map-pressure">
                                 <option value="none" selected>None</option>
                                 <option value="grainSize">Grain Size</option>
-                                <option value="density">Density</option>
-                                <option value="spread">Spread</option>
+                                <option value="density">Grain spacing</option>
+                                <option value="spread">Position scatter</option>
                                 <option value="amplitude">Volume</option>
                                 <option value="pitch">Pitch</option>
                             </select>
@@ -405,8 +405,8 @@
                             <select id="map-contact-size">
                                 <option value="none" selected>None</option>
                                 <option value="grainSize">Grain Size</option>
-                                <option value="density">Density</option>
-                                <option value="spread">Spread</option>
+                                <option value="density">Grain spacing</option>
+                                <option value="spread">Position scatter</option>
                                 <option value="amplitude">Volume</option>
                                 <option value="pitch">Pitch</option>
                             </select>
@@ -422,8 +422,8 @@
                             <select id="map-velocity">
                                 <option value="none" selected>None</option>
                                 <option value="grainSize">Grain Size</option>
-                                <option value="density">Density</option>
-                                <option value="spread">Spread</option>
+                                <option value="density">Grain spacing</option>
+                                <option value="spread">Position scatter</option>
                                 <option value="amplitude">Volume</option>
                                 <option value="pitch">Pitch</option>
                             </select>
