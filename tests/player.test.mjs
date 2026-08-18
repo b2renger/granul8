@@ -321,6 +321,17 @@ test('setLoopBars(0, 0) clears the musical loop instead of sticking at zero leng
 });
 
 test('after setLoopBars(0, 0) clears the musical loop, playback resumes using the seconds-based range instead of freezing', () => {
+    // Loop-station mode and the clock stay ATTACHED throughout this test -- that is
+    // what makes it actually exercise the guard. _resolveLoop()'s bar branch is
+    // gated on `this._loopBars && this._clock`. If the clock were detached (e.g.
+    // via setLoopStationMode(false, null)) it would gate the branch closed on its
+    // own, so an unconditional `setLoopBars` assignment (the un-guarded bug) and
+    // the guarded fix would both fall through to the seconds branch identically --
+    // the test would pass either way and prove nothing about the guard. With the
+    // clock attached, an unguarded assignment leaves _loopBars at
+    // { startBars: 0, lengthBars: 0 }, the bar branch resolves a genuine
+    // zero-length loop, and _tick()'s `loopLen <= 0` guard freezes the transport
+    // forever: zero wraps.
     const { timers, ctx, p, restore } = harness();
     try {
         const clock = new MasterClock(ctx);
@@ -329,30 +340,45 @@ test('after setLoopBars(0, 0) clears the musical loop, playback resumes using th
         p.setLoopStationMode(true, clock);
         p.setLoopBars(0, 2);                   // a previous take's 2-bar (4.0 s) musical loop
 
-        // Reset for a new take, as Task 11's onRecord handler does.
+        // Reset for a new take, as Task 11's onRecord handler does. Loop-station
+        // mode and the clock are left exactly as a live loop-station instance would
+        // have them -- only the musical loop itself is cleared.
         p.setLoopBars(0, 0);
         p.setLoopRange(0, 2.0);                // seconds-based range for the new take
-        // Drop loop-station mode too, so this test isolates the _loopBars guard from
-        // the (separately-tested) bar-phase-locked pre-roll that setLoopStationMode
-        // adds to play() -- that pre-roll offsets the first wrap by up to one bar but
-        // does not freeze playback either way, so it would only obscure this assertion.
-        p.setLoopStationMode(false, null);
 
         const wraps = [];
         p.onLoopWrap = () => wraps.push(ctx.currentTime);
         p.play(lane([{ time: 1.9, voiceIndex: 0, type: 'stop' }]), true);
         advance(ctx, timers, 10.0);
 
-        // With the unguarded assignment, _loopBars stayed { startBars: 0, lengthBars: 0 },
-        // _resolveLoop() kept using the (zero-length) bar-based branch, and the
-        // `loopLen <= 0` guard in _tick() froze the transport forever: zero wraps.
         assert.ok(wraps.length >= 3, `expected several wraps on the 2.0 s seconds-based loop, got ${wraps.length}`);
-        for (let i = 0; i < wraps.length; i++) {
-            const ideal = 2.0 * (i + 1);
-            assert.ok(Math.abs(wraps[i] - ideal) < 0.05,
-                `wrap ${i}: ${wraps[i].toFixed(3)} vs ideal ${ideal.toFixed(3)}`);
+        // The loop-station phase-lock anchors play() to the next bar boundary (see
+        // "loop-station playback phase-locks to the bar grid" above), so the FIRST
+        // wrap may land up to one bar late. Assert on the INTERVAL between wraps
+        // (the resolved loop length) rather than their absolute time from t=0.
+        for (let i = 1; i < wraps.length; i++) {
+            const interval = wraps[i] - wraps[i - 1];
+            assert.ok(Math.abs(interval - 2.0) < 0.05,
+                `wrap ${i} interval ${interval.toFixed(3)} s, expected the 2.0 s seconds-based loop length`);
         }
         p.stop();
+    } finally { restore(); }
+});
+
+test('setTakeBars stores the take length; setTakeBars(0) clears it like setLoopBars(0, 0) does', () => {
+    // getTakeBars() is the STABLE denominator loop-handle fractions convert
+    // against (see loopHandleMath.js / Critical 2 in the task-11 fix report). It
+    // must be independently settable/clearable from the loop WINDOW (_loopBars),
+    // and default to null so callers fall back correctly when no take exists yet.
+    const { p, restore } = harness();
+    try {
+        assert.equal(p.getTakeBars(), null, 'no take recorded yet');
+
+        p.setTakeBars(4);
+        assert.equal(p.getTakeBars(), 4);
+
+        p.setTakeBars(0);
+        assert.equal(p.getTakeBars(), null, 'setTakeBars(0) must clear the take length, not store 0');
     } finally { restore(); }
 });
 

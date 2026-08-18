@@ -17,6 +17,7 @@ import {
     getSubdivisionSeconds, buildNoteTable,
     selectArpNotes, getPermutations, applyArpType, quantizeTimeToGrid,
 } from './utils/musicalQuantizer.js';
+import { fractionsToBarLoop, barLoopToFractions } from './utils/loopHandleMath.js';
 
 // --- Theme toggle (light/dark) ---
 
@@ -484,12 +485,13 @@ const tabBar = new TabBar(
                 const bars = active.player.getLoopBars();
                 const total = active.player.getLoopableDuration();
                 if (bars && total > 0) {
-                    const barDur = masterBus.clock.getBarDuration();
-                    const totalBars = bars.startBars + bars.lengthBars;
-                    transport.setLoopRange(
-                        bars.startBars / totalBars,
-                        1
-                    );
+                    // The denominator must be the take's STABLE total length in
+                    // bars, not the loop window's own span — a loop that does not
+                    // cover the whole take must not render its end handle pinned
+                    // at 100%.
+                    const totalBars = resolveTakeBars(active);
+                    const { startFrac, endFrac } = barLoopToFractions(bars.startBars, bars.lengthBars, totalBars);
+                    transport.setLoopRange(startFrac, endFrac);
                 } else {
                     const range = active.player.getLoopRange();
                     const dur = active.recorder.getElapsedTime();
@@ -937,6 +939,10 @@ function finishRecording(active) {
         // Musical, not seconds: a later tempo change must retime the loop rather
         // than cut its tail off.
         active.player.setLoopBars(0, bars);
+        // The take's total length — the STABLE denominator loop-handle fractions
+        // convert against. Distinct from the loop window itself, which narrows
+        // as the handles are dragged.
+        active.player.setTakeBars(bars);
         transport.setLoopRange(0, 1);
     }
 
@@ -999,6 +1005,7 @@ transport.onRecord = () => {
         // A previous take's loop range would otherwise still be in force.
         active.player.setLoopBars(0, 0);
         active.player.setLoopRange(0, 0);
+        active.player.setTakeBars(0);
         transport.resetLoopRange();
 
         if (active.state.loopStationMode) {
@@ -1253,9 +1260,39 @@ masterBus.metronome.onBeat = (beatIndex, isDownbeat) => {
     }
 };
 
+/**
+ * Resolve the take's total length in bars — the STABLE denominator loop-handle
+ * fractions must be converted against in loop-station mode. Prefers
+ * Player.getTakeBars() (set once in finishRecording / restored from session);
+ * falls back to the current loop window's own span, then to the loop-window
+ * duration, only for instances that predate getTakeBars() being set.
+ * @private
+ */
+function resolveTakeBars(active) {
+    const takeBars = active.player.getTakeBars();
+    if (takeBars) return takeBars;
+    const bars = active.player.getLoopBars();
+    if (bars) return bars.startBars + bars.lengthBars;
+    const barDur = masterBus.clock.getBarDuration();
+    const duration = active.player.getLoopableDuration() || active.recorder.getElapsedTime();
+    return Math.max(1, Math.round(duration / barDur));
+}
+
 transport.onLoopRangeChange = (startFrac, endFrac) => {
     const active = instanceManager.getActive();
     if (!active?.player) return;
+
+    if (active.state.loopStationMode) {
+        // Bar-quantized: convert fractions to whole bars against the take's
+        // STABLE total length, never the current (possibly already-narrowed)
+        // loop window — see loopHandleMath.js for why that distinction matters.
+        const totalBars = resolveTakeBars(active);
+        const { startBar, lengthBars } = fractionsToBarLoop(startFrac, endFrac, totalBars);
+        active.player.setLoopBars(startBar, lengthBars);
+        const snapped = barLoopToFractions(startBar, lengthBars, totalBars);
+        transport.setLoopRange(snapped.startFrac, snapped.endFrac);
+        return;
+    }
 
     // Use the player's own loop domain. Recorder.getElapsedTime() returns the
     // timestamp of the LAST EVENT, which is always shorter than the bar-quantized
@@ -1263,17 +1300,6 @@ transport.onLoopRangeChange = (startFrac, endFrac) => {
     // handle fractions through it silently shortened the loop on every drag.
     const duration = active.player.getLoopableDuration() || active.recorder.getElapsedTime();
     if (duration <= 0) return;
-
-    if (active.state.loopStationMode) {
-        // Bar-quantized: convert fractions to whole bars.
-        const barDur = masterBus.clock.getBarDuration();
-        const totalBars = Math.max(1, Math.round(duration / barDur));
-        const startBar = Math.max(0, Math.min(totalBars - 1, Math.round(startFrac * totalBars)));
-        const endBar = Math.max(startBar + 1, Math.min(totalBars, Math.round(endFrac * totalBars)));
-        active.player.setLoopBars(startBar, endBar - startBar);
-        transport.setLoopRange(startBar / totalBars, endBar / totalBars);
-        return;
-    }
 
     let loopStart = startFrac * duration;
     let loopEnd = endFrac * duration;

@@ -60,3 +60,27 @@ test('restoreFromSession falls back to loopRange for sessions saved before loopB
     assert.deepEqual(entry.player.getLoopRange(), { start: 0.5, end: 3.5 },
         'the seconds-based loop must still be restored so the user does not lose their loop');
 });
+
+test('restoreFromSession restores takeBars — the stable denominator loop handles convert against', async () => {
+    const { im } = harness();
+    const session = sessionWith({
+        loopBars: { startBars: 0, lengthBars: 2 },
+        takeBars: 4,   // the take is 4 bars; the loop only covers the first 2
+    });
+    await im.restoreFromSession(session, null);
+    const entry = im.instances.get('inst-1');
+    assert.equal(entry.player.getTakeBars(), 4,
+        'takeBars must round-trip independently of the (possibly narrower) loop window');
+});
+
+test('restoreFromSession falls back to loopBars\' own span for sessions saved before takeBars existed', async () => {
+    const { im } = harness();
+    // A session saved between Task 11's loopBars support and the takeBars fix: the
+    // loop happened to span the whole take, so summing loopBars is the correct
+    // fallback (per the task-11 fix report).
+    const session = sessionWith({ loopBars: { startBars: 0, lengthBars: 3 } });
+    await im.restoreFromSession(session, null);
+    const entry = im.instances.get('inst-1');
+    assert.equal(entry.player.getTakeBars(), 3,
+        'takeBars should fall back to startBars + lengthBars when not separately saved');
+});

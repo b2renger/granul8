@@ -322,6 +322,17 @@ export class InstanceManager {
                         savedState.recording.loopRange.end
                     );
                 }
+                // Take length in bars — the stable denominator loop handles convert
+                // against. Fall back to the loop's own span for sessions saved before
+                // takeBars existed; correct whenever the loop spanned the whole take,
+                // which is the common case.
+                if (savedState.recording.takeBars) {
+                    player.setTakeBars(savedState.recording.takeBars);
+                } else if (savedState.recording.loopBars) {
+                    player.setTakeBars(
+                        savedState.recording.loopBars.startBars + savedState.recording.loopBars.lengthBars
+                    );
+                }
             }
 
             // Apply restored per-instance volume

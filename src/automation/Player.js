@@ -58,6 +58,17 @@ export class Player {
         /** Fraction through the loop at the last tick, for retime(). */
         this._loopFraction = 0;
 
+        /**
+         * Total length of the recorded take in bars — the STABLE domain the loop
+         * handles span. Distinct from getLoopableDuration(), which reports the
+         * current loop WINDOW and shrinks as _loopBars is narrowed. Using the
+         * window as the fraction denominator instead of this field collapses the
+         * loop toward the 1-bar floor after a handful of drag events, because
+         * each conversion's output becomes the next conversion's total.
+         * @type {number|null}
+         */
+        this._takeBars = null;
+
         /** @type {number} */
         this._startTime = 0;
 
@@ -245,6 +256,21 @@ export class Player {
     /** @returns {{startBars: number, lengthBars: number}|null} */
     getLoopBars() {
         return this._loopBars ? { ...this._loopBars } : null;
+    }
+
+    /**
+     * Set the total length of the recorded take in bars. This is the STABLE
+     * denominator loop-handle fractions must be converted against — it does not
+     * change as the loop window (_loopBars) is narrowed by dragging a handle.
+     * @param {number} bars
+     */
+    setTakeBars(bars) {
+        this._takeBars = bars > 0 ? bars : null;
+    }
+
+    /** @returns {number|null} */
+    getTakeBars() {
+        return this._takeBars;
     }
 
     /**

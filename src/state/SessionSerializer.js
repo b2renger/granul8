@@ -32,6 +32,9 @@ export function serializeSession(instanceManager, panel, masterBpm, masterVolume
                 lane: lane.toJSON(),
                 loopRange: entry.player.getLoopRange(),   // seconds, legacy readers
                 loopBars: entry.player.getLoopBars(),     // musical, preferred
+                takeBars: entry.player.getTakeBars(),     // take's total length in bars —
+                                                           // the stable denominator loop
+                                                           // handles convert against
             };
         }
 
