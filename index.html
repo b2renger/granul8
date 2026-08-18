@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Granular Sampler</title>
     <link rel="stylesheet" href="style.css">
 </head>
@@ -21,7 +21,7 @@
         <header id="top-bar">
             <h1>Granul8</h1>
             <div id="file-controls">
-                <select id="sample-select">
+                <select id="sample-select" aria-label="Bundled sample">
                     <option value="">— Select a sample —</option>
                     <option value="samples/Soni_Ventorum_Wind_Quintet_-_08_-_Danzi_Wind_Quintet_Op_67_No_3_In_E-Flat_Major_4_Allegretto.mp3" selected>Danzi Wind Quintet — Allegretto</option>
                     <option value="samples/Real Vocal String Quartet - Chorale.mp3">Real Vocal String Quartet — Chorale</option>
@@ -54,7 +54,7 @@
                     <button id="tap-tempo" type="button" title="Tap tempo">TAP</button>
                 </div>
                 <div id="time-sig-control" class="time-sig-control">
-                    <select id="time-sig-num" title="Beats per bar">
+                    <select id="time-sig-num" aria-label="Beats per bar" title="Beats per bar">
                         <option value="2">2</option>
                         <option value="3">3</option>
                         <option value="4" selected>4</option>
@@ -68,7 +68,7 @@
                         <option value="12">12</option>
                     </select>
                     <span class="time-sig-slash">/</span>
-                    <select id="time-sig-den" title="Beat unit">
+                    <select id="time-sig-den" aria-label="Beat unit" title="Beat unit">
                         <option value="4" selected>4</option>
                         <option value="8">8</option>
                         <option value="16">16</option>
@@ -76,7 +76,7 @@
                 </div>
                 <div id="metronome-control" class="metronome-control">
                     <button id="btn-metronome" type="button" title="Toggle metronome click" class="metronome-btn">♩</button>
-                    <input type="range" id="metronome-volume" min="0" max="1" value="0.5" step="0.01" title="Metronome volume">
+                    <input type="range" id="metronome-volume" aria-label="Metronome volume" min="0" max="1" value="0.5" step="0.01" title="Metronome volume">
                 </div>
                 <div id="beat-indicator" class="beat-indicator"></div>
             </div>
@@ -185,7 +185,7 @@
                                     <span class="toggle-switch"></span>
                                     Grain Size
                                 </label>
-                                <select id="subdiv-grain-size" class="subdiv-select" disabled>
+                                <select id="subdiv-grain-size" aria-label="Grain size quantize subdivision" class="subdiv-select" disabled>
                                     <optgroup label="Binary">
                                         <option value="1">1/1</option>
                                         <option value="2">1/2</option>
@@ -208,7 +208,7 @@
                                     <span class="toggle-switch"></span>
                                     Density
                                 </label>
-                                <select id="subdiv-density" class="subdiv-select" disabled>
+                                <select id="subdiv-density" aria-label="Density quantize subdivision" class="subdiv-select" disabled>
                                     <optgroup label="Binary">
                                         <option value="1">1/1</option>
                                         <option value="2">1/2</option>
@@ -298,12 +298,12 @@
                             <label>Grain Size</label>
                             <div class="range-row">
                                 <span class="range-label">Min</span>
-                                <input type="range" id="param-grain-size-min" min="0" max="1" value="0.8674" step="0.001">
+                                <input type="range" id="param-grain-size-min" aria-label="Grain size minimum" aria-describedby="val-grain-size-min" min="0" max="1" value="0.8674" step="0.001">
                                 <span class="param-value" id="val-grain-size-min">400 ms</span>
                             </div>
                             <div class="range-row">
                                 <span class="range-label">Max</span>
-                                <input type="range" id="param-grain-size-max" min="0" max="1" value="0.8674" step="0.001">
+                                <input type="range" id="param-grain-size-max" aria-label="Grain size maximum" aria-describedby="val-grain-size-max" min="0" max="1" value="0.8674" step="0.001">
                                 <span class="param-value" id="val-grain-size-max">400 ms</span>
                             </div>
                             <div class="gesture-indicator" data-param="grainSize"></div>
@@ -313,12 +313,12 @@
                             <label>Density</label>
                             <div class="range-row">
                                 <span class="range-label">Min</span>
-                                <input type="range" id="param-density-min" min="0" max="1" value="0.651" step="0.001">
+                                <input type="range" id="param-density-min" aria-label="Density minimum" aria-describedby="val-density-min" min="0" max="1" value="0.651" step="0.001">
                                 <span class="param-value" id="val-density-min">100 ms</span>
                             </div>
                             <div class="range-row">
                                 <span class="range-label">Max</span>
-                                <input type="range" id="param-density-max" min="0" max="1" value="0.651" step="0.001">
+                                <input type="range" id="param-density-max" aria-label="Density maximum" aria-describedby="val-density-max" min="0" max="1" value="0.651" step="0.001">
                                 <span class="param-value" id="val-density-max">100 ms</span>
                             </div>
                             <div class="gesture-indicator" data-param="density"></div>
@@ -328,12 +328,12 @@
                             <label>Spread</label>
                             <div class="range-row">
                                 <span class="range-label">Min</span>
-                                <input type="range" id="param-spread-min" min="0" max="1" value="0" step="0.01">
+                                <input type="range" id="param-spread-min" aria-label="Spread minimum" aria-describedby="val-spread-min" min="0" max="1" value="0" step="0.01">
                                 <span class="param-value" id="val-spread-min">0.00</span>
                             </div>
                             <div class="range-row">
                                 <span class="range-label">Max</span>
-                                <input type="range" id="param-spread-max" min="0" max="1" value="0" step="0.01">
+                                <input type="range" id="param-spread-max" aria-label="Spread maximum" aria-describedby="val-spread-max" min="0" max="1" value="0" step="0.01">
                                 <span class="param-value" id="val-spread-max">0.00</span>
                             </div>
                             <div class="gesture-indicator" data-param="spread"></div>
@@ -342,12 +342,12 @@
                             <label>Pan</label>
                             <div class="range-row">
                                 <span class="range-label">Min</span>
-                                <input type="range" id="param-pan-min" min="-1" max="1" value="0" step="0.01">
+                                <input type="range" id="param-pan-min" aria-label="Pan minimum" aria-describedby="val-pan-min" min="-1" max="1" value="0" step="0.01">
                                 <span class="param-value" id="val-pan-min">0.00</span>
                             </div>
                             <div class="range-row">
                                 <span class="range-label">Max</span>
-                                <input type="range" id="param-pan-max" min="-1" max="1" value="0" step="0.01">
+                                <input type="range" id="param-pan-max" aria-label="Pan maximum" aria-describedby="val-pan-max" min="-1" max="1" value="0" step="0.01">
                                 <span class="param-value" id="val-pan-max">0.00</span>
                             </div>
                             <div class="gesture-indicator" data-param="pan"></div>

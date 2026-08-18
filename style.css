@@ -21,6 +21,12 @@
     --slider-track: #352f2a;
     --slider-thumb: #e8a87c;
 
+    /* Focus indicator. A token of its own, NOT --accent: the light theme's accent
+       reaches only 2.46:1 against --bg-surface, below the 3:1 WCAG 1.4.11 floor
+       for a non-text indicator, so sharing the accent makes the ring invisible in
+       one theme. Measured worst case here: 7.77:1 against --bg-surface. */
+    --focus-ring: #e8a87c;
+
     /* Canvas-drawn colors (read by JS via getComputedStyle) */
     --canvas-bg: #1a1816;
     --canvas-waveform: rgba(232, 168, 124, 0.7);
@@ -49,6 +55,10 @@
     --border: #d0c8c0;
     --slider-track: #d0c8c0;
     --slider-thumb: #c47a4a;
+
+    /* Darker than the light accent by necessity -- see the note in :root.
+       Measured worst case 4.98:1 against --bg-surface, 6.03:1 against --bg-primary. */
+    --focus-ring: #8a4a1a;
 
     --canvas-bg: #ede8e2;
     --canvas-waveform: rgba(180, 110, 60, 0.7);
@@ -1157,8 +1167,28 @@ html, body {
     user-select: none;
 }
 
+/* Visually hidden but still focusable and still in the accessibility tree.
+   `display: none` removes an element from BOTH the tab order and the a11y tree,
+   which took all seven quantize/randomize switches out of reach -- including the
+   ones that enable the initially disabled subdivision selects beside them, so
+   those were unreachable too. */
 .toggle-label input[type="checkbox"] {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+/* Focus lands on the invisible input, so show it on the visible switch. */
+.toggle-label input[type="checkbox"]:focus-visible + .toggle-switch {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
 }
 
 .toggle-switch {
@@ -1446,6 +1476,30 @@ html, body {
 }
 
 /* === Responsive: tablet === */
+/* === Focus visibility ===
+   There was no focus styling anywhere in 1551 lines, so a keyboard user had no
+   way to tell where they were. :focus-visible leaves pointer interaction alone. */
+:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+    border-radius: 3px;
+}
+
+/* The canvas fills its container; an inset ring reads better than an outline
+   that would be clipped by the surrounding overflow. */
+#waveform-canvas:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: -2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+
 @media (max-width: 768px) {
     #top-bar {
         padding: 8px 12px;
