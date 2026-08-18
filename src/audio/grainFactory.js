@@ -49,19 +49,26 @@ export function createGrain(audioContext, buffer, params, destination, when, onG
     const normalizedPos = Math.max(0, Math.min(1, position + spreadOffset));
     const offset = normalizedPos * buffer.duration;
 
-    // Clamp duration so we don't read past the buffer end
-    const maxDuration = buffer.duration - offset;
-    if (maxDuration <= 0) return;
-    const grainDuration = Math.min(duration, maxDuration);
+    // A grain has two different lengths and conflating them is a bug:
+    //   wallDuration — how long it sounds. The envelope and stop() use this.
+    //   bufferSpan   — how much of the source it consumes. source.start()'s third
+    //                  argument is in the BUFFER's time base, so it must be scaled
+    //                  by playbackRate.
+    const available = buffer.duration - offset;   // buffer-seconds remaining
+    if (available <= 0) return;
 
-    // Bail on extremely short grains (< 1ms) — they'd just be clicks
-    if (grainDuration < 0.001) return;
+    const wallDuration = Math.min(duration, available / pitch);
+
+    // Bail on extremely short grains (< 1ms of wall clock) — they'd just be clicks
+    if (wallDuration < 0.001) return;
+
+    const bufferSpan = wallDuration * pitch;
 
     // --- Anti-clipping Layer 1: per-grain amplitude scaling ---
-    // Estimate how many grains overlap at any moment: overlap = duration / interOnset
-    // Scale amplitude by 1/sqrt(overlap) to compensate for RMS summing.
-    const interOnset = params.interOnset || grainDuration; // fallback: no overlap
-    const overlap = Math.max(1, grainDuration / interOnset);
+    // Estimate how many grains overlap at any moment: overlap = wallDuration / interOnset.
+    // Both terms must be wall-clock or the scaling is wrong at any pitch != 1.
+    const interOnset = params.interOnset || wallDuration; // fallback: no overlap
+    const overlap = Math.max(1, wallDuration / interOnset);
     const overlapScale = 1 / Math.sqrt(overlap);
     const scaledAmplitude = amplitude * overlapScale;
 
@@ -88,7 +95,7 @@ export function createGrain(audioContext, buffer, params, destination, when, onG
 
     // Apply envelope: start silent, ramp through curve, end silent
     gainNode.gain.setValueAtTime(0, when);
-    gainNode.gain.setValueCurveAtTime(scaledCurve, when, grainDuration);
+    gainNode.gain.setValueCurveAtTime(scaledCurve, when, wallDuration);
 
     // --- Connect chain: source → gain → (pan) → destination ---
 
@@ -109,16 +116,18 @@ export function createGrain(audioContext, buffer, params, destination, when, onG
     }
 
     // --- Schedule playback ---
-
-    source.start(when, offset, grainDuration);
-    source.stop(when + grainDuration);
+    // The source runs out of material at exactly `when + wallDuration`; the
+    // explicit stop is a guard against float rounding, offset by 1 ms so it can
+    // never truncate the tail of the envelope.
+    source.start(when, offset, bufferSpan);
+    source.stop(when + wallDuration + 0.001);
 
     // --- Notify visualizer ---
 
     if (onGrain) {
         onGrain({
             position: normalizedPos,
-            duration: grainDuration,
+            duration: wallDuration,
             amplitude,
             pitch,
             when

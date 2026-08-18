@@ -78,6 +78,27 @@ export class Voice {
      * @param {Object} params
      */
     start(params) {
+        const now = this.audioContext.currentTime;
+
+        // A previous stop() left a linearRamp-to-zero on this node's timeline.
+        // Voices are pooled and VoiceAllocator hands back the first inactive slot
+        // immediately, so a re-trigger inside that 30 ms window would let the stale
+        // ramp win — the param reaches 0 and holds there, because nothing schedules
+        // another event until some unrelated voice starts or stops. Cancel it and
+        // anchor the current value before the new ramps arrive.
+        this.gainNode.gain.cancelScheduledValues(now);
+        this.gainNode.gain.setValueAtTime(this.gainNode.gain.value, now);
+
+        // Reset modulation to a known state. Voices are pooled, and update() only
+        // overwrites keys that are defined, so without this a gesture with no
+        // arpeggiator would inherit the previous gesture's note table.
+        this.randomize = { grainSize: null, pitch: null, pan: null };
+        this.grainSizeQuantize = null;
+        this.pitchQuantize = null;
+        this.scheduler.quantizeBpm = null;
+        this.scheduler.quantizeDivisor = null;
+        this.scheduler.interOnsetRange = null;
+
         this.active = true;
         this.arpIndex = 0;
         this.arpDirection = 1;

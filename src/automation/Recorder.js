@@ -34,16 +34,23 @@ export class Recorder {
 
         /** @type {Map<number, number>} pointerId → last capture time (seconds) */
         this._lastMoveTime = new Map();
+
+        /** @type {Set<number>} voiceIndexes with an open 'start' and no 'stop' yet */
+        this._held = new Set();
     }
 
     /**
      * Start recording. Resets the lane and begins capturing events.
+     * @param {number} [atTime] - AudioContext time to treat as t=0. Defaults to
+     *   now. Pass the count-in downbeat so the recording's origin sits exactly on
+     *   the bar grid rather than on a wall-clock setTimeout estimate.
      */
-    startRecording() {
+    startRecording(atTime) {
         this._lane.clear();
         this._undoSnapshot = null;
         this._lastMoveTime.clear();
-        this._startTime = this._audioContext.currentTime;
+        this._held.clear();
+        this._startTime = atTime ?? this._audioContext.currentTime;
         this.isRecording = true;
         this.isOverdubbing = false;
     }
@@ -56,6 +63,7 @@ export class Recorder {
         this._undoSnapshot = AutomationLane.fromJSON(this._lane.toJSON());
         this._overdubLane = new AutomationLane();
         this._lastMoveTime.clear();
+        this._held.clear();
         this._startTime = startTime;
         this.isRecording = true;
         this.isOverdubbing = true;
@@ -65,6 +73,18 @@ export class Recorder {
      * Stop recording. If overdubbing, merge the temp lane into the main lane.
      */
     stopRecording() {
+        // Close any voice still held when recording stopped. Without this the lane
+        // contains a 'start' with no matching 'stop', and on playback that voice
+        // sustains for the rest of the loop.
+        if (this.isRecording && this._held.size > 0) {
+            const time = this._audioContext.currentTime - this._startTime;
+            const target = this._overdubLane || this._lane;
+            for (const voiceIndex of this._held) {
+                target.addEvent({ time, voiceIndex, type: 'stop' });
+            }
+            this._held.clear();
+        }
+
         if (this.isOverdubbing && this._overdubLane) {
             this._lane = AutomationLane.merge(this._lane, this._overdubLane);
             this._overdubLane = null;
@@ -129,8 +149,9 @@ export class Recorder {
             time,
             voiceIndex,
             type: 'start',
-            params: extractParams(resolvedParams),
+            params: extractParams(resolvedParams, true),
         });
+        this._held.add(voiceIndex);
         // Reset throttle timer for this pointer so the first move after start is captured
         this._lastMoveTime.delete(voiceIndex);
     }
@@ -157,7 +178,7 @@ export class Recorder {
             time,
             voiceIndex,
             type: 'move',
-            params: extractParams(resolvedParams),
+            params: extractParams(resolvedParams, false),
         });
     }
 
@@ -174,16 +195,29 @@ export class Recorder {
             voiceIndex,
             type: 'stop',
         });
+        this._held.delete(voiceIndex);
         this._lastMoveTime.delete(voiceIndex);
     }
 }
 
 /**
- * Extract the subset of resolved params relevant for automation playback.
+ * Extract the params relevant for automation playback.
+ *
+ * `full` events (voice starts) carry the modulation configuration —
+ * randomize ranges, quantization and the arpeggiator note table. Without it,
+ * replayed voices silently inherited whatever the pool slot last held from a live
+ * gesture: a recording sounded right immediately after capture and lost its
+ * arpeggio on reload, when every Voice is reconstructed with pitchQuantize=null.
+ *
+ * Move events carry scalars only. Voice.update() ignores undefined keys, so the
+ * modulation set at 'start' stays in force for the whole gesture, and the arp
+ * note table is not repeated 30 times a second in the saved session.
+ *
  * @param {Object} resolved
+ * @param {boolean} full - true for 'start' events
  * @returns {Object}
  */
-function extractParams(resolved) {
+function extractParams(resolved, full) {
     const params = {
         position: resolved.position,
         amplitude: resolved.amplitude,
@@ -196,5 +230,12 @@ function extractParams(resolved) {
     };
     // Include per-instance ADSR so playback uses the correct envelope shape
     if (resolved.adsr) params.adsr = resolved.adsr;
+    if (!full) return params;
+
+    params.randomize = resolved.randomize ?? null;
+    params.interOnsetRange = resolved.interOnsetRange ?? null;
+    params.interOnsetQuantize = resolved.interOnsetQuantize ?? null;
+    params.grainSizeQuantize = resolved.grainSizeQuantize ?? null;
+    params.pitchQuantize = resolved.pitchQuantize ?? null;
     return params;
 }

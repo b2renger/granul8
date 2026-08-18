@@ -17,10 +17,28 @@ import {
     getSubdivisionSeconds, buildNoteTable,
     selectArpNotes, getPermutations, applyArpType, quantizeTimeToGrid,
 } from './utils/musicalQuantizer.js';
+import {
+    fractionsToBarLoop,
+    barLoopToFractions,
+    fractionsToSecondsLoop,
+    secondsLoopToFractions,
+    resolveTakeDuration,
+} from './utils/loopHandleMath.js';
 
 // --- Theme toggle (light/dark) ---
 
 const themeToggle = document.getElementById('theme-toggle');
+
+/**
+ * localStorage throws on access (not just on write) in Safari private mode and
+ * when site data is blocked. This is module top-level code, so an unguarded throw
+ * kills the entire app before anything renders.
+ */
+const safeStorage = {
+    get(key) { try { return localStorage.getItem(key); } catch { return null; } },
+    set(key, value) { try { localStorage.setItem(key, value); } catch { /* quota or blocked */ } },
+    remove(key) { try { localStorage.removeItem(key); } catch { /* blocked */ } },
+};
 
 function applyTheme(theme) {
     if (theme === 'light') {
@@ -28,11 +46,11 @@ function applyTheme(theme) {
     } else {
         document.documentElement.removeAttribute('data-theme');
     }
-    localStorage.setItem('granul8-theme', theme);
+    safeStorage.set('granul8-theme', theme);
 }
 
 // Restore saved theme
-const savedTheme = localStorage.getItem('granul8-theme') || 'dark';
+const savedTheme = safeStorage.get('granul8-theme') || 'dark';
 applyTheme(savedTheme);
 
 themeToggle.addEventListener('click', () => {
@@ -73,6 +91,11 @@ function getMasterBpm() {
 bpmSlider.addEventListener('input', () => {
     bpmDisplay.textContent = bpmSlider.value;
     masterBus.clock.bpm = parseInt(bpmSlider.value, 10);
+    // Bar-based loops derive their length from the clock, so every playing layer
+    // must re-anchor or it would jump to a new position within the resized loop.
+    for (const [, entry] of instanceManager.instances) {
+        entry.player.retime();
+    }
     // Refresh quantized displays in the panel
     params.refreshQuantizedDisplays();
     if (persistence) persistence.scheduleSave();
@@ -96,6 +119,11 @@ tapTempoBtn.addEventListener('click', () => {
         bpmSlider.value = clamped;
         bpmDisplay.textContent = clamped;
         masterBus.clock.bpm = clamped;
+        // Bar-based loops derive their length from the clock, so every playing layer
+        // must re-anchor or it would jump to a new position within the resized loop.
+        for (const [, entry] of instanceManager.instances) {
+            entry.player.retime();
+        }
         params.refreshQuantizedDisplays();
         if (persistence) persistence.scheduleSave();
     }
@@ -138,6 +166,9 @@ const unlockOverlay = document.getElementById('audio-unlock-overlay');
 
 function dismissUnlockOverlay() {
     masterBus.resume();
+    // Anchor the shared musical grid the first time audio starts. Everything —
+    // metronome, every Player's bar alignment — derives from this instant.
+    masterBus.clock.ensureEpoch();
     if (unlockOverlay) {
         unlockOverlay.style.opacity = '0';
         unlockOverlay.style.pointerEvents = 'none';
@@ -460,9 +491,34 @@ const tabBar = new TabBar(
 
             // Update sample display and loop station UI
             if (active) {
-                sampleNameEl.textContent = active.state.sampleDisplayName;
+                sampleNameEl.textContent = sampleLabel(active.state);
                 sampleSelect.value = active.state.sampleUrl || '';
                 applyLoopStationUI(active.state.loopStationMode);
+            }
+
+            // Loop handles are global UI state but loop ranges are per-instance —
+            // without this the handles keep showing the previous tab's positions.
+            if (active) {
+                const bars = active.player.getLoopBars();
+                if (bars) {
+                    // The denominator must be the take's STABLE total length in
+                    // bars, not the loop window's own span — a loop that does not
+                    // cover the whole take must not render its end handle pinned
+                    // at 100%.
+                    const totalBars = resolveTakeBars(active);
+                    const { startFrac, endFrac } = barLoopToFractions(bars.startBars, bars.lengthBars, totalBars);
+                    transport.setLoopRange(startFrac, endFrac);
+                } else {
+                    // Same denominator the drag maps through (resolveTakeDuration),
+                    // so the handles come back exactly where the user left them.
+                    // This branch used to divide by recorder.getElapsedTime() while
+                    // the drag divided by getLoopableDuration() — two denominators
+                    // for one mapping, so the handles jumped on every tab switch.
+                    const range = active.player.getLoopRange();
+                    const { startFrac, endFrac } =
+                        secondsLoopToFractions(range.start, range.end, resolveTakeDuration(active.player, active.recorder));
+                    transport.setLoopRange(startFrac, endFrac);
+                }
             }
         },
         onClose(id) {
@@ -470,7 +526,7 @@ const tabBar = new TabBar(
             // Update sample display after potential tab switch
             const active = instanceManager.getActive();
             if (active) {
-                sampleNameEl.textContent = active.state.sampleDisplayName;
+                sampleNameEl.textContent = sampleLabel(active.state);
                 sampleSelect.value = active.state.sampleUrl || '';
             }
         },
@@ -585,9 +641,10 @@ async function restoreSampleForInstance(state, entry) {
         try {
             const buffer = await entry.engine.loadSample(state.sampleUrl);
             entry.buffer = buffer;
+            state.sampleMissing = false;
             if (instanceManager.activeId === state.id) {
                 waveform.setBuffer(buffer);
-                sampleNameEl.textContent = state.sampleDisplayName;
+                sampleNameEl.textContent = sampleLabel(state);
                 sampleSelect.value = state.sampleUrl;
             }
         } catch (err) {
@@ -599,12 +656,23 @@ async function restoreSampleForInstance(state, entry) {
     }
 }
 
+/** Display label for an instance's sample, flagging a sample that could not be reloaded. */
+function sampleLabel(state) {
+    return state.sampleMissing
+        ? `\u26A0 ${state.sampleDisplayName} (missing)`
+        : state.sampleDisplayName;
+}
+
 function markSampleMissing(state, entry) {
-    state.sampleDisplayName = `\u26A0 ${state.sampleDisplayName || state.sampleFileName} (missing)`;
+    // Persist the fact, not the formatting \u2014 mutating sampleDisplayName used to
+    // accumulate a fresh "\u26A0 \u2026 (missing)" wrapper on every reload. Every redisplay
+    // site now derives the label from this flag via sampleLabel(), so the marker
+    // survives a tab switch instead of only showing at the instant this runs.
+    state.sampleMissing = true;
     entry.buffer = null;
     if (instanceManager.activeId === state.id) {
         waveform.setBuffer(null);
-        sampleNameEl.textContent = state.sampleDisplayName;
+        sampleNameEl.textContent = sampleLabel(state);
         sampleSelect.value = '';
     }
 }
@@ -677,7 +745,7 @@ async function initializeSession() {
 
             const active = instanceManager.getActive();
             if (active) {
-                sampleNameEl.textContent = active.state.sampleDisplayName;
+                sampleNameEl.textContent = sampleLabel(active.state);
                 sampleSelect.value = active.state.sampleUrl || '';
                 applyLoopStationUI(active.state.loopStationMode);
                 transport.setHasRecording(active.recorder.getRecording().length > 0);
@@ -766,7 +834,7 @@ async function importSessionFromFile(file) {
 
         const active = instanceManager.getActive();
         if (active) {
-            sampleNameEl.textContent = active.state.sampleDisplayName;
+            sampleNameEl.textContent = sampleLabel(active.state);
             sampleSelect.value = active.state.sampleUrl || '';
             applyLoopStationUI(active.state.loopStationMode);
             transport.setHasRecording(active.recorder.getRecording().length > 0);
@@ -785,6 +853,23 @@ async function importSessionFromFile(file) {
 // Save on page unload to catch pending debounce
 window.addEventListener('beforeunload', () => {
     persistence.saveNow();
+});
+
+// --- Backgrounded tab: silence live voices ---
+// Grain production runs on setTimeout, which survives a hidden tab. Pointer
+// voices have no recorded stop event to end them, so without this they drone
+// until the tab is focused again. Automation playback is left running — it is
+// transport-driven and now delivers its own stops (Player uses setTimeout).
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) return;
+    for (const [, entry] of instanceManager.instances) {
+        for (const [pointerId] of pointer.pointers) {
+            entry.engine.stopVoice(pointerId);
+        }
+    }
+    pointer.pointers.clear();
+    pointer._fading = [];
+    params.hideGestureIndicators();
 });
 
 // --- Toast notification ---
@@ -853,14 +938,14 @@ const transport = new TransportBar({
  * Begin fixed-length recording after count-in completes.
  * @private
  */
-function beginFixedRecording() {
+function beginFixedRecording(atTime) {
     const stillActive = instanceManager.getActive();
     if (!stillActive || transport.state !== 'count-in') return;
 
     const barCount = stillActive.state.recordBarCount || 4;
     fixedRecordDuration = barCount * masterBus.clock.getBarDuration();
 
-    stillActive.recorder.startRecording();
+    stillActive.recorder.startRecording(atTime);
     stillActive.ghostRenderer.recording = true;
     transport.setState('recording');
     transport.clearSpecialDisplay();
@@ -879,9 +964,16 @@ function finishRecording(active) {
 
     // Use fixed duration for loop range (or snap to bar for free-form)
     if (active.state.loopStationMode) {
-        const loopDuration = fixedRecordDuration
-            || masterBus.clock.quantizeDurationToBar(active.recorder.getElapsedTime());
-        active.player.setLoopRange(0, loopDuration);
+        const bars = fixedRecordDuration
+            ? (active.state.recordBarCount || 4)
+            : Math.max(1, Math.round(active.recorder.getElapsedTime() / masterBus.clock.getBarDuration()));
+        // Musical, not seconds: a later tempo change must retime the loop rather
+        // than cut its tail off.
+        active.player.setLoopBars(0, bars);
+        // The take's total length — the STABLE denominator loop-handle fractions
+        // convert against. Distinct from the loop window itself, which narrows
+        // as the handles are dragged.
+        active.player.setTakeBars(bars);
         transport.setLoopRange(0, 1);
     }
 
@@ -904,7 +996,7 @@ function finishRecording(active) {
         active.player.play(lane, true);
         transport.setState('playing');
         if (metronomeEnabled && !masterBus.metronome.running) {
-            masterBus.clock.setEpoch(masterBus.audioContext.currentTime);
+            masterBus.clock.ensureEpoch();
             masterBus.metronome.start();
         }
     }
@@ -941,6 +1033,12 @@ transport.onRecord = () => {
         // Start recording flow
         if (active.player.isPlaying) active.player.stop();
 
+        // A previous take's loop range would otherwise still be in force.
+        active.player.setLoopBars(0, 0);
+        active.player.setLoopRange(0, 0);
+        active.player.setTakeBars(0);
+        transport.resetLoopRange();
+
         if (active.state.loopStationMode) {
             // Always count-in in loop station mode
             masterBus.resume();
@@ -949,14 +1047,12 @@ transport.onRecord = () => {
             if (!metronomeEnabled) {
                 // Start metronome muted for timing-only count-in
                 masterBus.metronome.setMuted(true);
-                masterBus.metronome.startCountIn(() => {
+                masterBus.metronome.startCountIn((at) => {
                     masterBus.metronome.setMuted(false);
-                    beginFixedRecording();
+                    beginFixedRecording(at);
                 });
             } else {
-                masterBus.metronome.startCountIn(() => {
-                    beginFixedRecording();
-                });
+                masterBus.metronome.startCountIn((at) => beginFixedRecording(at));
             }
         } else {
             // Free-form mode: traditional arm (start on first touch)
@@ -978,7 +1074,7 @@ transport.onPlay = () => {
     transport.setState('playing');
     // Start metronome during playback if enabled
     if (metronomeEnabled && active.state.loopStationMode && !masterBus.metronome.running) {
-        masterBus.clock.setEpoch(masterBus.audioContext.currentTime);
+        masterBus.clock.ensureEpoch();
         masterBus.metronome.start();
     }
 };
@@ -1047,7 +1143,7 @@ transport.onOverdub = () => {
 
         // Start metronome if enabled in loop station mode
         if (metronomeEnabled && active.state.loopStationMode && !masterBus.metronome.running) {
-            masterBus.clock.setEpoch(masterBus.audioContext.currentTime);
+            masterBus.clock.ensureEpoch();
             masterBus.metronome.start();
         }
     }
@@ -1165,7 +1261,7 @@ metronomeBtn.addEventListener('click', () => {
     if (metronomeEnabled) {
         masterBus.resume();
         if (!masterBus.metronome.running) {
-            masterBus.clock.setEpoch(masterBus.audioContext.currentTime);
+            masterBus.clock.ensureEpoch();
             masterBus.metronome.start();
         }
     } else {
@@ -1195,31 +1291,67 @@ masterBus.metronome.onBeat = (beatIndex, isDownbeat) => {
     }
 };
 
+/**
+ * Resolve the take's total length in bars — the STABLE denominator loop-handle
+ * fractions must be converted against in loop-station mode. Prefers
+ * Player.getTakeBars() (set once in finishRecording / restored from session);
+ * falls back to the current loop window's own span, then to the loop-window
+ * duration, only for instances that predate getTakeBars() being set.
+ * @private
+ */
+function resolveTakeBars(active) {
+    const takeBars = active.player.getTakeBars();
+    if (takeBars) return takeBars;
+    const bars = active.player.getLoopBars();
+    if (bars) return bars.startBars + bars.lengthBars;
+    const barDur = masterBus.clock.getBarDuration();
+    const duration = active.player.getLoopableDuration() || active.recorder.getElapsedTime();
+    return Math.max(1, Math.round(duration / barDur));
+}
+
+// resolveTakeDuration — the STABLE seconds denominator the loop handles map onto,
+// and the one the tab-switch redisplay must invert through — now lives in
+// utils/loopHandleMath.js, next to the conversions it feeds and, unlike this
+// file, reachable from the test suite. Its comment there carries the reasoning:
+// the recorded lane's own duration, never getLoopableDuration(), which reports
+// the current loop WINDOW that the drag overwrites on every pointermove.
+
 transport.onLoopRangeChange = (startFrac, endFrac) => {
     const active = instanceManager.getActive();
     if (!active?.player) return;
-    const duration = active.recorder.getElapsedTime();
+
+    if (active.state.loopStationMode) {
+        // Bar-quantized: convert fractions to whole bars against the take's
+        // STABLE total length, never the current (possibly already-narrowed)
+        // loop window — see loopHandleMath.js for why that distinction matters.
+        const totalBars = resolveTakeBars(active);
+        const { startBar, lengthBars } = fractionsToBarLoop(startFrac, endFrac, totalBars);
+        active.player.setLoopBars(startBar, lengthBars);
+        const snapped = barLoopToFractions(startBar, lengthBars, totalBars);
+        transport.setLoopRange(snapped.startFrac, snapped.endFrac);
+        return;
+    }
+
+    // Map onto the take's STABLE length. The bar-quantized objection that used to
+    // sit here — that Recorder.getElapsedTime() stops at the last event, short of
+    // the bar line — applies to a MUSICAL loop, and musical loops now leave
+    // through the branch above. What is left here is a plain seconds take whose
+    // length simply is its lane's duration; and unlike getLoopableDuration() it is
+    // not the value setLoopRange() below overwrites, so it cannot feed itself.
+    const duration = resolveTakeDuration(active.player, active.recorder);
     if (duration <= 0) return;
 
-    let loopStart = startFrac * duration;
-    let loopEnd = endFrac * duration;
+    let { loopStart, loopEnd } = fractionsToSecondsLoop(startFrac, endFrac, duration);
 
-    if (loopSnapToGrid || active.state.loopStationMode) {
-        if (active.state.loopStationMode) {
-            // Snap to bar boundaries using the master clock
-            const barDur = masterBus.clock.getBarDuration();
-            loopStart = Math.round(loopStart / barDur) * barDur;
-            loopEnd = Math.round(loopEnd / barDur) * barDur;
-            if (loopEnd <= loopStart) loopEnd = loopStart + barDur;
-        } else {
-            // Original beat-grid snap
-            const bpm = getMasterBpm();
-            loopStart = quantizeTimeToGrid(loopStart, bpm);
-            loopEnd = quantizeTimeToGrid(loopEnd, bpm);
-            if (loopEnd <= loopStart) loopEnd = loopStart + (60 / bpm);
-        }
-        // Update handle positions to reflect snapped values
-        transport.setLoopRange(loopStart / duration, loopEnd / duration);
+    if (loopSnapToGrid) {
+        const bpm = getMasterBpm();
+        loopStart = quantizeTimeToGrid(loopStart, bpm);
+        loopEnd = quantizeTimeToGrid(loopEnd, bpm);
+        if (loopEnd <= loopStart) loopEnd = loopStart + (60 / bpm);
+        // Same denominator, and clamped: the beat-length floor above can push
+        // loopEnd past the take, which would drive the handle off the bar.
+        const snapped = secondsLoopToFractions(loopStart, loopEnd, duration);
+        transport.setLoopRange(snapped.startFrac, snapped.endFrac);
     }
 
     active.player.setLoopRange(loopStart, loopEnd);

@@ -51,6 +51,9 @@ export class GranularEngine {
      */
     async loadSample(url) {
         const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`Failed to load ${url}: ${response.status} ${response.statusText}`);
+        }
         const arrayBuffer = await response.arrayBuffer();
         return this._decodeAndStore(arrayBuffer);
     }

@@ -30,24 +30,34 @@ export class AutomationLane {
      */
     addEvent(event) {
         this.events.push(event);
+        this._cursor = undefined;
     }
 
     /**
      * Return all events whose time falls within [startTime, endTime).
-     * Assumes events are in chronological order (they are, since addEvent
-     * is called in real time during recording).
+     * Keeps a cursor so sequential playback is O(events returned) rather than
+     * O(lane length) per frame — with several layers playing a long lane, the
+     * full rescan was the largest per-frame cost in the app.
      *
      * @param {number} startTime - Inclusive lower bound (seconds)
      * @param {number} endTime   - Exclusive upper bound (seconds)
      * @returns {AutomationEvent[]}
      */
     getEventsInRange(startTime, endTime) {
+        // Restart the scan when the caller jumps backwards (loop wrap, seek).
+        if (this._cursor === undefined || this._cursorTime === undefined || startTime < this._cursorTime) {
+            this._cursor = 0;
+        }
+        this._cursorTime = startTime;
+
+        let i = this._cursor;
+        while (i < this.events.length && this.events[i].time < startTime) i++;
+        this._cursor = i;
+
         const result = [];
-        for (const event of this.events) {
-            if (event.time >= endTime) break;
-            if (event.time >= startTime) {
-                result.push(event);
-            }
+        while (i < this.events.length && this.events[i].time < endTime) {
+            result.push(this.events[i]);
+            i++;
         }
         return result;
     }
@@ -74,6 +84,7 @@ export class AutomationLane {
      */
     clear() {
         this.events = [];
+        this._cursor = undefined;
     }
 
     /**

@@ -14,8 +14,11 @@ export class MasterClock {
         this._denominator = 4;  // beat unit: 4 = quarter, 8 = eighth, 16 = sixteenth
 
         // Epoch: the AudioContext.currentTime at which beat 0 / bar 0 occurs.
-        // Set explicitly via setEpoch() when playback or recording begins.
+        // Set ONCE, the first time audio starts, and never moved while anything is
+        // playing — every Player and the Metronome derive their grid from it, so
+        // moving it re-grids all of them at once.
         this._epoch = 0;
+        this._anchored = false;
     }
 
     // --- Property getters/setters ---
@@ -58,6 +61,22 @@ export class MasterClock {
      */
     setEpoch(time) {
         this._epoch = time ?? this._ctx.currentTime;
+        this._anchored = true;
+    }
+
+    /** Whether the epoch has been anchored to a real start time. */
+    get isAnchored() { return this._anchored; }
+
+    /**
+     * Anchor the epoch if it has not been anchored yet. Idempotent — repeat calls
+     * are no-ops, which is what makes it safe to call from every entry point that
+     * might be the first to start audio.
+     * @param {number} [time] - AudioContext.currentTime value. Defaults to now.
+     */
+    ensureEpoch(time) {
+        if (this._anchored) return;
+        this._epoch = time ?? this._ctx.currentTime;
+        this._anchored = true;
     }
 
     /**

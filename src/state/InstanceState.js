@@ -11,6 +11,7 @@ export class InstanceState {
         this.sampleUrl = null;
         this.sampleFileName = null;
         this.sampleDisplayName = 'No sample loaded';
+        this.sampleMissing = false;
 
         // --- Grain parameters (mirrors ParameterPanel.getParams()) ---
         this.grainSizeMin = 0.8674;

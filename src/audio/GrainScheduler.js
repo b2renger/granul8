@@ -3,6 +3,12 @@
 import { getSubdivisionSeconds } from '../utils/musicalQuantizer.js';
 import { expMap } from '../utils/math.js';
 
+/**
+ * Hard cap on grains scheduled in a single tick. The clamp below already drops
+ * missed grains, so this only bounds pathological cases (a stall arriving mid-tick).
+ */
+const MAX_GRAINS_PER_TICK = 256;
+
 export class GrainScheduler {
     /**
      * @param {AudioContext} audioContext
@@ -86,28 +92,47 @@ export class GrainScheduler {
     _tick() {
         if (!this._running) return;
 
-        const deadline = this.audioContext.currentTime + this.scheduleAhead;
+        const now = this.audioContext.currentTime;
 
-        while (this.nextGrainTime < deadline) {
-            this.onScheduleGrain(this.nextGrainTime);
+        // Re-anchor after a timer stall. setTimeout is throttled to >=1 s in a
+        // hidden tab and blocked outright by decodeAudioData, GC or a session
+        // import, while audioContext.currentTime keeps running. Without this the
+        // loop below would run (stall / interOnset) times with `when` in the past,
+        // and source.start(when < currentTime) starts immediately — so every
+        // missed grain fires in the same render quantum.
+        // Missed grains are dropped, not replayed.
+        if (this.nextGrainTime < now) this.nextGrainTime = now;
 
-            let iot;
-            if (this.interOnsetRange) {
-                // Random jitter: pick in normalized space, then map per grain
-                const norm = this.interOnsetRange[0]
-                    + Math.random() * (this.interOnsetRange[1] - this.interOnsetRange[0]);
-                if (this.quantizeBpm !== null && this.quantizeDivisor !== null) {
-                    // Quantized: use explicit subdivision divisor
-                    iot = getSubdivisionSeconds(this.quantizeBpm, this.quantizeDivisor);
+        const deadline = now + this.scheduleAhead;
+
+        try {
+            let budget = MAX_GRAINS_PER_TICK;
+            while (this.nextGrainTime < deadline && budget-- > 0) {
+                this.onScheduleGrain(this.nextGrainTime);
+
+                let iot;
+                if (this.interOnsetRange) {
+                    // Random jitter: pick in normalized space, then map per grain
+                    const norm = this.interOnsetRange[0]
+                        + Math.random() * (this.interOnsetRange[1] - this.interOnsetRange[0]);
+                    if (this.quantizeBpm !== null && this.quantizeDivisor !== null) {
+                        // Quantized: use explicit subdivision divisor
+                        iot = getSubdivisionSeconds(this.quantizeBpm, this.quantizeDivisor);
+                    } else {
+                        // Free: exponential mapping for perceptually uniform distribution
+                        iot = expMap(norm, 0.005, 0.5);
+                    }
                 } else {
-                    // Free: exponential mapping for perceptually uniform distribution
-                    iot = expMap(norm, 0.005, 0.5);
+                    iot = this.interOnset;
                 }
-            } else {
-                iot = this.interOnset;
-            }
 
-            this.nextGrainTime += iot;
+                this.nextGrainTime += iot;
+            }
+        } catch (err) {
+            // Never let one bad grain kill the voice's scheduler permanently:
+            // the timer re-arm below is outside this block.
+            console.error('Grain scheduling failed:', err);
+            this.nextGrainTime = this.audioContext.currentTime + this.scheduleAhead;
         }
 
         this._timerId = setTimeout(() => this._tick(), this.timerInterval);

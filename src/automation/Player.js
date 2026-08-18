@@ -1,5 +1,7 @@
 // Player.js — Replays recorded automation events through the engine.
-// Uses requestAnimationFrame for frame-accurate event dispatch.
+// Driven by a setTimeout look-ahead tick, not requestAnimationFrame: rAF is
+// suspended entirely in a hidden tab, which would let voices drone silently
+// (or drop stops) while a backgrounded tab is away.
 //
 // Crossfade looping: alternates between two synthetic ID ranges (A/B).
 // When approaching the loop end, pre-starts the next iteration's voices
@@ -11,6 +13,15 @@ const SYNTHETIC_POINTER_BASE_B = 2000;
 
 /** Pre-start window: start next iteration this many seconds before loop end. */
 const CROSSFADE_WINDOW = 0.050; // 50ms
+
+/**
+ * Transport tick interval (ms). Matches GrainScheduler's timer so both run on
+ * the same cadence. rAF is not usable here: browsers suspend it entirely in a
+ * hidden tab, while grain production runs on setTimeout and keeps going — so an
+ * rAF-driven transport lets voices drone for as long as the tab is away and then
+ * drops whole loop iterations on return.
+ */
+const TICK_MS = 25;
 
 export class Player {
     /**
@@ -33,6 +44,39 @@ export class Player {
 
         /** @type {number} Loop end time (seconds, 0 = use full duration) */
         this._loopEnd = 0;
+
+        /**
+         * Musical loop window, when set. Bar-based points are re-derived from the
+         * clock on every read, so a tempo change retimes the loop coherently
+         * instead of truncating it: _loopEnd was captured in seconds at record
+         * time while the wrap was snapped to the live grid, so raising the BPM
+         * silently cut the tail off every iteration.
+         * @type {{startBars: number, lengthBars: number}|null}
+         */
+        this._loopBars = null;
+
+        /** Fraction through the loop at the last tick, for retime(). */
+        this._loopFraction = 0;
+
+        /**
+         * True once the playhead has actually reached the loop start and begun
+         * dispatching. Distinct from `isPlaying`, which is set the instant play()
+         * is called, and from the `elapsed < loopStart` test, which retime()'s
+         * own bar-snap can make true again for an already-sounding layer.
+         * @type {boolean}
+         */
+        this._launched = false;
+
+        /**
+         * Total length of the recorded take in bars — the STABLE domain the loop
+         * handles span. Distinct from getLoopableDuration(), which reports the
+         * current loop WINDOW and shrinks as _loopBars is narrowed. Using the
+         * window as the fraction denominator instead of this field collapses the
+         * loop toward the 1-bar floor after a handful of drag events, because
+         * each conversion's output becomes the next conversion's total.
+         * @type {number|null}
+         */
+        this._takeBars = null;
 
         /** @type {number} */
         this._startTime = 0;
@@ -62,8 +106,8 @@ export class Player {
         /** @type {import('../audio/MasterClock.js').MasterClock|null} */
         this._clock = null;
 
-        /** @type {number|null} */
-        this._rafId = null;
+        /** @type {number|null} setTimeout id for the transport tick */
+        this._timerId = null;
 
         // --- Callbacks ---
 
@@ -110,6 +154,12 @@ export class Player {
     setLoopStationMode(enabled, clock) {
         this._loopStationMode = enabled;
         this._clock = clock || null;
+        // Leaving loop-station mode drops the musical loop with it. main.js passes
+        // the clock unconditionally, including on the way out, so _loopBars and
+        // _clock both used to survive: _resolveLoop()'s bar branch kept winning
+        // while the loop handles — now on the seconds path — wrote setLoopRange(),
+        // which that branch ignores. The handles moved and the loop did not.
+        if (!enabled) this._loopBars = null;
     }
 
     /**
@@ -126,14 +176,48 @@ export class Player {
 
         if (this._duration === 0) return;
 
-        this._startTime = this._audioContext.currentTime;
-        this._lastProcessedTime = 0;
+        // Phase-lock to the bar grid exactly once, at launch. Thereafter the anchor
+        // advances by exact loop lengths (see the wrap handler), so it cannot drift
+        // off the grid and never needs re-snapping. Re-snapping per wrap with
+        // Math.round used to teleport the playhead up to half a bar in either
+        // direction, replaying material outside the loop range.
+        const { start: loopStart } = this._resolveLoop();
+        if (this._loopStationMode && this._clock) {
+            // Anchor the shared grid before reading it — mirroring
+            // Metronome.startCountIn, and for the same reason. Callers cannot be
+            // relied on: main.js's unlock overlay is skipped entirely when the
+            // AudioContext is already running at load, and the ensureEpoch() in
+            // each transport handler sits AFTER play() and is gated on the
+            // metronome. Reading getNextBarTime() against an unanchored epoch
+            // phase-locks the layer to a grid that the first real anchor then
+            // moves out from under it. Idempotent, so a clock anchored by any
+            // other entry point is untouched.
+            this._clock.ensureEpoch();
+            this._startTime = this._clock.getNextBarTime() - loopStart;
+        } else {
+            // Subtract loopStart here too. The pre-roll guard below blocks
+            // dispatch until `elapsed` reaches _loopStart, so anchoring at plain
+            // currentTime would freeze a NON-loop-station player for loopStart
+            // seconds of dead air and then drop everything before it. Anchoring
+            // back by loopStart makes elapsed START at loopStart, so playback
+            // begins immediately at the trimmed loop start — which is also the
+            // correct fix for AUDIT-CODE #22 (play() ignoring _loopStart on the
+            // first pass).
+            this._startTime = this._audioContext.currentTime - loopStart;
+        }
+        this._lastProcessedTime = loopStart;
+        this._launched = false;
         this._currentIteration = 'A';
         this._activeVoicesA.clear();
         this._activeVoicesB.clear();
         this._crossfadeStarted = false;
         this.isPlaying = true;
-        this._rafId = requestAnimationFrame(this._tick);
+        // Drive the first tick synchronously; _tick() arms the timer chain itself
+        // on the way out. Arming one here first would be dead: _tick() clears
+        // _timerId unconditionally before either of its early returns, and neither
+        // can fire on this call (isPlaying was just set, _lane is non-null or we
+        // returned above), so the timer could never survive to run.
+        this._tick();
     }
 
     /**
@@ -141,9 +225,9 @@ export class Player {
      */
     stop() {
         this.isPlaying = false;
-        if (this._rafId !== null) {
-            cancelAnimationFrame(this._rafId);
-            this._rafId = null;
+        if (this._timerId !== null) {
+            clearTimeout(this._timerId);
+            this._timerId = null;
         }
         this._stopIterationVoices('A');
         this._stopIterationVoices('B');
@@ -180,14 +264,147 @@ export class Player {
     }
 
     /**
-     * Get the effective loop range.
+     * Get the effective loop range in seconds — the same window playback uses.
+     *
+     * Delegates to _resolveLoop() rather than reading the raw seconds fields.
+     * Those two disagreed for a bar-based loop, whose seconds fields are never
+     * written: one concept with two getters giving different answers, which is
+     * how SessionSerializer came to persist `loopRange: {start: 0, end: 0}` for a
+     * live 2-bar loop.
      * @returns {{ start: number, end: number }}
      */
     getLoopRange() {
+        return this._resolveLoop();
+    }
+
+    /**
+     * Set the loop window in bars. Takes precedence over setLoopRange().
+     * @param {number} startBars
+     * @param {number} lengthBars
+     */
+    setLoopBars(startBars, lengthBars) {
+        this._loopBars = lengthBars > 0 ? { startBars, lengthBars } : null;
+    }
+
+    /** @returns {{startBars: number, lengthBars: number}|null} */
+    getLoopBars() {
+        return this._loopBars ? { ...this._loopBars } : null;
+    }
+
+    /**
+     * Set the total length of the recorded take in bars. This is the STABLE
+     * denominator loop-handle fractions must be converted against — it does not
+     * change as the loop window (_loopBars) is narrowed by dragging a handle.
+     * @param {number} bars
+     */
+    setTakeBars(bars) {
+        this._takeBars = bars > 0 ? bars : null;
+    }
+
+    /** @returns {number|null} */
+    getTakeBars() {
+        return this._takeBars;
+    }
+
+    /**
+     * Resolve the loop window in seconds for this instant.
+     * @returns {{start: number, end: number}}
+     * @private
+     */
+    _resolveLoop() {
+        if (this._loopBars && this._clock) {
+            const bar = this._clock.getBarDuration();
+            const start = this._loopBars.startBars * bar;
+            return { start, end: start + this._loopBars.lengthBars * bar };
+        }
         return {
             start: this._loopStart,
             end: this._loopEnd > 0 ? this._loopEnd : this._duration,
         };
+    }
+
+    /** Length of the loop window in seconds. */
+    getLoopableDuration() {
+        const { start, end } = this._resolveLoop();
+        return Math.max(0, end - start);
+    }
+
+    /**
+     * Re-anchor after a tempo change, keeping the loop on the bar grid. Call once
+     * per playing Player whenever the master BPM moves.
+     *
+     * This must not simply re-anchor to `currentTime - pos`. That preserves the
+     * loop FRACTION but not grid alignment, and nothing re-snaps afterwards — so
+     * it silently breaks play()'s invariant ("phase-lock once at launch;
+     * thereafter the anchor advances by exact loop lengths, so it cannot drift
+     * off the grid"). Metronome._tick re-derives its beats absolutely from the
+     * epoch on the same BPM change, so the click ends up permanently out of phase
+     * with the layers, and any layer recorded afterwards phase-locks to
+     * getNextBarTime() and lands out of phase with the existing ones.
+     */
+    retime() {
+        if (!this.isPlaying || !this._loopBars || !this._clock) return;
+        const now = this._audioContext.currentTime;
+        const { start, end } = this._resolveLoop();
+
+        // Pre-roll: the layer has not launched, so there is no playhead to keep
+        // continuous — re-phase-lock exactly as play() does. Without this branch
+        // _loopFraction is still 0, `pos` below equals `start`, the anchor lands
+        // on `now`, and the pre-roll guard releases immediately: nudging the tempo
+        // between pressing Play and the layer launching cancelled the phase-lock
+        // outright.
+        //
+        // Gate on _launched, NOT on `elapsed < start`. The two agreed before the
+        // bar-snap below existed; they do not now. A snap that lands the anchor
+        // ahead of `now` puts a RUNNING, sounding layer back below the loop start
+        // for up to half a bar, and a second tempo change arriving inside that
+        // window would take this branch and re-anchor with getNextBarTime() — the
+        // full-bar push this function deliberately avoids, on top of the wait
+        // already in progress. Measured at 120 bpm, a 2-bar loop and two changes
+        // 100 ms apart: a 2.16 s hold against the half-bar bound of 1.09 s, twice
+        // what is documented below. Reachable from two clicks on the BPM slider,
+        // and from tap tempo, which calls retime() on every tap after the first.
+        if (!this._launched) {
+            this._startTime = this._clock.getNextBarTime(now) - start;
+            this._lastProcessedTime = start;
+            this._crossfadeStarted = false;
+            return;
+        }
+
+        // Mid-loop. Something HAS to move: the epoch is fixed and the bar length
+        // just changed, so `now`'s phase within the new grid is not the phase the
+        // old anchor had — no anchor keeps the playhead exactly where it is AND
+        // sits on the grid. (Nor does a small tempo step imply a small
+        // correction: the old anchor is epoch + k * oldBar, so its offset from
+        // the new grid grows with k and is effectively arbitrary once the loop
+        // has been running a while.)
+        //
+        // Snap the loop's anchor — the instant at which `elapsed` equals the loop
+        // start — to the NEAREST bar line. That bounds the correction at half a
+        // bar in either direction. getNextBarTime() would instead always push the
+        // anchor forward, by up to a whole bar, even when the anchor was already
+        // nearly right.
+        //
+        // The anchor may land slightly AHEAD of `now`, by at most half a bar and
+        // only in the first part of a loop. `elapsed` is then below the loop start
+        // and the pre-roll guard holds dispatch until the bar line arrives, so the
+        // loop restarts cleanly from its top on a downbeat — the same "wait for
+        // the bar" behaviour play() gives a launching layer, and bounded by half a
+        // bar. Forcing the anchor into the past instead would cost a jump of up to
+        // one and a half bars, which is worse.
+        // While a snap-hold is in progress the layer is waiting at its top, so its
+        // position is the loop start regardless of what _loopFraction last read —
+        // _tick returns at the pre-roll guard without updating it, leaving a stale
+        // value from before the hold. Treating that stale fraction as the live
+        // position would re-derive an anchor for a playhead that is not there.
+        const fraction = this._launched && now - this._startTime >= start ? this._loopFraction : 0;
+        const pos = start + fraction * (end - start);
+        const anchor = this._clock.quantizeToBar(now - pos + start);
+        this._startTime = anchor - start;
+        // The snap may have moved the playhead either way; resume dispatch from
+        // wherever it now is, clamped into the window (see the wrap handler).
+        this._lastProcessedTime = Math.min(end, Math.max(start, now - this._startTime));
+        this._crossfadeStarted = false;
     }
 
     /**
@@ -225,10 +442,34 @@ export class Player {
 
     /** @private */
     _tick() {
+        if (this._timerId !== null) { clearTimeout(this._timerId); this._timerId = null; }
         if (!this.isPlaying || !this._lane) return;
 
+        // Read once here for the guards and the loop boundary; the dispatch
+        // section below re-reads currentTime into `currentElapsed`. The two can
+        // differ, but only by however long this tick's own work took — well under
+        // one render quantum in a single-threaded event loop — and using the later
+        // read for dispatch is the correct choice: it dispatches everything due as
+        // of the moment the events are actually sent.
         const elapsed = this._audioContext.currentTime - this._startTime;
-        const loopEnd = this._loopEnd > 0 ? this._loopEnd : this._duration;
+
+        const { start: loopStart, end: loopEnd } = this._resolveLoop();
+
+        // Pre-roll: in loop-station mode the anchor sits on the next bar boundary,
+        // so elapsed is negative (or, for a bar-based loop starting after bar 0,
+        // simply short of loopStart) until the launch point arrives. Do nothing
+        // until then — no dispatch, no onFrame (a negative time would print a
+        // garbage clock and a negative CSS width).
+        //
+        // Compare against the RESOLVED start, not the raw _loopStart. With a
+        // bar-based loop starting after bar 0 the two differ, and the guard
+        // would stop firing — letting onFrame run through the whole pre-roll so
+        // the transport counts time forward while nothing sounds.
+        if (elapsed < loopStart) {
+            this._timerId = setTimeout(this._tick, TICK_MS);
+            return;
+        }
+        this._launched = true;
 
         // === CROSSFADE PRE-START ===
         // When within CROSSFADE_WINDOW of loop end, pre-start next iteration
@@ -240,22 +481,48 @@ export class Player {
         // === LOOP BOUNDARY ===
         if (elapsed >= loopEnd) {
             if (this._loop) {
+                const loopLen = loopEnd - loopStart;
+                if (loopLen <= 0) { this._timerId = setTimeout(this._tick, TICK_MS); return; }
+
+                const didCrossfade = this._crossfadeStarted;
+
                 // Release old iteration voices (grains play out naturally)
                 this._releaseIterationVoices(this._currentIteration);
 
                 // Swap iterations
                 this._currentIteration = this._currentIteration === 'A' ? 'B' : 'A';
 
-                // Reset timing
-                if (this._loopStationMode && this._clock) {
-                    // Align to bar grid on the master clock
-                    const now = this._audioContext.currentTime;
-                    const barAligned = this._clock.quantizeToBar(now);
-                    this._startTime = barAligned - this._loopStart;
-                } else {
-                    this._startTime = this._audioContext.currentTime - this._loopStart;
+                // Advance the anchor by whole loop lengths rather than resetting it
+                // to `now`. Resetting discarded the frame overshoot, making every
+                // iteration one tick too long — unbounded drift. A long stall can
+                // span several iterations, so consume them all.
+                let overshoot = elapsed - loopEnd;
+                this._startTime += loopLen;
+                while (overshoot >= loopLen) {
+                    this._startTime += loopLen;
+                    overshoot -= loopLen;
                 }
-                this._lastProcessedTime = this._loopStart;
+
+                // No re-grid here. The anchor was phase-locked to the bar at play()
+                // and only ever advances by whole loop lengths, so it stays on the
+                // grid by construction. Re-snapping per wrap with quantizeToBar
+                // (Math.round) used to teleport the playhead up to half a bar.
+
+                // _preStartNextIteration already dispatched
+                // [loopStart, loopStart + CROSSFADE_WINDOW) on the incoming voices.
+                // Resume after that window so those events do not fire a second time.
+                //
+                // Clamped to loopLen: a loop shorter than the crossfade window
+                // (reachable — TransportBar only enforces a 1% handle separation)
+                // would otherwise credit the pre-start with more than the loop
+                // contains and push the cursor PAST loopEnd, where the tail's
+                // Math.max() pins it and getEventsInRange() returns nothing for
+                // the inverted range. The pre-start does cover the whole of such a
+                // loop, so nothing is dropped either way; this keeps the cursor
+                // inside the window the rest of _tick() assumes it is in.
+                const alreadySent = didCrossfade ? Math.min(CROSSFADE_WINDOW, loopLen) : 0;
+                this._lastProcessedTime = loopStart + Math.max(alreadySent, overshoot);
+
                 this._crossfadeStarted = false;
 
                 // Notify loop wrap (used for overdub auto-commit)
@@ -265,7 +532,7 @@ export class Player {
                 this._stopIterationVoices('A');
                 this._stopIterationVoices('B');
                 this.isPlaying = false;
-                this._rafId = null;
+                if (this._timerId !== null) { clearTimeout(this._timerId); this._timerId = null; }
                 if (this.onFrame) this.onFrame(this._duration, 1);
                 if (this.onComplete) this.onComplete();
                 return;
@@ -304,14 +571,24 @@ export class Player {
             }
         }
 
-        this._lastProcessedTime = currentElapsed;
+        // Monotonic. The boundary block above may have pushed _lastProcessedTime
+        // PAST currentElapsed — to skip the crossfade window the pre-start already
+        // dispatched, or to consume a multi-iteration stall. An unconditional
+        // assignment here silently undid that within the same tick, and the
+        // crossfade events fired twice.
+        this._lastProcessedTime = Math.max(this._lastProcessedTime, currentElapsed);
+
+        const window = loopEnd - loopStart;
+        this._loopFraction = window > 0
+            ? Math.min(1, Math.max(0, (currentElapsed - loopStart) / window))
+            : 0;
 
         // Report frame progress
         if (this.onFrame) {
-            this.onFrame(currentElapsed, currentElapsed / this._duration);
+            this.onFrame(currentElapsed, this._duration > 0 ? currentElapsed / this._duration : 0);
         }
 
-        this._rafId = requestAnimationFrame(this._tick);
+        this._timerId = setTimeout(this._tick, TICK_MS);
     }
 
     /**
@@ -319,6 +596,17 @@ export class Player {
      * region using the next iteration's synthetic IDs. This creates the
      * crossfade overlap: new voices start producing grains while old voices'
      * pre-scheduled grains play out.
+     *
+     * KNOWN GAP: the window below is not clamped to loopEnd. It runs from
+     * loopStart to loopStart + CROSSFADE_WINDOW, so a loop SHORTER than the
+     * 50 ms crossfade reaches past its own end and dispatches events from
+     * outside it -- material the user excluded with the loop handles -- on every
+     * iteration. Reachable: TransportBar enforces only a 1% handle separation,
+     * and 1% of a 2 s take is 20 ms. Left alone deliberately; what a loop
+     * shorter than its own crossfade should do is a design decision, not a
+     * patch. (This is also why the dispatch-cursor clamp at the wrap handler
+     * changes no behaviour in that regime: the pre-start covers the whole
+     * iteration, so the normal dispatch path has nothing left to send.)
      * @private
      */
     _preStartNextIteration() {
@@ -329,8 +617,9 @@ export class Player {
         nextVoices.clear();
 
         // Dispatch events from the first CROSSFADE_WINDOW of the loop
-        const windowEnd = this._loopStart + CROSSFADE_WINDOW;
-        const events = this._lane.getEventsInRange(this._loopStart, windowEnd);
+        const { start: loopStart } = this._resolveLoop();
+        const windowEnd = loopStart + CROSSFADE_WINDOW;
+        const events = this._lane.getEventsInRange(loopStart, windowEnd);
 
         for (const event of events) {
             const syntheticId = nextBase + event.voiceIndex;

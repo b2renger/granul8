@@ -206,6 +206,7 @@ export class InstanceManager {
         active.state.sampleDisplayName = displayName;
         active.state.sampleUrl = url;
         active.state.sampleFileName = fileName;
+        active.state.sampleMissing = false;
     }
 
     /**
@@ -309,10 +310,28 @@ export class InstanceManager {
             if (savedState.recording && savedState.recording.lane) {
                 const lane = AutomationLane.fromJSON(savedState.recording.lane);
                 recorder.setRecording(lane);
-                if (savedState.recording.loopRange) {
+                // Prefer the musical loop; fall back to seconds for sessions saved
+                // before loopBars existed.
+                if (savedState.recording.loopBars) {
+                    player.setLoopBars(
+                        savedState.recording.loopBars.startBars,
+                        savedState.recording.loopBars.lengthBars
+                    );
+                } else if (savedState.recording.loopRange) {
                     player.setLoopRange(
                         savedState.recording.loopRange.start,
                         savedState.recording.loopRange.end
+                    );
+                }
+                // Take length in bars — the stable denominator loop handles convert
+                // against. Fall back to the loop's own span for sessions saved before
+                // takeBars existed; correct whenever the loop spanned the whole take,
+                // which is the common case.
+                if (savedState.recording.takeBars) {
+                    player.setTakeBars(savedState.recording.takeBars);
+                } else if (savedState.recording.loopBars) {
+                    player.setTakeBars(
+                        savedState.recording.loopBars.startBars + savedState.recording.loopBars.lengthBars
                     );
                 }
             }
