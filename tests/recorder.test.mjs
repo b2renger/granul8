@@ -60,14 +60,48 @@ test('Voice.start resets modulation so behaviour never depends on slot history',
     assert.ok(v.pitchQuantize !== null);
     v.stop();
 
-    // A later gesture with no modulation must not inherit the arp.
-    v.start({ position: 0.5, amplitude: 0.8, pitch: 1, grainSize: 0.05, interOnset: 0.03 });
+    // A later gesture with no modulation must not inherit the arp. `interOnset` is
+    // deliberately omitted here: Voice.update() calls scheduler.setInterOnset()
+    // whenever `interOnset` is defined, and that method clears interOnsetRange as a
+    // side effect — which would mask whether Voice.start()'s own reset line ever
+    // ran. Omitting it means the reset line is the only thing that can clear
+    // scheduler.interOnsetRange in this test.
+    v.start({ position: 0.5, amplitude: 0.8, pitch: 1, grainSize: 0.05 });
     assert.equal(v.pitchQuantize, null, 'stale pitchQuantize inherited from the previous gesture');
     assert.deepEqual(v.randomize, { grainSize: null, pitch: null, pan: null });
     assert.equal(v.grainSizeQuantize, null);
     assert.equal(v.scheduler.quantizeBpm, null);
-    assert.equal(v.scheduler.interOnsetRange, null);
+    assert.equal(v.scheduler.quantizeDivisor, null);
+    assert.equal(v.scheduler.interOnsetRange, null, 'stale interOnsetRange inherited from the previous gesture');
     v.stop();
+});
+
+test('stopRecording during overdub closes out a held voice with the correct merged voice index', () => {
+    const ctx = new FakeAudioContext();
+    const r = new Recorder(ctx);
+
+    // Base pass: voice 0 starts and stops cleanly.
+    r.startRecording();
+    r.captureStart(0, RESOLVED);
+    ctx.advance(1.0);
+    r.captureStop(0);
+    r.stopRecording();
+
+    // Overdub pass: voice 0 within the overdub lane is left held when overdub
+    // recording stops. stopRecording() must synthesize its stop into the overdub
+    // lane *before* AutomationLane.merge() offsets overdub voice indexes past the
+    // base lane's highest index — otherwise the synthesized stop targets the wrong
+    // voice (or the pre-offset one) after merge.
+    r.startOverdub(ctx.currentTime);
+    r.captureStart(0, RESOLVED);
+    ctx.advance(0.5);
+    r.stopRecording();
+
+    const merged = r.getRecording().events;
+    const heldVoiceStop = merged.find(e => e.type === 'stop' && Math.abs(e.time - 0.5) < 1e-9);
+    assert.ok(heldVoiceStop, 'the held overdub voice never got a synthesized stop after merge');
+    assert.equal(heldVoiceStop.voiceIndex, 1,
+        'synthesized stop must carry the post-merge voice index (1), not the pre-merge overdub index (0)');
 });
 
 test('stopRecording emits stops for voices still held', () => {
