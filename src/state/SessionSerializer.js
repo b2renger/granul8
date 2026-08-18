@@ -30,7 +30,8 @@ export function serializeSession(instanceManager, panel, masterBpm, masterVolume
         if (lane.length > 0) {
             instanceData.recording = {
                 lane: lane.toJSON(),
-                loopRange: entry.player.getLoopRange(),
+                loopRange: entry.player.getLoopRange(),   // seconds, legacy readers
+                loopBars: entry.player.getLoopBars(),     // musical, preferred
             };
         }
 

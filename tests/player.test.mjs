@@ -217,3 +217,85 @@ test('a non-loop-station player with a trimmed loop range begins dispatching in-
         p.stop();
     } finally { restore(); }
 });
+
+test('a bar-based loop retimes on a BPM change instead of truncating', () => {
+    const { timers, ctx, p, restore } = harness();
+    try {
+        const clock = new MasterClock(ctx);
+        clock.bpm = 120;                       // bar = 2.0 s
+        clock.setEpoch(0);
+        p.setLoopStationMode(true, clock);
+
+        const wraps = [];
+        p.onLoopWrap = () => wraps.push(ctx.currentTime);
+        p.setLoopBars(0, 2);                   // 2 bars = 4.0 s at 120
+        p.play(lane([{ time: 3.9, voiceIndex: 0, type: 'stop' }]), true);
+
+        advance(ctx, timers, 10.0);
+        const before = wraps.length;
+        assert.ok(before >= 2, 'looping at 120 bpm');
+
+        clock.bpm = 140;                       // bar = 1.714 s => 2 bars = 3.4286 s
+        p.retime();
+        wraps.length = 0;
+        advance(ctx, timers, 20.0);
+
+        assert.ok(wraps.length >= 4, `expected faster wraps after the tempo change, got ${wraps.length}`);
+        for (let i = 1; i < wraps.length; i++) {
+            const interval = wraps[i] - wraps[i - 1];
+            assert.ok(Math.abs(interval - 3.4286) < 0.06,
+                `interval ${interval.toFixed(4)} s, expected 2 bars at 140 bpm = 3.4286 s`);
+        }
+        p.stop();
+    } finally { restore(); }
+});
+
+test('getLoopableDuration reflects the musical loop, not the last event time', () => {
+    const { ctx, p, restore } = harness();
+    try {
+        const clock = new MasterClock(ctx);
+        clock.bpm = 120;
+        clock.setEpoch(0);
+        p.setLoopStationMode(true, clock);
+        p.setLoopBars(0, 4);
+        assert.equal(p.getLoopableDuration(), 8.0);
+        clock.bpm = 60;
+        assert.equal(p.getLoopableDuration(), 16.0);
+    } finally { restore(); }
+});
+
+test('retime() preserves the loop fraction on a MID-loop tempo change, not just at a wrap boundary', () => {
+    // The brief's own retime test changes the BPM at t=10.0, which happens to land
+    // exactly ON a wrap boundary (the loop fraction is 0 either way at that instant).
+    // Because _resolveLoop() is re-read fresh every tick regardless of retime(), that
+    // test passes identically whether retime() actually re-anchors _startTime or is a
+    // complete no-op -- verified by running the harness both ways. This test moves the
+    // tempo change to mid-iteration (fraction 0.25), where retime()'s re-anchoring is
+    // the only thing keeping the playhead's *position within the loop* continuous
+    // instead of jumping.
+    const { timers, ctx, p, restore } = harness();
+    try {
+        const clock = new MasterClock(ctx);
+        clock.bpm = 120;                       // bar = 2.0 s, 2 bars = 4.0 s
+        clock.setEpoch(0);
+        p.setLoopStationMode(true, clock);
+        p.setLoopBars(0, 2);
+        p.play(lane([{ time: 3.9, voiceIndex: 0, type: 'stop' }]), true);
+
+        advance(ctx, timers, 3.0);             // 1.0s into the 4.0s loop => fraction 0.25
+
+        const wraps = [];
+        p.onLoopWrap = () => wraps.push(ctx.currentTime);
+        clock.bpm = 140;                       // bar = 1.7143 s, 2 bars = 3.4286 s
+        p.retime();
+        advance(ctx, timers, 5.0);
+
+        assert.equal(wraps.length, 1, `expected exactly one wrap, got ${wraps.length}`);
+        // Remaining time to the wrap should be (1 - fraction) * newLoopLen, measured
+        // from the moment of the tempo change (ctx.currentTime === 3.0).
+        const expectedWrapAt = 3.0 + 0.75 * 3.4286;
+        assert.ok(Math.abs(wraps[0] - expectedWrapAt) < 0.06,
+            `wrap at ${wraps[0].toFixed(4)}, expected near ${expectedWrapAt.toFixed(4)} (fraction preserved)`);
+        p.stop();
+    } finally { restore(); }
+});

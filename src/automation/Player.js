@@ -45,6 +45,19 @@ export class Player {
         /** @type {number} Loop end time (seconds, 0 = use full duration) */
         this._loopEnd = 0;
 
+        /**
+         * Musical loop window, when set. Bar-based points are re-derived from the
+         * clock on every read, so a tempo change retimes the loop coherently
+         * instead of truncating it: _loopEnd was captured in seconds at record
+         * time while the wrap was snapped to the live grid, so raising the BPM
+         * silently cut the tail off every iteration.
+         * @type {{startBars: number, lengthBars: number}|null}
+         */
+        this._loopBars = null;
+
+        /** Fraction through the loop at the last tick, for retime(). */
+        this._loopFraction = 0;
+
         /** @type {number} */
         this._startTime = 0;
 
@@ -142,20 +155,21 @@ export class Player {
         // off the grid and never needs re-snapping. Re-snapping per wrap with
         // Math.round used to teleport the playhead up to half a bar in either
         // direction, replaying material outside the loop range.
+        const { start: loopStart } = this._resolveLoop();
         if (this._loopStationMode && this._clock) {
-            this._startTime = this._clock.getNextBarTime() - this._loopStart;
+            this._startTime = this._clock.getNextBarTime() - loopStart;
         } else {
-            // Subtract _loopStart here too. The pre-roll guard below blocks
+            // Subtract loopStart here too. The pre-roll guard below blocks
             // dispatch until `elapsed` reaches _loopStart, so anchoring at plain
-            // currentTime would freeze a NON-loop-station player for _loopStart
+            // currentTime would freeze a NON-loop-station player for loopStart
             // seconds of dead air and then drop everything before it. Anchoring
-            // back by _loopStart makes elapsed START at _loopStart, so playback
+            // back by loopStart makes elapsed START at loopStart, so playback
             // begins immediately at the trimmed loop start — which is also the
             // correct fix for AUDIT-CODE #22 (play() ignoring _loopStart on the
             // first pass).
-            this._startTime = this._audioContext.currentTime - this._loopStart;
+            this._startTime = this._audioContext.currentTime - loopStart;
         }
-        this._lastProcessedTime = this._loopStart;
+        this._lastProcessedTime = loopStart;
         this._currentIteration = 'A';
         this._activeVoicesA.clear();
         this._activeVoicesB.clear();
@@ -220,6 +234,56 @@ export class Player {
     }
 
     /**
+     * Set the loop window in bars. Takes precedence over setLoopRange().
+     * @param {number} startBars
+     * @param {number} lengthBars
+     */
+    setLoopBars(startBars, lengthBars) {
+        this._loopBars = { startBars, lengthBars };
+    }
+
+    /** @returns {{startBars: number, lengthBars: number}|null} */
+    getLoopBars() {
+        return this._loopBars ? { ...this._loopBars } : null;
+    }
+
+    /**
+     * Resolve the loop window in seconds for this instant.
+     * @returns {{start: number, end: number}}
+     * @private
+     */
+    _resolveLoop() {
+        if (this._loopBars && this._clock) {
+            const bar = this._clock.getBarDuration();
+            const start = this._loopBars.startBars * bar;
+            return { start, end: start + this._loopBars.lengthBars * bar };
+        }
+        return {
+            start: this._loopStart,
+            end: this._loopEnd > 0 ? this._loopEnd : this._duration,
+        };
+    }
+
+    /** Length of the loop window in seconds. */
+    getLoopableDuration() {
+        const { start, end } = this._resolveLoop();
+        return Math.max(0, end - start);
+    }
+
+    /**
+     * Re-anchor after a tempo change so the playhead keeps its position within
+     * the loop. Call once per playing Player whenever the master BPM moves.
+     */
+    retime() {
+        if (!this.isPlaying || !this._loopBars || !this._clock) return;
+        const { start, end } = this._resolveLoop();
+        const pos = start + this._loopFraction * (end - start);
+        this._startTime = this._audioContext.currentTime - pos;
+        this._lastProcessedTime = pos;
+        this._crossfadeStarted = false;
+    }
+
+    /**
      * Get current playback elapsed time.
      * @returns {number}
      */
@@ -268,7 +332,7 @@ export class Player {
             return;
         }
 
-        const loopEnd = this._loopEnd > 0 ? this._loopEnd : this._duration;
+        const { start: loopStart, end: loopEnd } = this._resolveLoop();
 
         // === CROSSFADE PRE-START ===
         // When within CROSSFADE_WINDOW of loop end, pre-start next iteration
@@ -280,7 +344,7 @@ export class Player {
         // === LOOP BOUNDARY ===
         if (elapsed >= loopEnd) {
             if (this._loop) {
-                const loopLen = loopEnd - this._loopStart;
+                const loopLen = loopEnd - loopStart;
                 if (loopLen <= 0) { this._timerId = setTimeout(this._tick, TICK_MS); return; }
 
                 const didCrossfade = this._crossfadeStarted;
@@ -311,7 +375,7 @@ export class Player {
                 // [loopStart, loopStart + CROSSFADE_WINDOW) on the incoming voices.
                 // Resume after that window so those events do not fire a second time.
                 const alreadySent = didCrossfade ? CROSSFADE_WINDOW : 0;
-                this._lastProcessedTime = this._loopStart + Math.max(alreadySent, overshoot);
+                this._lastProcessedTime = loopStart + Math.max(alreadySent, overshoot);
 
                 this._crossfadeStarted = false;
 
@@ -361,15 +425,21 @@ export class Player {
             }
         }
 
-        // Monotonic: on a boundary tick the block above may have jumped
-        // _lastProcessedTime past the crossfade window (or, with a stall,
-        // past several loop lengths) to a point ahead of currentElapsed —
-        // never let this fall back below that.
+        // Monotonic. The boundary block above may have pushed _lastProcessedTime
+        // PAST currentElapsed — to skip the crossfade window the pre-start already
+        // dispatched, or to consume a multi-iteration stall. An unconditional
+        // assignment here silently undid that within the same tick, and the
+        // crossfade events fired twice.
         this._lastProcessedTime = Math.max(this._lastProcessedTime, currentElapsed);
+
+        const window = loopEnd - loopStart;
+        this._loopFraction = window > 0
+            ? Math.min(1, Math.max(0, (currentElapsed - loopStart) / window))
+            : 0;
 
         // Report frame progress
         if (this.onFrame) {
-            this.onFrame(currentElapsed, currentElapsed / this._duration);
+            this.onFrame(currentElapsed, this._duration > 0 ? currentElapsed / this._duration : 0);
         }
 
         this._timerId = setTimeout(this._tick, TICK_MS);
@@ -390,8 +460,9 @@ export class Player {
         nextVoices.clear();
 
         // Dispatch events from the first CROSSFADE_WINDOW of the loop
-        const windowEnd = this._loopStart + CROSSFADE_WINDOW;
-        const events = this._lane.getEventsInRange(this._loopStart, windowEnd);
+        const { start: loopStart } = this._resolveLoop();
+        const windowEnd = loopStart + CROSSFADE_WINDOW;
+        const events = this._lane.getEventsInRange(loopStart, windowEnd);
 
         for (const event of events) {
             const syntheticId = nextBase + event.voiceIndex;

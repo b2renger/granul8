@@ -73,6 +73,11 @@ function getMasterBpm() {
 bpmSlider.addEventListener('input', () => {
     bpmDisplay.textContent = bpmSlider.value;
     masterBus.clock.bpm = parseInt(bpmSlider.value, 10);
+    // Bar-based loops derive their length from the clock, so every playing layer
+    // must re-anchor or it would jump to a new position within the resized loop.
+    for (const [, entry] of instanceManager.instances) {
+        entry.player.retime();
+    }
     // Refresh quantized displays in the panel
     params.refreshQuantizedDisplays();
     if (persistence) persistence.scheduleSave();
@@ -96,6 +101,11 @@ tapTempoBtn.addEventListener('click', () => {
         bpmSlider.value = clamped;
         bpmDisplay.textContent = clamped;
         masterBus.clock.bpm = clamped;
+        // Bar-based loops derive their length from the clock, so every playing layer
+        // must re-anchor or it would jump to a new position within the resized loop.
+        for (const [, entry] of instanceManager.instances) {
+            entry.player.retime();
+        }
         params.refreshQuantizedDisplays();
         if (persistence) persistence.scheduleSave();
     }
@@ -896,9 +906,12 @@ function finishRecording(active) {
 
     // Use fixed duration for loop range (or snap to bar for free-form)
     if (active.state.loopStationMode) {
-        const loopDuration = fixedRecordDuration
-            || masterBus.clock.quantizeDurationToBar(active.recorder.getElapsedTime());
-        active.player.setLoopRange(0, loopDuration);
+        const bars = fixedRecordDuration
+            ? (active.state.recordBarCount || 4)
+            : Math.max(1, Math.round(active.recorder.getElapsedTime() / masterBus.clock.getBarDuration()));
+        // Musical, not seconds: a later tempo change must retime the loop rather
+        // than cut its tail off.
+        active.player.setLoopBars(0, bars);
         transport.setLoopRange(0, 1);
     }
 

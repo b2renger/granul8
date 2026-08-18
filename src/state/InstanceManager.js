@@ -309,7 +309,14 @@ export class InstanceManager {
             if (savedState.recording && savedState.recording.lane) {
                 const lane = AutomationLane.fromJSON(savedState.recording.lane);
                 recorder.setRecording(lane);
-                if (savedState.recording.loopRange) {
+                // Prefer the musical loop; fall back to seconds for sessions saved
+                // before loopBars existed.
+                if (savedState.recording.loopBars) {
+                    player.setLoopBars(
+                        savedState.recording.loopBars.startBars,
+                        savedState.recording.loopBars.lengthBars
+                    );
+                } else if (savedState.recording.loopRange) {
                     player.setLoopRange(
                         savedState.recording.loopRange.start,
                         savedState.recording.loopRange.end
