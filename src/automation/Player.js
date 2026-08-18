@@ -186,7 +186,11 @@ export class Player {
         this._activeVoicesB.clear();
         this._crossfadeStarted = false;
         this.isPlaying = true;
-        this._timerId = setTimeout(this._tick, TICK_MS);
+        // Drive the first tick synchronously; _tick() arms the timer chain itself
+        // on the way out. Arming one here first would be dead: _tick() clears
+        // _timerId unconditionally before either of its early returns, and neither
+        // can fire on this call (isPlaying was just set, _lane is non-null or we
+        // returned above), so the timer could never survive to run.
         this._tick();
     }
 
