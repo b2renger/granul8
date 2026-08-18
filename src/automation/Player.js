@@ -323,16 +323,22 @@ export class Player {
 
         const elapsed = this._audioContext.currentTime - this._startTime;
 
+        const { start: loopStart, end: loopEnd } = this._resolveLoop();
+
         // Pre-roll: in loop-station mode the anchor sits on the next bar boundary,
-        // so elapsed is negative until the launch point arrives. Do nothing until
-        // then — no dispatch, no onFrame (a negative time would print a garbage
-        // clock and a negative CSS width).
-        if (elapsed < this._loopStart) {
+        // so elapsed is negative (or, for a bar-based loop starting after bar 0,
+        // simply short of loopStart) until the launch point arrives. Do nothing
+        // until then — no dispatch, no onFrame (a negative time would print a
+        // garbage clock and a negative CSS width).
+        //
+        // Compare against the RESOLVED start, not the raw _loopStart. With a
+        // bar-based loop starting after bar 0 the two differ, and the guard
+        // would stop firing — letting onFrame run through the whole pre-roll so
+        // the transport counts time forward while nothing sounds.
+        if (elapsed < loopStart) {
             this._timerId = setTimeout(this._tick, TICK_MS);
             return;
         }
-
-        const { start: loopStart, end: loopEnd } = this._resolveLoop();
 
         // === CROSSFADE PRE-START ===
         // When within CROSSFADE_WINDOW of loop end, pre-start next iteration

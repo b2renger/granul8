@@ -299,3 +299,29 @@ test('retime() preserves the loop fraction on a MID-loop tempo change, not just 
         p.stop();
     } finally { restore(); }
 });
+
+test('the pre-roll guard compares elapsed against the resolved loop start, not the raw seconds field', () => {
+    // With setLoopBars(startBars > 0, ...) the resolved start (bar 1 = 2.0 s at 120 bpm)
+    // differs from the raw _loopStart field, which stays 0 -- setLoopRange() is never
+    // called for a bar-based loop. If the pre-roll guard compares elapsed against the
+    // raw field instead of the resolved start, it stops firing: onFrame runs all the
+    // way through the pre-roll window and the transport counts time forward while
+    // nothing is musically due to play yet.
+    const { timers, ctx, p, restore } = harness();
+    try {
+        const clock = new MasterClock(ctx);
+        clock.bpm = 120;                       // bar = 2.0 s
+        clock.setEpoch(0);
+        p.setLoopStationMode(true, clock);
+        p.setLoopBars(1, 2);                   // resolved start = bar 1 = 2.0 s
+
+        const frames = [];
+        p.onFrame = (e) => frames.push(e);
+        p.play(lane([{ time: 2.1, voiceIndex: 0, type: 'stop' }]), true);
+
+        advance(ctx, timers, 1.0);             // still short of the resolved 2.0 s start
+        assert.equal(frames.length, 0,
+            `onFrame fired ${frames.length} time(s) during the pre-roll window before the resolved loop start (2.0 s) arrived`);
+        p.stop();
+    } finally { restore(); }
+});
