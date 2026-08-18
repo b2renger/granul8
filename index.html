@@ -44,7 +44,7 @@
                 <input type="file" id="session-import-input" accept=".json,application/json" hidden>
             </div>
             <div id="master-volume-control">
-                <label for="master-volume" title="Main Volume">Main Volume</label>
+                <label for="master-volume">Main Volume</label>
                 <input type="range" id="master-volume" min="0" max="1" value="0.7" step="0.01">
                 <span class="param-value" id="val-master-volume">0.70</span>
             </div>
@@ -142,7 +142,7 @@
 
             <div id="parameter-panel">
                 <details class="panel-section" open>
-                    <summary>Rhythm and Harmony</summary>
+                    <summary>Pitch and Harmony</summary>
                     <div class="section-content musical-content">
                         <div class="param-group" id="pitch-mod-group">
                             <h3 class="param-name">Pitch</h3>
@@ -200,25 +200,25 @@
                             <input type="range" id="param-pitch-range" min="1" max="4" value="2" step="1">
                         </div>
                         <div class="param-group" id="arp-mode-group" style="display: none;">
-                            <label for="param-arp-pattern">Arp Mode</label>
+                            <label for="param-arp-pattern">Pitch Motion</label>
                             <select id="param-arp-pattern">
                                 <option value="random" selected>Random</option>
                                 <option value="arpeggiator">Arpeggiator</option>
                             </select>
                         </div>
                         <div class="param-group" id="arp-steps-group" style="display: none;">
-                            <label for="param-arp-steps">Arp Steps <span class="param-value" id="val-arp-steps">4</span></label>
+                            <label for="param-arp-steps">Notes in Pattern <span class="param-value" id="val-arp-steps">4</span></label>
                             <input type="range" id="param-arp-steps" min="3" max="6" value="4" step="1">
                         </div>
                         <div class="param-group" id="arp-type-group" style="display: none;">
-                            <label for="param-arp-type">Arp Type</label>
+                            <label for="param-arp-type">Pattern Playback</label>
                             <select id="param-arp-type">
                                 <option value="straight" selected>Straight</option>
                                 <option value="looped">Looped</option>
                             </select>
                         </div>
                         <div class="param-group arp-style-group" id="arp-style-group" style="display: none;">
-                            <h3 class="param-name">Arp Shape <span class="param-value" id="val-arp-style">1 / 24</span></h3>
+                            <h3 class="param-name">Pattern <span class="param-value" id="val-arp-style">1 of 24</span></h3>
                             <div class="arp-style-nav">
                                 <button type="button" id="arp-style-prev" title="Previous pattern">&lsaquo;</button>
                                 <svg id="arp-style-svg" class="arp-style-preview" viewBox="0 0 100 50"></svg>

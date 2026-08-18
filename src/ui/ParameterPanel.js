@@ -331,7 +331,7 @@ export class ParameterPanel {
         this._currentPattern = [...perms[idx]];
         this._mutedSteps = new Array(steps).fill(false);
 
-        this._arpStyleDisplay.textContent = `${idx + 1}/${count}`;
+        this._arpStyleDisplay.textContent = `${idx + 1} of ${count}`;
         this._redrawArpSvg();
     }
 
@@ -518,7 +518,7 @@ export class ParameterPanel {
             const steps = parseInt(this._arpStepsSlider.value, 10);
             const count = getPermutations(steps).length;
             const idx = Math.min(this._arpStyleIndex, count - 1);
-            this._arpStyleDisplay.textContent = `${idx + 1}/${count}`;
+            this._arpStyleDisplay.textContent = `${idx + 1} of ${count}`;
         }
     }
 

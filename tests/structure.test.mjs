@@ -106,3 +106,32 @@ test('a switch and the word naming it are never spread apart', () => {
         '.toggle-label does not pin its own justify-content, so any parent rule ' +
         'setting space-between will pull the switch away from its label');
 });
+
+test('the hidden attribute actually hides', () => {
+    // The UA stylesheet implements `hidden` as a plain [hidden]{display:none},
+    // which loses to ANY author display declaration. `.range-row { display:flex }`
+    // therefore kept four rows that JS had set hidden = true fully on screen —
+    // disabled, styled identically to the live slider beside them, and carrying
+    // the only visible label. The "fix" that set .hidden was inoperative.
+    const css = cssRaw.replace(/\/\*[\s\S]*?\*\//g, '');
+    const at = css.indexOf('[hidden]');
+    assert.ok(at !== -1, 'no author [hidden] rule: the attribute is unreliable here');
+    const rule = css.slice(at, css.indexOf('}', at));
+    assert.ok(/display:\s*none\s*!important/.test(rule),
+        'an author [hidden] rule must be !important, or a later author display ' +
+        'declaration on the same element silently un-hides it');
+});
+
+test('a parameter name and its own value are not flung to opposite edges', () => {
+    // `justify-content: space-between` on the card's name row put "Volume" at one
+    // edge and "0.70" at the other: 255px apart at 1920px, 374px at 1024px. The
+    // identical bug was fixed on .toggle-label and left here, on the pairing that
+    // matters more.
+    const css = cssRaw.replace(/\/\*[\s\S]*?\*\//g, '');
+    const at = css.indexOf('.param-group > label,');
+    assert.ok(at !== -1, '.param-group > label rule not found');
+    const rule = css.slice(at, css.indexOf('}', at));
+    assert.ok(!/justify-content:\s*space-between/.test(rule),
+        'the parameter name row uses space-between, so a value sits hundreds of ' +
+        'pixels from the name it belongs to');
+});

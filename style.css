@@ -36,7 +36,7 @@
        the card does the delineating. */
     --card-bg: #262220;
     --card-edge: #4a4139;
-    --card-shelf: #1f1c1a;
+    --card-shelf: #171412;
 
     /* Canvas-drawn colors (read by JS via getComputedStyle) */
     --canvas-bg: #1a1816;
@@ -84,7 +84,7 @@
        1.57 edge-to-card — so the panel has identical structure in both themes. */
     --card-bg: #e4dcd3;
     --card-edge: #bcb0a1;
-    --card-shelf: #d9d0c5;
+    --card-shelf: #cec3b5;
 
     --canvas-bg: #ede8e2;
     --canvas-waveform: rgba(180, 110, 60, 0.7);
@@ -96,6 +96,15 @@
     --canvas-adsr-stroke: #c47a4a;
     --canvas-adsr-dot: #f5f0eb;
     --canvas-adsr-label: #7a6e64;
+}
+
+/* The `hidden` attribute has to win. In the UA stylesheet it is a plain
+   [hidden] { display: none }, which loses to any AUTHOR display declaration —
+   so `.range-row { display: flex }` silently kept every row that JS had set
+   hidden = true fully visible. !important is correct here and nowhere else:
+   the whole contract of the attribute is that it always wins. */
+[hidden] {
+    display: none !important;
 }
 
 html, body {
@@ -209,7 +218,12 @@ html, body {
     display: flex;
     align-items: center;
     gap: 6px;
-    margin-left: auto;
+    /* No margin-left: auto. #theme-toggle also had one, and flexbox splits free
+       space EQUALLY between auto margins — 248px before this control and 248px
+       before the toggle at 1920px, leaving Main Volume and BPM (two visually
+       identical 80px sliders) just 16px apart, closer to each other than to
+       anything else. Proximity was saying they are a pair. The toggle keeps the
+       single auto margin, so it alone is pushed to the far edge. */
     flex-shrink: 0;
 }
 
@@ -470,9 +484,24 @@ html, body {
 }
 
 #transport-bar button:disabled {
-    opacity: 0.35;
-    cursor: default;
+    /* Dim the ICON, not the button. Putting opacity on the whole button faded
+       its face and border too, so a disabled control stopped looking like a
+       control at all — on load, Play/Stop/Loop/Overdub are all disabled and the
+       transport read as one red dot beside five empty squares.
+       (An inactive component is formally exempt from the 1.4.11 contrast floor,
+       so the answer is not to crank the opacity until the icon hits 3:1 — it is
+       to keep the chrome at full strength so "there is a control here, and it is
+       currently unavailable" are two separate, legible facts.) */
+    opacity: 1;
+    cursor: not-allowed;
+    border-color: var(--border);
+    background: var(--bg-secondary);
 }
+
+#transport-bar button:disabled > * {
+    opacity: 0.45;
+}
+
 
 /* Transport icons */
 .icon {
@@ -604,9 +633,13 @@ html, body {
     display: flex;
 }
 
-.bar-count-btn {
-    width: 24px;
-    height: 24px;
+#transport-bar .bar-count-btn {
+    /* Specificity, not preference: `#transport-bar button` is 1-0-1 and beat the
+       bare .bar-count-btn at 0-1-0, so these rendered at 44x44 rather than the
+       intended size and pushed the whole transport right when loop-station mode
+       turned them on. 36px keeps a comfortable target without that shove. */
+    width: 36px;
+    height: 36px;
     font-size: 11px;
     font-weight: 600;
     background: var(--bg-surface);
@@ -957,8 +990,15 @@ html, body {
 .param-group > .param-name {
     display: flex;
     align-items: baseline;
-    justify-content: space-between;
-    gap: 12px;
+    /* NOT space-between. That pinned the name to one edge of the card and its
+       own value to the other: 255px apart at 1920px, 374px at 1024px. The same
+       bug was removed from .toggle-label one rule below, on the grounds that a
+       switch and its word are one unit — a parameter and its value are the same
+       kind of unit and were left flung apart. The value reads as an extension of
+       the name now. Range rows keep their right-aligned value column, where the
+       alignment buys something: readouts stack into one column. */
+    justify-content: flex-start;
+    gap: 10px;
     font-size: 13px;
     font-weight: 500;
     letter-spacing: 0.01em;
@@ -1039,7 +1079,14 @@ html, body {
 /* === Range Slider Rows === */
 .param-group > label,
 .param-group > .param-name {
-    margin-bottom: -2px;
+    /* -2px against a 10px gap was arithmetically "tighter" and perceptually
+       nothing: an 8px vs 10px difference on a 10px baseline is not a signal, so
+       the card border was carrying all of the grouping. 6px vs 12px is. */
+    margin-bottom: -4px;
+}
+
+.param-group {
+    row-gap: 12px;
 }
 
 /* [MIN] [========= slider =========] [ 400 ms ]
@@ -1202,7 +1249,7 @@ html, body {
 
 /* Status badge next to gesture label */
 .gesture-status {
-    font-size: 9px;
+    font-size: 10px;
     font-weight: 500;
     text-transform: uppercase;
     letter-spacing: 0.03em;
@@ -1210,7 +1257,8 @@ html, body {
     border-radius: 3px;
     background: rgba(255, 255, 255, 0.06);
     color: var(--text-secondary);
-    opacity: 0.7;
+    /* The only thing on screen saying whether pressure is a real input on this device; at 9px and 0.7 opacity it measured 2.67:1 dark / 2.84:1 light. */
+    opacity: 1;
 }
 
 .gesture-status.active {
@@ -1366,7 +1414,8 @@ html, body {
 }
 
 .subdiv-select:disabled {
-    opacity: 0.3;
+    /* This is the control that says what Quantize WILL do before you commit to it; at 0.3 it measured 2.40:1 dark / 1.83:1 light, illegible in exactly that pre-decision state. */
+    opacity: 0.6;
     cursor: default;
 }
 
@@ -1594,7 +1643,6 @@ html, body {
     max-width: 160px;
     flex: 1 1 auto;
     aspect-ratio: 2 / 1;
-    flex-shrink: 0;
     background: var(--bg-surface);
     border: 1px solid var(--border);
     border-radius: 4px;
@@ -1720,6 +1768,19 @@ html, body {
     display: none;
 }
 
+/* Every button in this app is styled per-context, and there was no bare button
+   rule at all — so any button that missed a context selector fell back to the
+   OS widget: light grey face, 3D bevel, black glyph, on a #1a1816 bar.
+   #btn-metronome was rendering that way. This is the floor, not a look. */
+button {
+    font-family: inherit;
+    color: inherit;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
 /* === Focus visibility ===
    There was no focus styling anywhere in 1551 lines, so a keyboard user had no
    way to tell where they were. :focus-visible leaves pointer interaction alone. */
@@ -1767,8 +1828,12 @@ html, body {
        card-to-card gap exactly, so a section stops binding to its own content on
        precisely the device this breakpoint exists for. */
     .section-content {
-        gap: 10px;
-        padding: 4px 12px 16px;
+        /* 14px, not 10px. At 10px the gap between two unrelated cards equalled
+           the row gap INSIDE a card, so on the tablet this breakpoint exists for
+           a heading sat further from its own content than siblings sat from each
+           other, and only the border rescued the grouping. */
+        gap: 14px;
+        padding: 4px 12px 18px;
     }
 }
 
