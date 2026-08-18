@@ -872,10 +872,20 @@ export class ParameterPanel {
 
         const panMinActive = m.randomPan || hasMapping('pan');
 
-        this._grainSizeMinRow.classList.toggle('range-row-inactive', !gsMinActive);
-        this._densityMinRow.classList.toggle('range-row-inactive', !denMinActive);
-        this._spreadMinRow.classList.toggle('range-row-inactive', !sprMinActive);
-        this._panMinRow.classList.toggle('range-row-inactive', !panMinActive);
+        // The class dims; the `disabled` attribute is what actually takes the
+        // control out of reach. Dimming alone was `pointer-events: none`, which
+        // blocks the mouse and nothing else — these sliders stayed in the tab
+        // order, focusable, announced as active, and adjustable with the arrow
+        // keys while looking inert. Setting both keeps the screen, the keyboard
+        // and the accessibility tree telling the same story.
+        const setRow = (row, slider, active) => {
+            row.classList.toggle('range-row-inactive', !active);
+            slider.disabled = !active;
+        };
+        setRow(this._grainSizeMinRow, this._ranges.grainSize.minSlider, gsMinActive);
+        setRow(this._densityMinRow,   this._ranges.density.minSlider,   denMinActive);
+        setRow(this._spreadMinRow,    this._ranges.spread.minSlider,    sprMinActive);
+        setRow(this._panMinRow,       this._ranges.pan.minSlider,       panMinActive);
 
         // --- Root Note & Scale: active when quantize pitch, or arp pattern ≠ random ---
         const arpPattern = m.arpPattern || 'random';
@@ -883,6 +893,11 @@ export class ParameterPanel {
             || (m.randomPitch && arpPattern !== 'random');
         this._rootNoteGroup.classList.toggle('param-inactive', !noteActive);
         this._scaleGroup.classList.toggle('param-inactive', !noteActive);
+        // Same reasoning as the rows above: dim AND disable. Root Note and Scale
+        // do nothing unless pitch is being snapped to a scale, and a keyboard user
+        // could previously change both while they read as inactive.
+        this._rootNoteSelect.disabled = !noteActive;
+        this._scaleSelect.disabled = !noteActive;
     }
 
     /**

@@ -143,6 +143,21 @@
                 <details class="panel-section" open>
                     <summary>Rhythm and Harmony</summary>
                     <div class="section-content musical-content">
+                        <div class="param-group" id="pitch-mod-group">
+                            <label>Pitch</label>
+                            <div class="param-modifiers">
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="quantize-pitch">
+                                    <span class="toggle-switch"></span>
+                                    Quantize
+                                </label>
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="random-pitch">
+                                    <span class="toggle-switch"></span>
+                                    Randomize
+                                </label>
+                            </div>
+                        </div>
                         <div class="param-group">
                             <label for="param-root-note">Root Note</label>
                             <select id="param-root-note">
@@ -179,86 +194,9 @@
                                 <option value="wholeTone">Whole Tone</option>
                             </select>
                         </div>
-                        <div class="param-group quantize-toggles">
-                            <label>Quantize</label>
-                            <div class="toggle-row">
-                                <label class="toggle-label">
-                                    <input type="checkbox" id="quantize-grain-size">
-                                    <span class="toggle-switch"></span>
-                                    Grain Size
-                                </label>
-                                <select id="subdiv-grain-size" aria-label="Grain size quantize subdivision" class="subdiv-select" disabled>
-                                    <optgroup label="Binary">
-                                        <option value="1">1/1</option>
-                                        <option value="2">1/2</option>
-                                        <option value="4" selected>1/4</option>
-                                        <option value="8">1/8</option>
-                                        <option value="16">1/16</option>
-                                        <option value="32">1/32</option>
-                                    </optgroup>
-                                    <optgroup label="Ternary">
-                                        <option value="3">1/2T</option>
-                                        <option value="6">1/4T</option>
-                                        <option value="12">1/8T</option>
-                                        <option value="24">1/16T</option>
-                                    </optgroup>
-                                </select>
-                            </div>
-                            <div class="toggle-row">
-                                <label class="toggle-label">
-                                    <input type="checkbox" id="quantize-density">
-                                    <span class="toggle-switch"></span>
-                                    Density
-                                </label>
-                                <select id="subdiv-density" aria-label="Density quantize subdivision" class="subdiv-select" disabled>
-                                    <optgroup label="Binary">
-                                        <option value="1">1/1</option>
-                                        <option value="2">1/2</option>
-                                        <option value="4" selected>1/4</option>
-                                        <option value="8">1/8</option>
-                                        <option value="16">1/16</option>
-                                        <option value="32">1/32</option>
-                                    </optgroup>
-                                    <optgroup label="Ternary">
-                                        <option value="3">1/2T</option>
-                                        <option value="6">1/4T</option>
-                                        <option value="12">1/8T</option>
-                                        <option value="24">1/16T</option>
-                                    </optgroup>
-                                </select>
-                            </div>
-                            <div class="toggle-row">
-                                <label class="toggle-label">
-                                    <input type="checkbox" id="quantize-pitch">
-                                    <span class="toggle-switch"></span>
-                                    Pitch
-                                </label>
-                            </div>
-                        </div>
-                        <div class="param-group quantize-toggles">
-                            <label>Randomize</label>
-                            <div class="toggle-row">
-                                <label class="toggle-label">
-                                    <input type="checkbox" id="random-grain-size">
-                                    <span class="toggle-switch"></span>
-                                    Grain Size
-                                </label>
-                                <label class="toggle-label">
-                                    <input type="checkbox" id="random-density">
-                                    <span class="toggle-switch"></span>
-                                    Density
-                                </label>
-                                <label class="toggle-label">
-                                    <input type="checkbox" id="random-pitch">
-                                    <span class="toggle-switch"></span>
-                                    Pitch
-                                </label>
-                                <label class="toggle-label">
-                                    <input type="checkbox" id="random-pan">
-                                    <span class="toggle-switch"></span>
-                                    Pan
-                                </label>
-                            </div>
+                        <div class="param-group" id="pitch-range-group" style="display: none;">
+                            <label for="param-pitch-range">Pitch Range <span class="param-value" id="val-pitch-range">&plusmn;2 oct</span></label>
+                            <input type="range" id="param-pitch-range" min="1" max="4" value="2" step="1">
                         </div>
                         <div class="param-group" id="arp-mode-group" style="display: none;">
                             <label for="param-arp-pattern">Arp Mode</label>
@@ -266,10 +204,6 @@
                                 <option value="random" selected>Random</option>
                                 <option value="arpeggiator">Arpeggiator</option>
                             </select>
-                        </div>
-                        <div class="param-group" id="pitch-range-group" style="display: none;">
-                            <label for="param-pitch-range">Pitch Range <span class="param-value" id="val-pitch-range">&plusmn;2 oct</span></label>
-                            <input type="range" id="param-pitch-range" min="1" max="4" value="2" step="1">
                         </div>
                         <div class="param-group" id="arp-steps-group" style="display: none;">
                             <label for="param-arp-steps">Arp Steps <span class="param-value" id="val-arp-steps">4</span></label>
@@ -310,7 +244,53 @@
                             </div>
                             <div class="gesture-indicator" data-param="grainSize"></div>
                             <div class="random-range-bar" data-param="grainSize"></div>
+                            <div class="param-modifiers">
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="quantize-grain-size">
+                                    <span class="toggle-switch"></span>
+                                    Quantize
+                                </label>
+                                <select id="subdiv-grain-size" aria-label="Grain size quantize subdivision" class="subdiv-select" disabled>
+                                    <optgroup label="Binary">
+                                        <option value="1">1/1</option>
+                                        <option value="2">1/2</option>
+                                        <option value="4" selected>1/4</option>
+                                        <option value="8">1/8</option>
+                                        <option value="16">1/16</option>
+                                        <option value="32">1/32</option>
+                                    </optgroup>
+                                    <optgroup label="Ternary">
+                                        <option value="3">1/2T</option>
+                                        <option value="6">1/4T</option>
+                                        <option value="12">1/8T</option>
+                                        <option value="24">1/16T</option>
+                                    </optgroup>
+                                </select>
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="random-grain-size">
+                                    <span class="toggle-switch"></span>
+                                    Randomize
+                                </label>
+                            </div>
                         </div>
+                        <div class="param-group envelope-row" id="envelope-row">
+                            <label for="param-envelope">Envelope</label>
+                            <div class="envelope-inline">
+                                <select id="param-envelope">
+                                    <option value="hann">Hann</option>
+                                    <option value="tukey">Tukey</option>
+                                    <option value="triangle">Triangle</option>
+                                    <option value="gaussian">Gaussian</option>
+                                    <option value="sigmoid">Sigmoid</option>
+                                    <option value="blackman">Blackman</option>
+                                    <option value="expodec">Expo Decay</option>
+                                    <option value="rexpodec">Reverse Expo</option>
+                                    <option value="custom" selected>Custom (ADSR)</option>
+                                </select>
+                                <canvas id="adsr-canvas"></canvas>
+                            </div>
+                        </div>
+                    </div>
                         <div class="param-group range-group">
                             <label>Density</label>
                             <div class="range-row">
@@ -325,6 +305,34 @@
                             </div>
                             <div class="gesture-indicator" data-param="density"></div>
                             <div class="random-range-bar" data-param="density"></div>
+                            <div class="param-modifiers">
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="quantize-density">
+                                    <span class="toggle-switch"></span>
+                                    Quantize
+                                </label>
+                                <select id="subdiv-density" aria-label="Density quantize subdivision" class="subdiv-select" disabled>
+                                    <optgroup label="Binary">
+                                        <option value="1">1/1</option>
+                                        <option value="2">1/2</option>
+                                        <option value="4" selected>1/4</option>
+                                        <option value="8">1/8</option>
+                                        <option value="16">1/16</option>
+                                        <option value="32">1/32</option>
+                                    </optgroup>
+                                    <optgroup label="Ternary">
+                                        <option value="3">1/2T</option>
+                                        <option value="6">1/4T</option>
+                                        <option value="12">1/8T</option>
+                                        <option value="24">1/16T</option>
+                                    </optgroup>
+                                </select>
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="random-density">
+                                    <span class="toggle-switch"></span>
+                                    Randomize
+                                </label>
+                            </div>
                         </div>
                         <div class="param-group range-group">
                             <label>Spread</label>
@@ -354,29 +362,18 @@
                             </div>
                             <div class="gesture-indicator" data-param="pan"></div>
                             <div class="random-range-bar" data-param="pan"></div>
+                            <div class="param-modifiers">
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="random-pan">
+                                    <span class="toggle-switch"></span>
+                                    Randomize
+                                </label>
+                            </div>
                         </div>
                         <div class="param-group">
                             <label for="param-volume">Volume <span class="param-value" id="val-volume">0.70</span></label>
                             <input type="range" id="param-volume" min="0" max="1" value="0.7" step="0.01">
                         </div>
-                        <div class="param-group envelope-row" id="envelope-row">
-                            <label for="param-envelope">Envelope</label>
-                            <div class="envelope-inline">
-                                <select id="param-envelope">
-                                    <option value="hann">Hann</option>
-                                    <option value="tukey">Tukey</option>
-                                    <option value="triangle">Triangle</option>
-                                    <option value="gaussian">Gaussian</option>
-                                    <option value="sigmoid">Sigmoid</option>
-                                    <option value="blackman">Blackman</option>
-                                    <option value="expodec">Expo Decay</option>
-                                    <option value="rexpodec">Reverse Expo</option>
-                                    <option value="custom" selected>Custom (ADSR)</option>
-                                </select>
-                                <canvas id="adsr-canvas"></canvas>
-                            </div>
-                        </div>
-                    </div>
                 </details>
 
                 <details class="panel-section">

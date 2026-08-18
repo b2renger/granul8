@@ -999,15 +999,18 @@ html, body {
 }
 
 /* === Inactive parameter dimming === */
+/* Dimming only. `pointer-events: none` used to live here, which blocks the mouse
+   and nothing else: a dimmed Root Note stayed in the tab order, focusable,
+   announced as active, and changeable with the arrow keys. The controls inside
+   now carry the real `disabled` attribute (see ParameterPanel.updateParamRelevance),
+   so keyboard, screen readers and the screen finally agree. */
 .param-inactive {
     opacity: 0.35;
-    pointer-events: none;
     transition: opacity 0.2s;
 }
 
 .range-row-inactive {
     opacity: 0.35;
-    pointer-events: none;
     transition: opacity 0.2s;
 }
 
@@ -1147,16 +1150,9 @@ html, body {
 }
 
 /* Toggle switches */
-.quantize-toggles {
-    grid-column: 1 / -1;
-}
-
-.toggle-row {
-    display: flex;
-    gap: 6px;
-    align-items: center;
-}
-
+/* .quantize-toggles and .toggle-row are gone with the two aggregate "Quantize"
+   and "Randomize" blocks they laid out. Each parameter's toggles now sit in
+   .param-modifiers inside that parameter's own group. */
 .toggle-label {
     display: flex;
     align-items: center;
@@ -1508,6 +1504,31 @@ html, body {
 }
 
 /* === Responsive: tablet === */
+/* === Per-parameter modifiers ===
+   Each parameter's quantize/randomize controls sit inside its own .param-group,
+   directly under its sliders. Before this they were collected into two aggregate
+   "Quantize" and "Randomize" blocks in a different section, so one parameter's
+   controls were split across two places in the panel. */
+.param-modifiers {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+}
+
+.param-modifiers .toggle-label {
+    /* 44px min target: this is a touch instrument, and these are the smallest
+       hit areas in the panel. */
+    min-height: 44px;
+}
+
+.param-modifiers .subdiv-select {
+    margin-left: -6px;
+}
+
 /* === Focus visibility ===
    There was no focus styling anywhere in 1551 lines, so a keyboard user had no
    way to tell where they were. :focus-visible leaves pointer interaction alone. */
