@@ -38,12 +38,15 @@ export class Recorder {
 
     /**
      * Start recording. Resets the lane and begins capturing events.
+     * @param {number} [atTime] - AudioContext time to treat as t=0. Defaults to
+     *   now. Pass the count-in downbeat so the recording's origin sits exactly on
+     *   the bar grid rather than on a wall-clock setTimeout estimate.
      */
-    startRecording() {
+    startRecording(atTime) {
         this._lane.clear();
         this._undoSnapshot = null;
         this._lastMoveTime.clear();
-        this._startTime = this._audioContext.currentTime;
+        this._startTime = atTime ?? this._audioContext.currentTime;
         this.isRecording = true;
         this.isOverdubbing = false;
     }

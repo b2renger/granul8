@@ -86,37 +86,56 @@ export class Metronome {
         this._beatTimeoutIds = [];
         this._countInRemaining = 0;
         this._onCountInComplete = null;
+        this._countInEndTime = 0;
     }
 
     /**
-     * Start a count-in of exactly 1 bar, then fire callback on the downbeat.
-     * Sets the clock epoch so the count-in bar is bar -1 and recording starts at bar 0.
-     * @param {() => void} onComplete - Called when count-in finishes (on the next downbeat).
+     * Count in one bar, then fire `onComplete` on the following downbeat.
+     *
+     * Does NOT move the clock epoch. There is one MasterClock for the whole app,
+     * shared by every instance's Player, so re-anchoring it here used to teleport
+     * every already-looping layer by up to half a bar — the act of recording a new
+     * layer knocked the existing ones out of time. Instead the count-in is anchored
+     * to the next bar line: a bar line is already a downbeat, so the accented click
+     * still comes first, but the shared grid never moves.
+     *
+     * @param {(atTime: number) => void} onComplete - Called when count-in finishes.
+     *   Receives the exact AudioContext time of the downbeat, so recording t=0 can
+     *   land on the grid rather than on a wall-clock setTimeout estimate.
      */
     startCountIn(onComplete) {
+        const now = this._ctx.currentTime;
+        // Anchor the shared epoch if nothing has yet — a no-op if something already
+        // has (e.g. another instance's playback, or the metronome toggle).
+        this._clock.ensureEpoch(now);
+
+        // Start on the next bar line and count one full bar.
+        const barStart = this._clock.getNextBarTime(now);
+        this._countInEndTime = barStart + this._clock.getBarDuration();
         this._countInRemaining = this._clock.numerator;
         this._onCountInComplete = onComplete;
 
-        // Set epoch so the count-in starts now
-        const now = this._ctx.currentTime;
-        this._clock.setEpoch(now);
-        this._nextBeatTime = now;
         // Seed _lastBeatDuration so _tick's guard doesn't mistake this deliberate
         // placement for a stale/changed grid and re-derive past it (see _tick).
         this._lastBeatDuration = this._clock.getBeatDuration();
 
-        // Pre-compute when the count-in completes (= 1 bar from now)
-        this._countInEndTime = now + this._clock.getBarDuration();
+        if (!this._running) {
+            this._nextBeatTime = barStart;
+        } else {
+            // Already free-running on the grid: just start counting from the bar
+            // line, discarding whatever regular beat was pending before it.
+            this._nextBeatTime = Math.max(this._nextBeatTime, barStart);
+        }
 
         // Drive the first tick synchronously, on both the fresh-instance and
         // already-running paths. _tick's re-derive guard assumes any call to it is
         // asynchronous relative to when _nextBeatTime was last set — true for the
         // normal look-ahead loop, but not here: _nextBeatTime was just pinned to
-        // `now` on purpose, for beat 0 (the accent). A pending tick from before this
-        // call would fire up to _timerInterval later, by which point `now` has moved
-        // on and the guard's staleness check would re-derive past this beat. Ticking
-        // synchronously closes that window; clearing any pending timer first avoids
-        // scheduling the same beat twice.
+        // the bar line on purpose, for beat 0 (the accent). A pending tick from
+        // before this call would fire up to _timerInterval later, by which point
+        // `now` has moved on and the guard's staleness check would re-derive past
+        // this beat. Ticking synchronously closes that window; clearing any pending
+        // timer first avoids scheduling the same beat twice.
         if (this._timerId !== null) {
             clearTimeout(this._timerId);
             this._timerId = null;

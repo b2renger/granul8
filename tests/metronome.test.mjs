@@ -93,7 +93,12 @@ test('a stall does not replay every missed beat', () => {
     } finally { restore(); }
 });
 
-test('startCountIn on a fresh instance places the first click at now on beat 0', () => {
+test('startCountIn on a fresh instance places the first click on the next bar line, beat 0', () => {
+    // Updated for Task 9: startCountIn no longer moves the epoch, so the count-in
+    // starts on the NEXT bar line rather than at `now`. It was at t=0 here only
+    // because `now` (0) already happened to be on a bar boundary in the old test —
+    // this harness starts the fake clock's epoch at 0 and calls startCountIn
+    // before advancing time, so `now` is 0 and the next bar line is 2.0s.
     const { timers, ctx, clock, met, restore } = harness(120);
     try {
         const beats = [];
@@ -101,21 +106,27 @@ test('startCountIn on a fresh instance places the first click at now on beat 0',
         let completedAt = null;
         let completions = 0;
         met.startCountIn((at) => { completedAt = at; completions++; });
-        advance(ctx, timers, 2.5);              // 1 bar (2.0 s) + margin
+        const barStart = clock.getNextBarTime(ctx.currentTime); // 2.0
+        advance(ctx, timers, 4.5);              // through the bar line, the count-in bar, + margin
 
         const times = clickTimes(ctx);
-        assert.equal(times[0], 0, `expected the first click at t=0, got ${times[0]}`);
+        assert.equal(times[0], barStart, `expected the first click at the next bar line (${barStart}), got ${times[0]}`);
         assert.equal(beats[0], 0, `expected the first beat index to be 0 (the accent), got ${beats[0]}`);
         // 4/4: the count-in is one full bar, so indices run 0,1,2,3.
         assert.deepEqual(beats.slice(0, 4), [0, 1, 2, 3], `expected the count-in to cycle 0..3, got ${beats.slice(0, 4)}`);
 
         assert.equal(completions, 1, `expected the completion callback exactly once, got ${completions}`);
-        assert.equal(completedAt, clock.getBarDuration(), `expected completion at the bar boundary, got ${completedAt}`);
+        assert.equal(completedAt, barStart + clock.getBarDuration(), `expected completion one bar after ${barStart}, got ${completedAt}`);
+        assert.equal(clock._epoch, 0, 'the epoch must not have moved');
         met.stop();
     } finally { restore(); }
 });
 
 test('startCountIn while already running does not defer the first beat to a later tick', () => {
+    // Updated for Task 9: the count-in no longer pins the first beat to `now` —
+    // it waits for the next bar line, discarding whatever regular beat was
+    // pending before it, but still fires that bar-line beat synchronously rather
+    // than deferring it to the next look-ahead tick.
     const { timers, ctx, clock, met, restore } = harness(120);
     try {
         met.start();
@@ -123,18 +134,66 @@ test('startCountIn while already running does not defer the first beat to a late
         const beats = [];
         met.onBeat = (idx) => beats.push(idx);
         const before = clickTimes(ctx).length;
-        const startTime = ctx.currentTime;
         let completedAt = null;
         let completions = 0;
         met.startCountIn((at) => { completedAt = at; completions++; });
-        advance(ctx, timers, 2.5);               // 1 bar (2.0 s) + margin
+        const barStart = clock.getNextBarTime(ctx.currentTime); // 4.0
+        advance(ctx, timers, 3.0);               // through the bar line, count-in bar, + margin
 
         const added = clickTimes(ctx).slice(before);
-        assert.equal(added[0], startTime, `expected the first click at ${startTime} (the moment startCountIn was called), got ${added[0]}`);
+        assert.equal(added[0], barStart, `expected the first count-in click at the next bar line (${barStart}), got ${added[0]}`);
         assert.equal(beats[0], 0, `expected the first beat index to be 0 (the accent), got ${beats[0]}`);
 
         assert.equal(completions, 1, `expected the completion callback exactly once, got ${completions}`);
-        assert.equal(completedAt, startTime + clock.getBarDuration(), `expected completion one bar after ${startTime}, got ${completedAt}`);
+        assert.equal(completedAt, barStart + clock.getBarDuration(), `expected completion one bar after ${barStart}, got ${completedAt}`);
+        assert.equal(clock._epoch, 0, 'the epoch must not have moved');
         met.stop();
     } finally { restore(); }
+});
+
+test('startCountIn does not move the epoch under already-playing layers', () => {
+    const { timers, ctx, clock, met, restore } = harness(120);
+    try {
+        clock.setEpoch(0);
+        ctx.currentTime = 33.3;                 // arm a record at an arbitrary moment
+        met.startCountIn(() => {});
+        assert.equal(clock._epoch, 0,
+            'the shared epoch moved — every already-looping layer would be re-gridded');
+        met.stop();
+    } finally { restore(); }
+});
+
+test('the count-in callback receives the exact downbeat time, one bar out', () => {
+    const { timers, ctx, clock, met, restore } = harness(120);   // bar = 2.0 s
+    try {
+        clock.setEpoch(0);
+        ctx.currentTime = 3.3;
+        let fired = null;
+        met.startCountIn((at) => { fired = at; });
+        advance(ctx, timers, 6.0);
+
+        assert.ok(fired !== null, 'count-in completed');
+        // Count-in starts at the next bar (4.0) and runs one bar => downbeat at 6.0.
+        assert.ok(Math.abs(fired - 6.0) < 1e-6, `downbeat at ${fired}, expected 6.0`);
+        const off = Math.abs(fired / 2.0 - Math.round(fired / 2.0)) * 2.0;
+        assert.ok(off < 1e-6, 'the downbeat must sit on a bar boundary');
+        met.stop();
+    } finally { restore(); }
+});
+
+test('ensureEpoch is idempotent', () => {
+    // Deliberately NOT using harness(): it calls clock.setEpoch(0) internally to
+    // give every other test a known grid, which pre-anchors the epoch and makes
+    // the "first call actually sets it" half of this test untestable. A fresh,
+    // unanchored clock is needed here instead.
+    const ctx = new FakeAudioContext();
+    const clock = new MasterClock(ctx);
+    assert.equal(clock.isAnchored, false, 'a fresh clock must start unanchored');
+    ctx.currentTime = 5;
+    clock.ensureEpoch();
+    assert.equal(clock._epoch, 5);
+    ctx.currentTime = 99;
+    clock.ensureEpoch();
+    assert.equal(clock._epoch, 5, 'a second call must not move the epoch');
+    assert.equal(clock.isAnchored, true);
 });

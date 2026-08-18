@@ -148,6 +148,9 @@ const unlockOverlay = document.getElementById('audio-unlock-overlay');
 
 function dismissUnlockOverlay() {
     masterBus.resume();
+    // Anchor the shared musical grid the first time audio starts. Everything —
+    // metronome, every Player's bar alignment — derives from this instant.
+    masterBus.clock.ensureEpoch();
     if (unlockOverlay) {
         unlockOverlay.style.opacity = '0';
         unlockOverlay.style.pointerEvents = 'none';
@@ -880,14 +883,14 @@ const transport = new TransportBar({
  * Begin fixed-length recording after count-in completes.
  * @private
  */
-function beginFixedRecording() {
+function beginFixedRecording(atTime) {
     const stillActive = instanceManager.getActive();
     if (!stillActive || transport.state !== 'count-in') return;
 
     const barCount = stillActive.state.recordBarCount || 4;
     fixedRecordDuration = barCount * masterBus.clock.getBarDuration();
 
-    stillActive.recorder.startRecording();
+    stillActive.recorder.startRecording(atTime);
     stillActive.ghostRenderer.recording = true;
     transport.setState('recording');
     transport.clearSpecialDisplay();
@@ -934,7 +937,7 @@ function finishRecording(active) {
         active.player.play(lane, true);
         transport.setState('playing');
         if (metronomeEnabled && !masterBus.metronome.running) {
-            masterBus.clock.setEpoch(masterBus.audioContext.currentTime);
+            masterBus.clock.ensureEpoch();
             masterBus.metronome.start();
         }
     }
@@ -979,14 +982,12 @@ transport.onRecord = () => {
             if (!metronomeEnabled) {
                 // Start metronome muted for timing-only count-in
                 masterBus.metronome.setMuted(true);
-                masterBus.metronome.startCountIn(() => {
+                masterBus.metronome.startCountIn((at) => {
                     masterBus.metronome.setMuted(false);
-                    beginFixedRecording();
+                    beginFixedRecording(at);
                 });
             } else {
-                masterBus.metronome.startCountIn(() => {
-                    beginFixedRecording();
-                });
+                masterBus.metronome.startCountIn((at) => beginFixedRecording(at));
             }
         } else {
             // Free-form mode: traditional arm (start on first touch)
@@ -1008,7 +1009,7 @@ transport.onPlay = () => {
     transport.setState('playing');
     // Start metronome during playback if enabled
     if (metronomeEnabled && active.state.loopStationMode && !masterBus.metronome.running) {
-        masterBus.clock.setEpoch(masterBus.audioContext.currentTime);
+        masterBus.clock.ensureEpoch();
         masterBus.metronome.start();
     }
 };
@@ -1077,7 +1078,7 @@ transport.onOverdub = () => {
 
         // Start metronome if enabled in loop station mode
         if (metronomeEnabled && active.state.loopStationMode && !masterBus.metronome.running) {
-            masterBus.clock.setEpoch(masterBus.audioContext.currentTime);
+            masterBus.clock.ensureEpoch();
             masterBus.metronome.start();
         }
     }
@@ -1195,7 +1196,7 @@ metronomeBtn.addEventListener('click', () => {
     if (metronomeEnabled) {
         masterBus.resume();
         if (!masterBus.metronome.running) {
-            masterBus.clock.setEpoch(masterBus.audioContext.currentTime);
+            masterBus.clock.ensureEpoch();
             masterBus.metronome.start();
         }
     } else {
