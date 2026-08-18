@@ -82,7 +82,8 @@ const { FakeAudioContext } = await import('./fakes.mjs');
 const { Player } = await import(SRC + 'automation/Player.js');
 const { Recorder } = await import(SRC + 'automation/Recorder.js');
 const { AutomationLane } = await import(SRC + 'automation/AutomationLane.js');
-const { fractionsToSecondsLoop, secondsLoopToFractions } = await import(SRC + 'utils/loopHandleMath.js');
+const { fractionsToSecondsLoop, secondsLoopToFractions, resolveTakeDuration } =
+    await import(SRC + 'utils/loopHandleMath.js');
 
 /** One pointermove, as main.js's onLoopRangeChange seconds branch handles it. */
 function dragEvent(player, startFrac, endFrac, duration) {
@@ -172,4 +173,39 @@ test('secondsLoopToFractions treats an unset loop end as "the whole take" and cl
     assert.deepEqual(secondsLoopToFractions(0, 4, 0), { startFrac: 0, endFrac: 1 });
     // A loop end beyond the take must not push the handle off the end of the bar.
     assert.deepEqual(secondsLoopToFractions(0, 99, 8.0), { startFrac: 0, endFrac: 1 });
+});
+
+test('resolveTakeDuration is not moved by the loop it feeds — the property the whole fix rests on', () => {
+    // The tests above cover the CONVERSIONS. Until resolveTakeDuration was lifted
+    // out of main.js, the choice of DENOMINATOR — which is where the critical bug
+    // actually lived — had no coverage at all: reverting main.js's one line to
+    //     player.getLoopableDuration() || recorder.getElapsedTime()
+    // left the whole suite green, because the "regression" test above builds the
+    // bad denominator itself and so passes either way. It characterises the bug;
+    // it does not guard against it. This one does.
+    const ctx = new FakeAudioContext();
+    const rec = takeOf(ctx, 8.0);
+    const p = new Player(ctx);
+    p.setLoopRange(0, 8.0);
+
+    const first = resolveTakeDuration(p, rec);
+    assert.equal(first, 8.0, 'the denominator is the take, not the window');
+
+    // 40 pointermoves at one pointer position, each resolving the denominator
+    // exactly as main.js's onLoopRangeChange does.
+    const seen = new Set();
+    for (let i = 0; i < 40; i++) {
+        const duration = resolveTakeDuration(p, rec);
+        seen.add(+duration.toFixed(6));
+        dragEvent(p, 0, 0.75, duration);
+    }
+
+    assert.deepEqual([...seen], [8.0],
+        `the denominator must be identical on every pointermove of a drag, got ${[...seen].join(', ')} ` +
+        `— any variation means it is reading a value the drag itself writes`);
+    assert.deepEqual(p.getLoopRange(), { start: 0, end: 6.0 },
+        'so the loop stays where the pointer put it, however long the drag runs');
+    assert.ok(p.getLoopableDuration() !== resolveTakeDuration(p, rec),
+        'and the window HAS moved — proving the two are distinct quantities and the ' +
+        'test would notice if the denominator switched to the window');
 });

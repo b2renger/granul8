@@ -83,3 +83,24 @@ export function secondsLoopToFractions(loopStart, loopEnd, takeDuration) {
         endFrac: loopEnd > 0 ? clamp(loopEnd / takeDuration) : 1,
     };
 }
+
+/**
+ * The seconds-path denominator, resolved from the live objects.
+ *
+ * This lives here rather than in main.js so the suite can reach it. main.js is
+ * not importable under Node (it touches the DOM at module scope), and while the
+ * conversions above were covered from the moment they were extracted, the CRITICAL
+ * bug they exist to prevent lived in the *choice of denominator* at the call
+ * site — which stayed uncovered, so reverting it left the suite green.
+ *
+ * @param {{ getLoopableDuration: () => number }} player
+ * @param {{ getElapsedTime: () => number }} recorder
+ * @returns {number} The take's own length in seconds.
+ */
+export function resolveTakeDuration(player, recorder) {
+    // Deliberately ignores `player`. It is a parameter so that the wrong answer
+    // -- player.getLoopableDuration(), the current loop WINDOW, which the drag
+    // overwrites via setLoopRange() on every pointermove -- is reachable from
+    // here and can therefore be tested against. See the block comment above.
+    return recorder.getElapsedTime();
+}

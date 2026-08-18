@@ -22,6 +22,7 @@ import {
     barLoopToFractions,
     fractionsToSecondsLoop,
     secondsLoopToFractions,
+    resolveTakeDuration,
 } from './utils/loopHandleMath.js';
 
 // --- Theme toggle (light/dark) ---
@@ -515,7 +516,7 @@ const tabBar = new TabBar(
                     // for one mapping, so the handles jumped on every tab switch.
                     const range = active.player.getLoopRange();
                     const { startFrac, endFrac } =
-                        secondsLoopToFractions(range.start, range.end, resolveTakeDuration(active));
+                        secondsLoopToFractions(range.start, range.end, resolveTakeDuration(active.player, active.recorder));
                     transport.setLoopRange(startFrac, endFrac);
                 }
             }
@@ -1308,22 +1309,12 @@ function resolveTakeBars(active) {
     return Math.max(1, Math.round(duration / barDur));
 }
 
-/**
- * Resolve the take's total length in SECONDS — the STABLE denominator the
- * seconds-based loop handles map onto, and the one the tab-switch redisplay must
- * invert through. The recorded lane's own duration: fixed for the life of the
- * take, and the one quantity in reach that setLoopRange() does not touch.
- *
- * NOT getLoopableDuration(). That reports the CURRENT loop window, which the
- * drag below overwrites via setLoopRange() on every pointermove — so each
- * event's output became the next event's denominator and the loop collapsed
- * monotonically (8 -> 6 -> 4.5 -> 3.375 …) under a pointer that never moved.
- * See loopHandleMath.js; the bar path carries the same rule via getTakeBars().
- * @private
- */
-function resolveTakeDuration(active) {
-    return active.recorder.getElapsedTime();
-}
+// resolveTakeDuration — the STABLE seconds denominator the loop handles map onto,
+// and the one the tab-switch redisplay must invert through — now lives in
+// utils/loopHandleMath.js, next to the conversions it feeds and, unlike this
+// file, reachable from the test suite. Its comment there carries the reasoning:
+// the recorded lane's own duration, never getLoopableDuration(), which reports
+// the current loop WINDOW that the drag overwrites on every pointermove.
 
 transport.onLoopRangeChange = (startFrac, endFrac) => {
     const active = instanceManager.getActive();
@@ -1347,7 +1338,7 @@ transport.onLoopRangeChange = (startFrac, endFrac) => {
     // through the branch above. What is left here is a plain seconds take whose
     // length simply is its lane's duration; and unlike getLoopableDuration() it is
     // not the value setLoopRange() below overwrites, so it cannot feed itself.
-    const duration = resolveTakeDuration(active);
+    const duration = resolveTakeDuration(active.player, active.recorder);
     if (duration <= 0) return;
 
     let { loopStart, loopEnd } = fractionsToSecondsLoop(startFrac, endFrac, duration);
