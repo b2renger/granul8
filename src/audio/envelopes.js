@@ -82,7 +82,7 @@ export function triangleWindow(length) {
  */
 export function getEnvelope(type, length) {
     switch (type) {
-        case 'custom':   return _getCached('custom', length, _computeCustomADSR);
+        case 'custom':   return computeADSREnvelope(_customADSRParams, length);
         case 'tukey':    return tukeyWindow(length);
         case 'triangle': return triangleWindow(length);
         case 'gaussian':  return _getCached('gaussian', length, _computeGaussian);
@@ -309,38 +309,6 @@ export function computeADSREnvelope(adsr, length) {
  * @returns {Float32Array}
  */
 function _computeADSRFromParams(a, d, s, r, length) {
-    const curve = new Float32Array(length);
-    const N = length - 1;
-
-    const aEnd  = Math.floor(a * N);
-    const dEnd  = Math.floor((a + d) * N);
-    const rStart = Math.floor((1 - r) * N);
-
-    for (let i = 0; i < length; i++) {
-        if (i <= aEnd) {
-            curve[i] = aEnd > 0 ? i / aEnd : 1;
-        } else if (i <= dEnd) {
-            const t = (i - aEnd) / (dEnd - aEnd);
-            curve[i] = 1 - t * (1 - s);
-        } else if (i < rStart) {
-            curve[i] = s;
-        } else {
-            const rLen = N - rStart;
-            const t = rLen > 0 ? (i - rStart) / rLen : 1;
-            curve[i] = s * (1 - t);
-        }
-    }
-    return curve;
-}
-
-/**
- * Compute an ADSR polyline envelope.
- * 0 → 1 over attack, 1 → S over decay, hold S, S → 0 over release.
- * @param {number} length
- * @returns {Float32Array}
- */
-function _computeCustomADSR(length) {
-    const { a, d, s, r } = _customADSRParams;
     const curve = new Float32Array(length);
     const N = length - 1;
 

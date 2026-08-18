@@ -105,27 +105,34 @@ export class GrainScheduler {
 
         const deadline = now + this.scheduleAhead;
 
-        let budget = MAX_GRAINS_PER_TICK;
-        while (this.nextGrainTime < deadline && budget-- > 0) {
-            this.onScheduleGrain(this.nextGrainTime);
+        try {
+            let budget = MAX_GRAINS_PER_TICK;
+            while (this.nextGrainTime < deadline && budget-- > 0) {
+                this.onScheduleGrain(this.nextGrainTime);
 
-            let iot;
-            if (this.interOnsetRange) {
-                // Random jitter: pick in normalized space, then map per grain
-                const norm = this.interOnsetRange[0]
-                    + Math.random() * (this.interOnsetRange[1] - this.interOnsetRange[0]);
-                if (this.quantizeBpm !== null && this.quantizeDivisor !== null) {
-                    // Quantized: use explicit subdivision divisor
-                    iot = getSubdivisionSeconds(this.quantizeBpm, this.quantizeDivisor);
+                let iot;
+                if (this.interOnsetRange) {
+                    // Random jitter: pick in normalized space, then map per grain
+                    const norm = this.interOnsetRange[0]
+                        + Math.random() * (this.interOnsetRange[1] - this.interOnsetRange[0]);
+                    if (this.quantizeBpm !== null && this.quantizeDivisor !== null) {
+                        // Quantized: use explicit subdivision divisor
+                        iot = getSubdivisionSeconds(this.quantizeBpm, this.quantizeDivisor);
+                    } else {
+                        // Free: exponential mapping for perceptually uniform distribution
+                        iot = expMap(norm, 0.005, 0.5);
+                    }
                 } else {
-                    // Free: exponential mapping for perceptually uniform distribution
-                    iot = expMap(norm, 0.005, 0.5);
+                    iot = this.interOnset;
                 }
-            } else {
-                iot = this.interOnset;
-            }
 
-            this.nextGrainTime += iot;
+                this.nextGrainTime += iot;
+            }
+        } catch (err) {
+            // Never let one bad grain kill the voice's scheduler permanently:
+            // the timer re-arm below is outside this block.
+            console.error('Grain scheduling failed:', err);
+            this.nextGrainTime = this.audioContext.currentTime + this.scheduleAhead;
         }
 
         this._timerId = setTimeout(() => this._tick(), this.timerInterval);

@@ -4,7 +4,7 @@
 import { ADSRWidget } from './ADSRWidget.js';
 import { expMap } from '../utils/math.js';
 import {
-    SUBDIVISIONS, getSubdivisionSeconds, getPermutations, applyArpType,
+    SUBDIVISIONS, getSubdivisionSeconds, getPermutations,
     buildNoteTable, selectArpNotes, semitonesToNoteName, SCALES,
 } from '../utils/musicalQuantizer.js';
 

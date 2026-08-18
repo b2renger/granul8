@@ -23,17 +23,28 @@ import { fractionsToBarLoop, barLoopToFractions } from './utils/loopHandleMath.j
 
 const themeToggle = document.getElementById('theme-toggle');
 
+/**
+ * localStorage throws on access (not just on write) in Safari private mode and
+ * when site data is blocked. This is module top-level code, so an unguarded throw
+ * kills the entire app before anything renders.
+ */
+const safeStorage = {
+    get(key) { try { return localStorage.getItem(key); } catch { return null; } },
+    set(key, value) { try { localStorage.setItem(key, value); } catch { /* quota or blocked */ } },
+    remove(key) { try { localStorage.removeItem(key); } catch { /* blocked */ } },
+};
+
 function applyTheme(theme) {
     if (theme === 'light') {
         document.documentElement.setAttribute('data-theme', 'light');
     } else {
         document.documentElement.removeAttribute('data-theme');
     }
-    localStorage.setItem('granul8-theme', theme);
+    safeStorage.set('granul8-theme', theme);
 }
 
 // Restore saved theme
-const savedTheme = localStorage.getItem('granul8-theme') || 'dark';
+const savedTheme = safeStorage.get('granul8-theme') || 'dark';
 applyTheme(savedTheme);
 
 themeToggle.addEventListener('click', () => {
@@ -637,11 +648,14 @@ async function restoreSampleForInstance(state, entry) {
 }
 
 function markSampleMissing(state, entry) {
-    state.sampleDisplayName = `\u26A0 ${state.sampleDisplayName || state.sampleFileName} (missing)`;
+    // Derive the label instead of mutating the persisted name, which used to
+    // accumulate a fresh "\u26A0 \u2026 (missing)" wrapper on every reload.
+    const base = state.sampleDisplayName.replace(/^\u26A0\s+|\s+\(missing\)$/g, '');
+    const label = `\u26A0 ${base || state.sampleFileName} (missing)`;
     entry.buffer = null;
     if (instanceManager.activeId === state.id) {
         waveform.setBuffer(null);
-        sampleNameEl.textContent = state.sampleDisplayName;
+        sampleNameEl.textContent = label;
         sampleSelect.value = '';
     }
 }
