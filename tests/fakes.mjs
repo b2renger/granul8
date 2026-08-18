@@ -109,9 +109,13 @@ class FakeParam {
 }
 
 class FakeNode {
-    constructor(ctx, type) {
+    constructor(ctx, kind) {
         this._ctx = ctx;
-        this.type = type;
+        // `_kind`, not `.type`. Several real Web Audio nodes own a `.type`
+        // property that the code under test legitimately sets — OscillatorNode
+        // ('sine'), BiquadFilterNode ('bandpass') — which would clobber a marker
+        // stored there and make the node unfindable.
+        this._kind = kind;
         this.connections = [];
         this.disconnected = false;
         ctx.nodes.push(this);
@@ -189,8 +193,10 @@ export class FakeAudioContext {
     createBuffer(ch, len, rate) { return new FakeBuffer(ch, len, rate); }
     async resume() { this.state = 'running'; }
     /** Every FakeSource created so far, in creation order. */
-    get sources() { return this.nodes.filter(n => n.type === 'bufferSource'); }
-    get gains() { return this.nodes.filter(n => n.type === 'gain'); }
+    get sources() { return this.nodes.filter(n => n._kind === 'bufferSource'); }
+    get gains() { return this.nodes.filter(n => n._kind === 'gain'); }
+    get oscillators() { return this.nodes.filter(n => n._kind === 'oscillator'); }
+    get panners() { return this.nodes.filter(n => n._kind === 'panner'); }
 }
 
 /** Deterministic replacement for setTimeout / requestAnimationFrame. */
