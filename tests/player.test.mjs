@@ -300,6 +300,62 @@ test('retime() preserves the loop fraction on a MID-loop tempo change, not just 
     } finally { restore(); }
 });
 
+test('setLoopBars(0, 0) clears the musical loop instead of sticking at zero length', () => {
+    // Task 7's setLoopBars() assigned unconditionally: setLoopBars(0, 0) stored
+    // { startBars: 0, lengthBars: 0 } rather than clearing. Task 11 resets a
+    // fresh take via setLoopBars(0, 0), so an unguarded assignment here freezes
+    // playback (see the next test) rather than falling back to the seconds range.
+    const { ctx, p, restore } = harness();
+    try {
+        const clock = new MasterClock(ctx);
+        clock.bpm = 120;
+        clock.setEpoch(0);
+        p.setLoopStationMode(true, clock);
+        p.setLoopBars(0, 2);
+        assert.deepEqual(p.getLoopBars(), { startBars: 0, lengthBars: 2 });
+
+        p.setLoopBars(0, 0);
+        assert.equal(p.getLoopBars(), null,
+            'setLoopBars(0, 0) must clear the musical loop (getLoopBars() -> null), not stick at zero length');
+    } finally { restore(); }
+});
+
+test('after setLoopBars(0, 0) clears the musical loop, playback resumes using the seconds-based range instead of freezing', () => {
+    const { timers, ctx, p, restore } = harness();
+    try {
+        const clock = new MasterClock(ctx);
+        clock.bpm = 120;                       // bar = 2.0 s
+        clock.setEpoch(0);
+        p.setLoopStationMode(true, clock);
+        p.setLoopBars(0, 2);                   // a previous take's 2-bar (4.0 s) musical loop
+
+        // Reset for a new take, as Task 11's onRecord handler does.
+        p.setLoopBars(0, 0);
+        p.setLoopRange(0, 2.0);                // seconds-based range for the new take
+        // Drop loop-station mode too, so this test isolates the _loopBars guard from
+        // the (separately-tested) bar-phase-locked pre-roll that setLoopStationMode
+        // adds to play() -- that pre-roll offsets the first wrap by up to one bar but
+        // does not freeze playback either way, so it would only obscure this assertion.
+        p.setLoopStationMode(false, null);
+
+        const wraps = [];
+        p.onLoopWrap = () => wraps.push(ctx.currentTime);
+        p.play(lane([{ time: 1.9, voiceIndex: 0, type: 'stop' }]), true);
+        advance(ctx, timers, 10.0);
+
+        // With the unguarded assignment, _loopBars stayed { startBars: 0, lengthBars: 0 },
+        // _resolveLoop() kept using the (zero-length) bar-based branch, and the
+        // `loopLen <= 0` guard in _tick() froze the transport forever: zero wraps.
+        assert.ok(wraps.length >= 3, `expected several wraps on the 2.0 s seconds-based loop, got ${wraps.length}`);
+        for (let i = 0; i < wraps.length; i++) {
+            const ideal = 2.0 * (i + 1);
+            assert.ok(Math.abs(wraps[i] - ideal) < 0.05,
+                `wrap ${i}: ${wraps[i].toFixed(3)} vs ideal ${ideal.toFixed(3)}`);
+        }
+        p.stop();
+    } finally { restore(); }
+});
+
 test('the pre-roll guard compares elapsed against the resolved loop start, not the raw seconds field', () => {
     // With setLoopBars(startBars > 0, ...) the resolved start (bar 1 = 2.0 s at 120 bpm)
     // differs from the raw _loopStart field, which stays 0 -- setLoopRange() is never

@@ -239,7 +239,7 @@ export class Player {
      * @param {number} lengthBars
      */
     setLoopBars(startBars, lengthBars) {
-        this._loopBars = { startBars, lengthBars };
+        this._loopBars = lengthBars > 0 ? { startBars, lengthBars } : null;
     }
 
     /** @returns {{startBars: number, lengthBars: number}|null} */

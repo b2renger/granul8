@@ -477,6 +477,28 @@ const tabBar = new TabBar(
                 sampleSelect.value = active.state.sampleUrl || '';
                 applyLoopStationUI(active.state.loopStationMode);
             }
+
+            // Loop handles are global UI state but loop ranges are per-instance —
+            // without this the handles keep showing the previous tab's positions.
+            if (active) {
+                const bars = active.player.getLoopBars();
+                const total = active.player.getLoopableDuration();
+                if (bars && total > 0) {
+                    const barDur = masterBus.clock.getBarDuration();
+                    const totalBars = bars.startBars + bars.lengthBars;
+                    transport.setLoopRange(
+                        bars.startBars / totalBars,
+                        1
+                    );
+                } else {
+                    const range = active.player.getLoopRange();
+                    const dur = active.recorder.getElapsedTime();
+                    transport.setLoopRange(
+                        dur > 0 ? range.start / dur : 0,
+                        dur > 0 && range.end > 0 ? Math.min(1, range.end / dur) : 1
+                    );
+                }
+            }
         },
         onClose(id) {
             instanceManager.removeInstance(id);
@@ -974,6 +996,11 @@ transport.onRecord = () => {
         // Start recording flow
         if (active.player.isPlaying) active.player.stop();
 
+        // A previous take's loop range would otherwise still be in force.
+        active.player.setLoopBars(0, 0);
+        active.player.setLoopRange(0, 0);
+        transport.resetLoopRange();
+
         if (active.state.loopStationMode) {
             // Always count-in in loop station mode
             masterBus.resume();
@@ -1229,27 +1256,33 @@ masterBus.metronome.onBeat = (beatIndex, isDownbeat) => {
 transport.onLoopRangeChange = (startFrac, endFrac) => {
     const active = instanceManager.getActive();
     if (!active?.player) return;
-    const duration = active.recorder.getElapsedTime();
+
+    // Use the player's own loop domain. Recorder.getElapsedTime() returns the
+    // timestamp of the LAST EVENT, which is always shorter than the bar-quantized
+    // loop (the performer lifts their finger before the bar line) — so converting
+    // handle fractions through it silently shortened the loop on every drag.
+    const duration = active.player.getLoopableDuration() || active.recorder.getElapsedTime();
     if (duration <= 0) return;
+
+    if (active.state.loopStationMode) {
+        // Bar-quantized: convert fractions to whole bars.
+        const barDur = masterBus.clock.getBarDuration();
+        const totalBars = Math.max(1, Math.round(duration / barDur));
+        const startBar = Math.max(0, Math.min(totalBars - 1, Math.round(startFrac * totalBars)));
+        const endBar = Math.max(startBar + 1, Math.min(totalBars, Math.round(endFrac * totalBars)));
+        active.player.setLoopBars(startBar, endBar - startBar);
+        transport.setLoopRange(startBar / totalBars, endBar / totalBars);
+        return;
+    }
 
     let loopStart = startFrac * duration;
     let loopEnd = endFrac * duration;
 
-    if (loopSnapToGrid || active.state.loopStationMode) {
-        if (active.state.loopStationMode) {
-            // Snap to bar boundaries using the master clock
-            const barDur = masterBus.clock.getBarDuration();
-            loopStart = Math.round(loopStart / barDur) * barDur;
-            loopEnd = Math.round(loopEnd / barDur) * barDur;
-            if (loopEnd <= loopStart) loopEnd = loopStart + barDur;
-        } else {
-            // Original beat-grid snap
-            const bpm = getMasterBpm();
-            loopStart = quantizeTimeToGrid(loopStart, bpm);
-            loopEnd = quantizeTimeToGrid(loopEnd, bpm);
-            if (loopEnd <= loopStart) loopEnd = loopStart + (60 / bpm);
-        }
-        // Update handle positions to reflect snapped values
+    if (loopSnapToGrid) {
+        const bpm = getMasterBpm();
+        loopStart = quantizeTimeToGrid(loopStart, bpm);
+        loopEnd = quantizeTimeToGrid(loopEnd, bpm);
+        if (loopEnd <= loopStart) loopEnd = loopStart + (60 / bpm);
         transport.setLoopRange(loopStart / duration, loopEnd / duration);
     }
 
