@@ -59,6 +59,15 @@ export class Player {
         this._loopFraction = 0;
 
         /**
+         * True once the playhead has actually reached the loop start and begun
+         * dispatching. Distinct from `isPlaying`, which is set the instant play()
+         * is called, and from the `elapsed < loopStart` test, which retime()'s
+         * own bar-snap can make true again for an already-sounding layer.
+         * @type {boolean}
+         */
+        this._launched = false;
+
+        /**
          * Total length of the recorded take in bars — the STABLE domain the loop
          * handles span. Distinct from getLoopableDuration(), which reports the
          * current loop WINDOW and shrinks as _loopBars is narrowed. Using the
@@ -197,6 +206,7 @@ export class Player {
             this._startTime = this._audioContext.currentTime - loopStart;
         }
         this._lastProcessedTime = loopStart;
+        this._launched = false;
         this._currentIteration = 'A';
         this._activeVoicesA.clear();
         this._activeVoicesB.clear();
@@ -343,7 +353,18 @@ export class Player {
         // on `now`, and the pre-roll guard releases immediately: nudging the tempo
         // between pressing Play and the layer launching cancelled the phase-lock
         // outright.
-        if (now - this._startTime < start) {
+        //
+        // Gate on _launched, NOT on `elapsed < start`. The two agreed before the
+        // bar-snap below existed; they do not now. A snap that lands the anchor
+        // ahead of `now` puts a RUNNING, sounding layer back below the loop start
+        // for up to half a bar, and a second tempo change arriving inside that
+        // window would take this branch and re-anchor with getNextBarTime() — the
+        // full-bar push this function deliberately avoids, on top of the wait
+        // already in progress. Measured at 120 bpm, a 2-bar loop and two changes
+        // 100 ms apart: a 2.16 s hold against the half-bar bound of 1.09 s, twice
+        // what is documented below. Reachable from two clicks on the BPM slider,
+        // and from tap tempo, which calls retime() on every tap after the first.
+        if (!this._launched) {
             this._startTime = this._clock.getNextBarTime(now) - start;
             this._lastProcessedTime = start;
             this._crossfadeStarted = false;
@@ -371,7 +392,13 @@ export class Player {
         // the bar" behaviour play() gives a launching layer, and bounded by half a
         // bar. Forcing the anchor into the past instead would cost a jump of up to
         // one and a half bars, which is worse.
-        const pos = start + this._loopFraction * (end - start);
+        // While a snap-hold is in progress the layer is waiting at its top, so its
+        // position is the loop start regardless of what _loopFraction last read —
+        // _tick returns at the pre-roll guard without updating it, leaving a stale
+        // value from before the hold. Treating that stale fraction as the live
+        // position would re-derive an anchor for a playhead that is not there.
+        const fraction = this._launched && now - this._startTime >= start ? this._loopFraction : 0;
+        const pos = start + fraction * (end - start);
         const anchor = this._clock.quantizeToBar(now - pos + start);
         this._startTime = anchor - start;
         // The snap may have moved the playhead either way; resume dispatch from
@@ -442,6 +469,7 @@ export class Player {
             this._timerId = setTimeout(this._tick, TICK_MS);
             return;
         }
+        this._launched = true;
 
         // === CROSSFADE PRE-START ===
         // When within CROSSFADE_WINDOW of loop end, pre-start next iteration

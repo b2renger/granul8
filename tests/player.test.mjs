@@ -731,3 +731,134 @@ test('getLoopRange() reports the window playback actually uses, including a bar-
         assert.deepEqual(p.getLoopRange(), { start: 0.5, end: 3.5 });
     } finally { restore(); }
 });
+
+test('a second tempo change during a snap-hold stays inside the half-bar bound', () => {
+    // retime()'s nearest-bar snap can land the anchor AHEAD of now, parking a
+    // running layer below its loop start for up to half a bar. That makes
+    // `elapsed < loopStart` — the old pre-roll test — true for a layer that is
+    // sounding, which is a state that could not exist before the snap was added.
+    //
+    // A second retime() arriving inside that window used to take the pre-roll
+    // branch and re-anchor with getNextBarTime(), stacking a full-bar push on top
+    // of the wait already running: measured 2.1636 s against a half-bar bound of
+    // 1.0909 s, twice what retime()'s own comment documents. Two clicks on the BPM
+    // slider reach it, and so does tap tempo, which calls retime() on every tap
+    // after the first — i.e. three times for a normal four-tap entry.
+    const { timers, ctx, p, restore } = harness();
+    try {
+        const clock = new MasterClock(ctx);
+        clock.bpm = 120;                        // bar = 2.0 s, 2 bars = 4.0 s
+        clock.setEpoch(0);
+        p.setLoopStationMode(true, clock);
+        p.setLoopBars(0, 2);
+        p.play(lane([
+            { time: 0.02, voiceIndex: 0, type: 'start', params: P('held') },
+            { time: 3.9, voiceIndex: 0, type: 'stop' },
+        ]), true);
+
+        advance(ctx, timers, 2.1);              // launched and sounding, 0.1 s into the loop
+        clock.bpm = 100;                        // snaps the anchor forward -> hold begins
+        p.retime();
+        const held = p._startTime + p._resolveLoop().start - ctx.currentTime;
+        assert.ok(held > 0, `setup: the first change must start a hold, got ${held.toFixed(4)}`);
+
+        advance(ctx, timers, 0.1);              // second change 100 ms later, still holding
+        clock.bpm = 110;
+        p.retime();
+
+        const halfBar = clock.getBarDuration() / 2;
+        const hold = p._startTime + p._resolveLoop().start - ctx.currentTime;
+        assert.ok(hold <= halfBar + 1e-9,
+            `a layer already waiting on a snapped anchor must not be re-anchored as if it had ` +
+            `never launched: held ${hold.toFixed(4)}s against the documented half-bar bound of ` +
+            `${halfBar.toFixed(4)}s`);
+    } finally { restore(); }
+});
+
+test('retime() still treats a genuinely unlaunched layer as pre-roll', () => {
+    // The companion to the test above: gating on _launched must not cost the
+    // pre-roll re-lock that F3 added. A layer whose play() anchor has not yet
+    // arrived has no playhead to keep continuous, so it re-phase-locks to the
+    // NEXT bar rather than snapping to the nearest one — which for a layer that
+    // has not sounded is free, and preserves the launch phase-lock that nudging
+    // the tempo during the count-in would otherwise cancel.
+    const { timers, ctx, p, restore } = harness();
+    try {
+        const clock = new MasterClock(ctx);
+        clock.bpm = 120;
+        clock.setEpoch(0);
+        p.setLoopStationMode(true, clock);
+        p.setLoopBars(0, 2);
+
+        advance(ctx, timers, 0.3);              // play() will anchor at the next bar, 2.0
+        p.play(lane([
+            { time: 0.02, voiceIndex: 0, type: 'start', params: P('held') },
+            { time: 3.9, voiceIndex: 0, type: 'stop' },
+        ]), true);
+        assert.equal(p._launched, false, 'setup: the layer must still be in pre-roll');
+
+        advance(ctx, timers, 0.2);              // t = 0.5, still short of the 2.0 anchor
+        clock.bpm = 100;                        // bar = 2.4 s
+        p.retime();
+
+        const launch = p._startTime + p._resolveLoop().start;
+        const bar = clock.getBarDuration();
+        assert.ok(launch > ctx.currentTime,
+            `an unlaunched layer must still launch in the future, got ${launch.toFixed(4)} at ${ctx.currentTime}`);
+        assert.ok(Math.abs(launch / bar - Math.round(launch / bar)) < 1e-9,
+            `and on a bar line of the NEW grid: ${launch.toFixed(4)} / ${bar.toFixed(4)} = ${(launch / bar).toFixed(4)} bars`);
+    } finally { restore(); }
+});
+
+test('a snap-hold resumes from the loop top, not from a stale loop fraction', () => {
+    // The companion hole to the gate above. Once a second retime() correctly
+    // reaches the mid-loop path, it computes the playhead from _loopFraction --
+    // but during a hold _tick returns at the pre-roll guard WITHOUT updating that
+    // field, so it still reads the position the layer had before the hold began.
+    // The layer is not there; it is waiting at its top.
+    //
+    // Feeding the stale fraction in shifts the pre-quantised anchor by
+    // fraction * loopLength, which is usually snapped away but not always. Swept
+    // against a second copy of Player.js with only this guard removed: the anchor
+    // differs in 171 of 10976 two-change scenarios, by up to 6 s. Here the layer
+    // should still be waiting for the bar line at 6.0; without the guard it
+    // resumes AT ONCE, 3.05 s into a 12 s loop -- a quarter of the way through
+    // material it has not played yet. Both satisfy the half-bar bound, which is a
+    // bound on the wait and not on the position, so the test above cannot catch it.
+    const { timers, ctx, p, restore } = harness();
+    try {
+        const clock = new MasterClock(ctx);
+        clock.bpm = 120;
+        clock.setEpoch(0);
+        p.setLoopStationMode(true, clock);
+        p.setLoopBars(0, 2);
+        p.play(lane([
+            { time: 0.02, voiceIndex: 0, type: 'start', params: P('held') },
+            { time: 7.9, voiceIndex: 0, type: 'stop' },
+        ]), true);
+
+        advance(ctx, timers, 2.3);
+        clock.bpm = 70;                          // bar = 3.4286 s -> snaps the anchor forward
+        p.retime();
+        const { start } = p._resolveLoop();
+        assert.ok(ctx.currentTime - p._startTime < start, 'setup: the layer must be holding');
+        assert.ok(p._loopFraction > 0,
+            `setup: _loopFraction must be stale and non-zero, got ${p._loopFraction}`);
+
+        advance(ctx, timers, 0.75);
+        clock.bpm = 40;                          // bar = 6.0 s, 2 bars = 12.0 s
+        p.retime();
+
+        const elapsed = ctx.currentTime - p._startTime;
+        assert.ok(elapsed < start + 1e-9,
+            `the layer was waiting at its top, so it must still be waiting -- resuming at ` +
+            `elapsed ${elapsed.toFixed(4)} means it jumped ${(elapsed - start).toFixed(4)}s into ` +
+            `material it has not played`);
+        const resume = p._startTime + start;
+        const bar = clock.getBarDuration();
+        assert.ok(Math.abs(resume / bar - Math.round(resume / bar)) < 1e-9,
+            `and resume on a bar line: ${resume.toFixed(4)} / ${bar} = ${(resume / bar).toFixed(4)} bars`);
+        assert.ok(resume - ctx.currentTime <= bar / 2 + 1e-9,
+            `within the half-bar bound: waited ${(resume - ctx.currentTime).toFixed(4)}s`);
+    } finally { restore(); }
+});
