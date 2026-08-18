@@ -17,7 +17,12 @@ import {
     getSubdivisionSeconds, buildNoteTable,
     selectArpNotes, getPermutations, applyArpType, quantizeTimeToGrid,
 } from './utils/musicalQuantizer.js';
-import { fractionsToBarLoop, barLoopToFractions } from './utils/loopHandleMath.js';
+import {
+    fractionsToBarLoop,
+    barLoopToFractions,
+    fractionsToSecondsLoop,
+    secondsLoopToFractions,
+} from './utils/loopHandleMath.js';
 
 // --- Theme toggle (light/dark) ---
 
@@ -494,8 +499,7 @@ const tabBar = new TabBar(
             // without this the handles keep showing the previous tab's positions.
             if (active) {
                 const bars = active.player.getLoopBars();
-                const total = active.player.getLoopableDuration();
-                if (bars && total > 0) {
+                if (bars) {
                     // The denominator must be the take's STABLE total length in
                     // bars, not the loop window's own span — a loop that does not
                     // cover the whole take must not render its end handle pinned
@@ -504,12 +508,15 @@ const tabBar = new TabBar(
                     const { startFrac, endFrac } = barLoopToFractions(bars.startBars, bars.lengthBars, totalBars);
                     transport.setLoopRange(startFrac, endFrac);
                 } else {
+                    // Same denominator the drag maps through (resolveTakeDuration),
+                    // so the handles come back exactly where the user left them.
+                    // This branch used to divide by recorder.getElapsedTime() while
+                    // the drag divided by getLoopableDuration() — two denominators
+                    // for one mapping, so the handles jumped on every tab switch.
                     const range = active.player.getLoopRange();
-                    const dur = active.recorder.getElapsedTime();
-                    transport.setLoopRange(
-                        dur > 0 ? range.start / dur : 0,
-                        dur > 0 && range.end > 0 ? Math.min(1, range.end / dur) : 1
-                    );
+                    const { startFrac, endFrac } =
+                        secondsLoopToFractions(range.start, range.end, resolveTakeDuration(active));
+                    transport.setLoopRange(startFrac, endFrac);
                 }
             }
         },
@@ -1301,6 +1308,23 @@ function resolveTakeBars(active) {
     return Math.max(1, Math.round(duration / barDur));
 }
 
+/**
+ * Resolve the take's total length in SECONDS — the STABLE denominator the
+ * seconds-based loop handles map onto, and the one the tab-switch redisplay must
+ * invert through. The recorded lane's own duration: fixed for the life of the
+ * take, and the one quantity in reach that setLoopRange() does not touch.
+ *
+ * NOT getLoopableDuration(). That reports the CURRENT loop window, which the
+ * drag below overwrites via setLoopRange() on every pointermove — so each
+ * event's output became the next event's denominator and the loop collapsed
+ * monotonically (8 -> 6 -> 4.5 -> 3.375 …) under a pointer that never moved.
+ * See loopHandleMath.js; the bar path carries the same rule via getTakeBars().
+ * @private
+ */
+function resolveTakeDuration(active) {
+    return active.recorder.getElapsedTime();
+}
+
 transport.onLoopRangeChange = (startFrac, endFrac) => {
     const active = instanceManager.getActive();
     if (!active?.player) return;
@@ -1317,22 +1341,26 @@ transport.onLoopRangeChange = (startFrac, endFrac) => {
         return;
     }
 
-    // Use the player's own loop domain. Recorder.getElapsedTime() returns the
-    // timestamp of the LAST EVENT, which is always shorter than the bar-quantized
-    // loop (the performer lifts their finger before the bar line) — so converting
-    // handle fractions through it silently shortened the loop on every drag.
-    const duration = active.player.getLoopableDuration() || active.recorder.getElapsedTime();
+    // Map onto the take's STABLE length. The bar-quantized objection that used to
+    // sit here — that Recorder.getElapsedTime() stops at the last event, short of
+    // the bar line — applies to a MUSICAL loop, and musical loops now leave
+    // through the branch above. What is left here is a plain seconds take whose
+    // length simply is its lane's duration; and unlike getLoopableDuration() it is
+    // not the value setLoopRange() below overwrites, so it cannot feed itself.
+    const duration = resolveTakeDuration(active);
     if (duration <= 0) return;
 
-    let loopStart = startFrac * duration;
-    let loopEnd = endFrac * duration;
+    let { loopStart, loopEnd } = fractionsToSecondsLoop(startFrac, endFrac, duration);
 
     if (loopSnapToGrid) {
         const bpm = getMasterBpm();
         loopStart = quantizeTimeToGrid(loopStart, bpm);
         loopEnd = quantizeTimeToGrid(loopEnd, bpm);
         if (loopEnd <= loopStart) loopEnd = loopStart + (60 / bpm);
-        transport.setLoopRange(loopStart / duration, loopEnd / duration);
+        // Same denominator, and clamped: the beat-length floor above can push
+        // loopEnd past the take, which would drive the handle off the bar.
+        const snapped = secondsLoopToFractions(loopStart, loopEnd, duration);
+        transport.setLoopRange(snapped.startFrac, snapped.endFrac);
     }
 
     active.player.setLoopRange(loopStart, loopEnd);
