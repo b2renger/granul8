@@ -35,6 +35,19 @@ test('a timer stall does not produce a burst of grains scheduled in the past', (
         const past = scheduled.filter(w => w < ctx.currentTime - 0.05);
         assert.equal(past.length, 0, `${past.length} grains scheduled in the past`);
         assert.ok(beforeStall > 0, 'sanity: scheduler was running before the stall');
+
+        // LOWER BOUND. Every assertion above is an upper bound, and a scheduler
+        // that DIES at the stall satisfies all of them: `scheduled` is empty, so
+        // `<= 256` holds, no grain is in the past, and `beforeStall > 0` was
+        // measured before the stall ever happened. Delete GrainScheduler._tick's
+        // closing `this._timerId = setTimeout(() => this._tick(), this.timerInterval);`
+        // to see it — start() still drives one synchronous tick, so beforeStall
+        // stays healthy while nothing at all is scheduled afterwards.
+        // At 5 ms inter-onset the first tick after the stall fills the 100 ms
+        // look-ahead window on its own (0.1 / 0.005 = 20 grains); 26 are observed
+        // across the 50 ms run.
+        assert.ok(scheduled.length >= 10,
+            `the scheduler must resume after the stall, got ${scheduled.length} grains`);
         s.stop();
     } finally { restore(); }
 });

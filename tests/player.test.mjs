@@ -126,6 +126,15 @@ test('crossfade pre-dispatched events do not fire twice at the wrap', () => {
         // Total starts should be ~one per iteration (3-4), not two per iteration.
         assert.ok(starts.length <= 5,
             `expected ~4 starts across 3 wraps, got ${starts.length} (double-firing)`);
+        // LOWER BOUND. Without it this test — the only coverage the crossfade
+        // mechanism has — cannot detect the crossfade being removed outright.
+        // Delete `this._preStartNextIteration();` (Player._tick, in the CROSSFADE
+        // PRE-START block) and starts.length falls from 4 to 1: `_crossfadeStarted`
+        // is still set, so the wrap still skips [loopStart, loopStart + 50 ms) as
+        // "already sent" while nothing ever sent it. Every assertion above still
+        // passes. 4 starts are observed across the 4 iterations of this run.
+        assert.ok(starts.length >= 3,
+            `expected ~one start per iteration, got ${starts.length} — the crossfade pre-start is not dispatching`);
         p.stop();
     } finally { restore(); }
 });
@@ -162,7 +171,23 @@ test('loop-station playback phase-locks to the bar grid once and stays locked', 
     } finally { restore(); }
 });
 
-test('the playhead never jumps backwards at a loop-station wrap', () => {
+test('the playhead never jumps backwards at a loop-station wrap: it rewinds only on a wrap tick, and only to the loop start', () => {
+    // RETITLED AND STRENGTHENED. The previous title promised a monotonicity
+    // assertion the body did not contain — it only range-checked each frame, so
+    // an anchor that teleported the playhead to an arbitrary interior point
+    // (which the removed per-wrap `quantizeToBar` re-snap did, by up to half a
+    // bar in either direction) passed unnoticed as long as it stayed in range.
+    // The claim is now explicit and testable in three parts:
+    //   1. within an iteration the reported elapsed never decreases;
+    //   2. it decreases ONLY on the tick that fires onLoopWrap, and lands back
+    //      within one transport tick of the loop start — not part-way in;
+    //   3. a stall spanning several iterations is fully consumed, so the first
+    //      frame after it is inside the loop rather than several loops past it.
+    //
+    // The loop is 4.01 s, not 4.0: TICK_MS is 25 and 4.0 / 0.025 = 160 exactly,
+    // so a 4.0 s loop lands precisely on FakeTimers' grid, every overshoot is
+    // zero and every post-wrap frame reads exactly 0 — parts 1 and 2 would hold
+    // for free. At 4.01 s the observed overshoots are 15/5/20/10 ms.
     const { timers, ctx, p, restore } = harness();
     try {
         const clock = new MasterClock(ctx);
@@ -170,17 +195,57 @@ test('the playhead never jumps backwards at a loop-station wrap', () => {
         clock.setEpoch(0);
         p.setLoopStationMode(true, clock);
 
+        const LOOP = 4.01;
+        const TICK = 0.025;                    // Player's TICK_MS, in seconds
         const elapsedSeen = [];
-        p.onFrame = (e) => elapsedSeen.push(e);
-        p.setLoopRange(0, 4.0);
+        let wrapPending = false;
+        // onLoopWrap fires inside _tick's boundary block, onFrame at the end of
+        // the same tick — so a frame flagged here is the wrap's own frame.
+        p.onLoopWrap = () => { wrapPending = true; };
+        p.onFrame = (e) => { elapsedSeen.push({ e, afterWrap: wrapPending }); wrapPending = false; };
+        p.setLoopRange(0, LOOP);
         ctx.currentTime = 1.1;
         p.play(lane([{ time: 3.9, voiceIndex: 0, type: 'stop' }]), true);
         advance(ctx, timers, 20.0);
 
         assert.ok(elapsedSeen.length > 0, 'onFrame was called');
-        for (const e of elapsedSeen) {
+        for (const { e } of elapsedSeen) {
             assert.ok(e >= 0, `onFrame reported a negative elapsed time: ${e}`);
-            assert.ok(e <= 4.1, `onFrame reported elapsed beyond the loop: ${e}`);
+            assert.ok(e <= LOOP + 0.1, `onFrame reported elapsed beyond the loop: ${e}`);
+        }
+
+        // (1) and (2). Deleting `this._startTime += loopLen;` from _tick's loop
+        // boundary block makes the post-wrap frame report ~loopEnd instead of
+        // ~loopStart, failing the second branch below.
+        let wrapFrames = 0;
+        for (let i = 1; i < elapsedSeen.length; i++) {
+            const prev = elapsedSeen[i - 1].e, cur = elapsedSeen[i];
+            if (!cur.afterWrap) {
+                assert.ok(cur.e >= prev - 1e-9,
+                    `playhead went backwards without a wrap: ${prev} -> ${cur.e}`);
+            } else {
+                wrapFrames++;
+                assert.ok(cur.e >= 0 && cur.e <= TICK + 0.005,
+                    `a wrap must rewind to the loop start (within one ${TICK}s tick), got ${cur.e}`);
+            }
+        }
+        assert.ok(wrapFrames >= 3, `expected several wraps in 20 s of a ${LOOP} s loop, got ${wrapFrames}`);
+
+        // (3) Multi-iteration stall. The audio clock jumps 10 s (~2.5 iterations)
+        // while the transport timer is blocked, exactly as a hidden tab or a long
+        // decodeAudioData does. _tick's `while (overshoot >= loopLen)` catch-up
+        // must consume every missed iteration in one go. Deleting the
+        // `this._startTime += loopLen;` INSIDE that while loop advances the anchor
+        // by a single loop length only, and the frame below reports ~9 s instead
+        // of ~1 s — nothing else in the suite covers that line.
+        const before = elapsedSeen.length;
+        ctx.currentTime += 10;
+        advance(ctx, timers, 0.05);
+        const afterStall = elapsedSeen.slice(before);
+        assert.ok(afterStall.length >= 1, 'the transport must keep ticking after a stall');
+        for (const { e } of afterStall) {
+            assert.ok(e >= 0 && e <= LOOP,
+                `after a 10 s stall the playhead must land back inside the loop, got ${e}`);
         }
         p.stop();
     } finally { restore(); }

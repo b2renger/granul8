@@ -79,7 +79,7 @@ test('downbeats fall on bar boundaries', () => {
     } finally { restore(); }
 });
 
-test('a stall does not replay every missed beat', () => {
+test('a stall does not replay every missed beat, and the metronome resumes on the grid afterwards', () => {
     const { timers, ctx, met, restore } = harness(120);
     try {
         met.start();
@@ -89,6 +89,27 @@ test('a stall does not replay every missed beat', () => {
         advance(ctx, timers, 0.05);
         const added = clickTimes(ctx).length - before;
         assert.ok(added <= 4, `expected a bounded catch-up, got ${added} clicks`);
+
+        // LOWER BOUND — and it deliberately does NOT sit on `added`. `added` is
+        // 0 here: the re-derive puts the next beat on the first 0.5 s boundary
+        // after 31.0 s, which is 31.5 s, outside the 100 ms look-ahead window the
+        // 50 ms run above can reach. So the upper bound alone is satisfied just
+        // as well by a metronome that has stopped dead as by one that recovered.
+        // Delete Metronome._tick's closing
+        // `this._timerId = setTimeout(() => this._tick(), this._timerInterval);`
+        // to see it: start() still drives one synchronous tick so the pre-stall
+        // clicks exist, `added` is still 0, and the assertion above still passes.
+        // Give the clock a further second and demand real, on-grid clicks.
+        advance(ctx, timers, 1.0);
+        const resumed = clickTimes(ctx).slice(before);
+        assert.ok(resumed.length >= 1,
+            `the metronome must resume after the stall, got ${resumed.length} clicks in the 1.05 s that followed`);
+        for (const t of resumed) {
+            assert.ok(t > 31.0,
+                `click at ${t} predates the stall's end (31.0 s) — a missed beat was replayed`);
+            const off = Math.abs(t / 0.5 - Math.round(t / 0.5)) * 0.5;
+            assert.ok(off < 1e-6, `resumed click at ${t} is ${off} s off the 0.5 s beat grid`);
+        }
         met.stop();
     } finally { restore(); }
 });
