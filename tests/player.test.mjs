@@ -329,15 +329,28 @@ test('getLoopableDuration reflects the musical loop, not the last event time', (
     } finally { restore(); }
 });
 
-test('retime() preserves the loop fraction on a MID-loop tempo change, not just at a wrap boundary', () => {
-    // The brief's own retime test changes the BPM at t=10.0, which happens to land
-    // exactly ON a wrap boundary (the loop fraction is 0 either way at that instant).
-    // Because _resolveLoop() is re-read fresh every tick regardless of retime(), that
-    // test passes identically whether retime() actually re-anchors _startTime or is a
-    // complete no-op -- verified by running the harness both ways. This test moves the
-    // tempo change to mid-iteration (fraction 0.25), where retime()'s re-anchoring is
-    // the only thing keeping the playhead's *position within the loop* continuous
-    // instead of jumping.
+test('retime() keeps the loop anchored to the bar grid across a MID-loop tempo change', () => {
+    // History of this test. It was first written with the tempo change at t=10.0,
+    // which lands exactly ON a wrap boundary: the loop fraction is 0 either way
+    // there, so it passed identically whether retime() re-anchored or was a
+    // complete no-op. Task 7 moved it to mid-iteration (fraction 0.25), where a
+    // no-op retime() is distinguishable.
+    //
+    // It then asserted the wrap at 3.0 + 0.75 * 3.4286 = 5.5715 -- the
+    // fraction-preserving position, which is 5.5715 / 1.714286 = 3.25 bars from
+    // the epoch: exactly one beat off the bar grid, permanently. That is the
+    // asserted value that exposed the bug. play()'s own comment claims "phase-lock
+    // to the bar grid exactly once, at launch. Thereafter the anchor advances by
+    // exact loop lengths ... so it cannot drift off the grid", and retime()
+    // re-anchored to an arbitrary wall-clock instant, breaking it -- while
+    // Metronome._tick re-derives absolutely from the epoch on the same BPM change,
+    // so the click ends up permanently out of phase with the layers and any layer
+    // recorded afterwards lands out of phase with the existing ones.
+    //
+    // The claim is now grid alignment, with continuity kept as a bound rather than
+    // an equality: the epoch is fixed and the bar length has just changed, so
+    // `now`'s phase in the new grid is not the phase the old anchor had. Something
+    // must move; the nearest-bar snap moves the playhead by at most half a bar.
     const { timers, ctx, p, restore } = harness();
     try {
         const clock = new MasterClock(ctx);
@@ -356,11 +369,59 @@ test('retime() preserves the loop fraction on a MID-loop tempo change, not just 
         advance(ctx, timers, 5.0);
 
         assert.equal(wraps.length, 1, `expected exactly one wrap, got ${wraps.length}`);
-        // Remaining time to the wrap should be (1 - fraction) * newLoopLen, measured
-        // from the moment of the tempo change (ctx.currentTime === 3.0).
-        const expectedWrapAt = 3.0 + 0.75 * 3.4286;
-        assert.ok(Math.abs(wraps[0] - expectedWrapAt) < 0.06,
-            `wrap at ${wraps[0].toFixed(4)}, expected near ${expectedWrapAt.toFixed(4)} (fraction preserved)`);
+
+        const bar = clock.getBarDuration();    // 1.714286
+        const bars = (wraps[0] - clock._epoch) / bar;
+        assert.ok(Math.abs(bars - Math.round(bars)) * bar < 0.01,
+            `wrap at ${wraps[0].toFixed(4)} is ${bars.toFixed(4)} bars from the epoch — off the 140 bpm grid`);
+
+        // Continuity bound. A grid-aligned anchor that ignored the playhead
+        // entirely could satisfy the assertion above; this one cannot move the
+        // wrap more than half a bar from where preserving the fraction exactly
+        // would have put it. (Measured: 5.1429 against 5.5715, a quarter bar.)
+        const fractionPreserving = 3.0 + 0.75 * 3.428571;
+        assert.ok(Math.abs(wraps[0] - fractionPreserving) <= bar / 2 + 1e-9,
+            `wrap at ${wraps[0].toFixed(4)} moved more than half a bar from the fraction-preserving ${fractionPreserving.toFixed(4)}`);
+        p.stop();
+    } finally { restore(); }
+});
+
+test('touching the tempo during the pre-roll re-phase-locks the launch instead of releasing it', () => {
+    // retime()'s guard is satisfied during the pre-roll, where _loopFraction is
+    // still 0 -- so `pos` equalled the loop start, the anchor landed on `now`, and
+    // the pre-roll guard released immediately. Nudging the BPM slider in the window
+    // between pressing Play and the layer launching cancelled the phase-lock
+    // outright, which is the one thing loop-station mode exists to provide.
+    //
+    // Nothing has sounded yet at that point, so there is no continuity to preserve
+    // and the launch is simply re-phase-locked, exactly as play() does it.
+    const { timers, ctx, p, restore } = harness();
+    try {
+        const clock = new MasterClock(ctx);
+        clock.bpm = 120;                       // bar = 2.0 s
+        clock.setEpoch(0);
+        p.setLoopStationMode(true, clock);
+        p.setLoopBars(0, 2);
+
+        ctx.currentTime = 0.3;
+        const frames = [];
+        p.onFrame = (e) => frames.push({ e, at: ctx.currentTime });
+        p.play(lane([{ time: 3.9, voiceIndex: 0, type: 'stop' }]), true);
+        assert.equal(frames.length, 0, 'sanity: the layer is in its pre-roll, nothing sounding');
+
+        ctx.currentTime = 0.5;
+        clock.bpm = 90;                        // bar becomes (60/90)*4 = 2.66667 s
+        p.retime();
+
+        advance(ctx, timers, 6.0);
+        assert.ok(frames.length > 0, 'the layer must still launch');
+        const bar = clock.getBarDuration();
+        const launchedAt = frames[0].at;
+        assert.ok(launchedAt >= 2.0,
+            `the layer launched at ${launchedAt.toFixed(4)} — retime() released the pre-roll instead of re-locking it`);
+        const bars = (launchedAt - clock._epoch) / bar;
+        assert.ok(Math.abs(bars - Math.round(bars)) * bar < 0.03,
+            `launch at ${launchedAt.toFixed(4)} is ${bars.toFixed(4)} bars from the epoch — off the 90 bpm grid`);
         p.stop();
     } finally { restore(); }
 });
@@ -554,6 +615,55 @@ test('play() anchors the clock epoch before it reads the bar grid', () => {
             assert.ok(off < 0.05,
                 `wrap at ${w.toFixed(3)} is ${off.toFixed(3)} s off the metronome's bar grid`);
         }
+        p.stop();
+    } finally { restore(); }
+});
+
+test('a retime whose nearest bar line lands ahead of now holds for that line and restarts the loop from its top', () => {
+    // The nearest-bar snap can put the anchor slightly AHEAD of `now` — only in
+    // the early part of a loop, and by at most half a bar. `elapsed` is then below
+    // the loop start, the pre-roll guard holds dispatch, and the loop restarts on
+    // the downbeat. That is deliberate: forcing the anchor into the past instead
+    // (anchor -= bar whenever it lands ahead) would cost a forward jump of up to
+    // one and a half bars, which is worse than a bounded wait that lands the loop
+    // on a bar line.
+    //
+    // 120 -> 100 bpm at t = 2.1 with the playhead 0.1 s into the loop hits it:
+    // pos = 0.025 * 4.8 = 0.12, so the raw anchor is 1.98 and the nearest 2.4 s
+    // bar line is 2.4 — 0.3 s ahead of now, an eighth of a bar.
+    const { timers, ctx, p, dispatched, restore } = harness();
+    try {
+        const clock = new MasterClock(ctx);
+        clock.bpm = 120;                       // bar = 2.0 s, 2 bars = 4.0 s
+        clock.setEpoch(0);
+        p.setLoopStationMode(true, clock);
+        p.setLoopBars(0, 2);
+
+        const frames = [];
+        p.onFrame = (e) => frames.push({ e, at: ctx.currentTime });
+        p.play(lane([
+            { time: 0.05, voiceIndex: 0, type: 'start', params: P('top') },
+            { time: 3.9, voiceIndex: 0, type: 'stop' },
+        ]), true);
+        advance(ctx, timers, 2.1);             // 0.1 s into the loop, fraction 0.025
+
+        const n = frames.length;
+        const dispatchedBefore = dispatched.length;
+        clock.bpm = 100;                       // bar becomes 2.4 s, 2 bars = 4.8 s
+        p.retime();
+        advance(ctx, timers, 3.0);
+
+        const resumed = frames.slice(n);
+        assert.ok(resumed.length > 0, 'the layer must resume, not freeze for good');
+        assert.equal(resumed[0].at, 2.4,
+            `expected the layer to resume on the 100 bpm bar line at 2.4, got ${resumed[0].at}`);
+        assert.ok(resumed[0].at - 2.1 <= clock.getBarDuration() / 2 + 1e-9,
+            'the wait must be bounded by half a bar');
+        assert.ok(resumed[0].e < 0.03,
+            `the loop must restart from its top, got elapsed ${resumed[0].e}`);
+        const restarts = dispatched.slice(dispatchedBefore).filter(d => d.tag === 'top');
+        assert.ok(restarts.length >= 1,
+            'the events at the top of the loop must be dispatched again after the restart');
         p.stop();
     } finally { restore(); }
 });

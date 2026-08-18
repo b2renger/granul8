@@ -311,15 +311,63 @@ export class Player {
     }
 
     /**
-     * Re-anchor after a tempo change so the playhead keeps its position within
-     * the loop. Call once per playing Player whenever the master BPM moves.
+     * Re-anchor after a tempo change, keeping the loop on the bar grid. Call once
+     * per playing Player whenever the master BPM moves.
+     *
+     * This must not simply re-anchor to `currentTime - pos`. That preserves the
+     * loop FRACTION but not grid alignment, and nothing re-snaps afterwards — so
+     * it silently breaks play()'s invariant ("phase-lock once at launch;
+     * thereafter the anchor advances by exact loop lengths, so it cannot drift
+     * off the grid"). Metronome._tick re-derives its beats absolutely from the
+     * epoch on the same BPM change, so the click ends up permanently out of phase
+     * with the layers, and any layer recorded afterwards phase-locks to
+     * getNextBarTime() and lands out of phase with the existing ones.
      */
     retime() {
         if (!this.isPlaying || !this._loopBars || !this._clock) return;
+        const now = this._audioContext.currentTime;
         const { start, end } = this._resolveLoop();
+
+        // Pre-roll: the layer has not launched, so there is no playhead to keep
+        // continuous — re-phase-lock exactly as play() does. Without this branch
+        // _loopFraction is still 0, `pos` below equals `start`, the anchor lands
+        // on `now`, and the pre-roll guard releases immediately: nudging the tempo
+        // between pressing Play and the layer launching cancelled the phase-lock
+        // outright.
+        if (now - this._startTime < start) {
+            this._startTime = this._clock.getNextBarTime(now) - start;
+            this._lastProcessedTime = start;
+            this._crossfadeStarted = false;
+            return;
+        }
+
+        // Mid-loop. Something HAS to move: the epoch is fixed and the bar length
+        // just changed, so `now`'s phase within the new grid is not the phase the
+        // old anchor had — no anchor keeps the playhead exactly where it is AND
+        // sits on the grid. (Nor does a small tempo step imply a small
+        // correction: the old anchor is epoch + k * oldBar, so its offset from
+        // the new grid grows with k and is effectively arbitrary once the loop
+        // has been running a while.)
+        //
+        // Snap the loop's anchor — the instant at which `elapsed` equals the loop
+        // start — to the NEAREST bar line. That bounds the correction at half a
+        // bar in either direction. getNextBarTime() would instead always push the
+        // anchor forward, by up to a whole bar, even when the anchor was already
+        // nearly right.
+        //
+        // The anchor may land slightly AHEAD of `now`, by at most half a bar and
+        // only in the first part of a loop. `elapsed` is then below the loop start
+        // and the pre-roll guard holds dispatch until the bar line arrives, so the
+        // loop restarts cleanly from its top on a downbeat — the same "wait for
+        // the bar" behaviour play() gives a launching layer, and bounded by half a
+        // bar. Forcing the anchor into the past instead would cost a jump of up to
+        // one and a half bars, which is worse.
         const pos = start + this._loopFraction * (end - start);
-        this._startTime = this._audioContext.currentTime - pos;
-        this._lastProcessedTime = pos;
+        const anchor = this._clock.quantizeToBar(now - pos + start);
+        this._startTime = anchor - start;
+        // The snap may have moved the playhead either way; resume dispatch from
+        // wherever it now is, clamped into the window (see the wrap handler).
+        this._lastProcessedTime = Math.min(end, Math.max(start, now - this._startTime));
         this._crossfadeStarted = false;
     }
 
