@@ -10,7 +10,8 @@
     --bg-secondary: #1a1816;
     --bg-surface: #252220;
     --text-primary: #ede8e2;
-    --text-secondary: #8a8078;
+    /* 4.10:1 on --bg-surface before — the same argument as the light theme. */
+    --text-secondary: #948a81;
     --accent: #e8a87c;
     --accent-dim: #9b6a48;
     --accent-warm: #e05555;
@@ -26,6 +27,15 @@
        for a non-text indicator, so sharing the accent makes the ring invisible in
        one theme. Measured worst case here: 7.77:1 against --bg-surface. */
     --focus-ring: #e8a87c;
+
+    /* A parameter card and its edge. Deliberately their own tokens: --bg-secondary
+       sits at 1.07:1 against --bg-primary, so a card filled with it is invisible
+       and the grouping it is supposed to carry does not exist. Near-black grounds
+       compress luminance ratios, so 1.20 against the page is the real ceiling for
+       a step that still reads as the same surface family; the edge at 1.58 against
+       the card does the delineating. */
+    --card-bg: #262220;
+    --card-edge: #4a4139;
 
     /* Canvas-drawn colors (read by JS via getComputedStyle) */
     --canvas-bg: #1a1816;
@@ -45,8 +55,17 @@
     --bg-secondary: #ede8e2;
     --bg-surface: #e2dbd4;
     --text-primary: #2a2420;
-    --text-secondary: #7a6e64;
-    --accent: #c47a4a;
+    /* 3.61:1 on --bg-surface before. Every MIN/MAX tag, every modifier word and
+       every helper line in the panel is set in this colour, so it is body text
+       and needs 4.5:1, not the 3:1 of an incidental mark. Now 4.87 worst. */
+    --text-secondary: #665a51;
+    /* Deepened from #c47a4a, which reached only 2.46-2.98:1 on these backgrounds
+       and failed even the 3:1 non-text floor. Hue held at 26deg — the dark theme
+       accent's own hue — and lightness taken down until it clears 4.5:1 on all
+       three grounds (worst 4.51 on --bg-surface, 5.46 on --bg-primary). An amber
+       that glows on near-black has to become a burnt orange on paper; that is
+       the same gesture translated, not a different one. */
+    --accent: #944f1a;
     --accent-dim: #a06030;
     --accent-warm: #c94040;
     --accent-orange: #c47a4a;
@@ -59,6 +78,11 @@
     /* Darker than the light accent by necessity -- see the note in :root.
        Measured worst case 4.98:1 against --bg-surface, 6.03:1 against --bg-primary. */
     --focus-ring: #8a4a1a;
+
+    /* Same reasoning and the same measured steps as :root — 1.20 card-to-page,
+       1.57 edge-to-card — so the panel has identical structure in both themes. */
+    --card-bg: #e4dcd3;
+    --card-edge: #bcb0a1;
 
     --canvas-bg: #ede8e2;
     --canvas-waveform: rgba(180, 110, 60, 0.7);
@@ -825,16 +849,22 @@ html, body {
     border-bottom: 1px solid var(--border);
 }
 
+/* A section heading should look like one. At 11px in --text-secondary with 8px
+   of padding it read as the same rank as a parameter's own label, so the panel
+   had no visible hierarchy: every line of text carried equal weight. */
 .panel-section summary {
-    padding: 8px 16px;
+    padding: 18px 24px 10px;
     font-size: 11px;
     font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--text-secondary);
+    letter-spacing: 0.14em;
+    color: var(--accent);
     cursor: pointer;
     user-select: none;
     list-style: none;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
 }
 
 .panel-section summary::-webkit-details-marker {
@@ -849,17 +879,43 @@ html, body {
     content: '\25BE\00a0';
 }
 
+/* Columns wide enough to hold a real slider. At minmax(200px, 1fr) a 1920px
+   window fits nine tracks, so a parameter's slider came out ~100px while any
+   grid-column: 1 / -1 item spanned the whole window beside it — the same control
+   rendered at 100px and at 1800px in one panel. 320px is the width at which a
+   slider, its MIN/MAX tag and its value readout all fit on one line. */
 .section-content {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 12px;
-    padding: 0 16px 12px;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 18px;
+    padding: 4px 24px 24px;
+    align-items: start;
 }
 
+/* A parameter is one object, so it gets one container. Its name, its sliders and
+   its quantize/randomize toggles share a border and a background; nothing else
+   has to be inferred from proximity alone. This is what the panel was missing —
+   controls sat on the same flat ground as the labels of their neighbours. */
 .param-group {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 10px;
+    padding: 14px 16px 16px;
+    background: var(--card-bg);
+    border: 1px solid var(--card-edge);
+    border-radius: 8px;
+}
+
+/* The parameter's own name. Full strength, above its controls, always. */
+.param-group > label {
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    color: var(--text-primary);
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
 }
 
 .param-group label {
@@ -934,17 +990,35 @@ html, body {
     margin-bottom: 2px;
 }
 
+/* [MIN] [========= slider =========] [ 400 ms ]
+   Three columns with the middle one elastic, so the tag sits hard against the
+   slider it names and every value readout in the panel lines up on one right
+   edge. Values are monospace, so the digits do not jitter as they change. */
 .range-row {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 10px;
+}
+
+.range-row input[type="range"] {
+    flex: 1;
+    min-width: 0;
+}
+
+.range-row .param-value {
+    flex: 0 0 auto;
+    min-width: 88px;
+    text-align: right;
+    font-size: 11px;
+    white-space: nowrap;
 }
 
 .range-label {
     font-size: 10px;
+    letter-spacing: 0.06em;
     color: var(--text-secondary);
     text-transform: uppercase;
-    width: 28px;
+    width: 30px;
     flex-shrink: 0;
     user-select: none;
 }
@@ -1096,7 +1170,8 @@ html, body {
 .envelope-inline {
     display: flex;
     align-items: stretch;
-    gap: 10px;
+    gap: 14px;
+    flex-wrap: wrap;
 }
 
 .envelope-inline select {
@@ -1121,7 +1196,8 @@ html, body {
 
 /* === Musical Section === */
 .musical-content {
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    /* Narrower than the engine's: these are mostly selects, not ranges. */
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
 }
 
 #tap-tempo {
@@ -1416,15 +1492,18 @@ html, body {
     grid-column: 1 / -1;
 }
 
+/* Previous / preview / next, on one line. The buttons flank the shape they step
+   through; stacked vertically they read as unrelated to it. */
 .arp-style-nav {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 12px;
+    flex-wrap: nowrap;
 }
 
 .arp-style-nav button {
-    width: 36px;
-    height: 36px;
+    width: 44px;
+    height: 44px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1509,24 +1588,39 @@ html, body {
    directly under its sliders. Before this they were collected into two aggregate
    "Quantize" and "Randomize" blocks in a different section, so one parameter's
    controls were split across two places in the panel. */
+/* A footer strip inside the card, divided from the sliders it modifies but
+   plainly part of the same object. Negative side margins let the rule run the
+   full card width while the content keeps the card's padding. */
 .param-modifiers {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 8px 14px;
-    margin-top: 8px;
-    padding-top: 8px;
-    border-top: 1px solid var(--border);
+    gap: 10px 18px;
+    margin: 4px -16px -16px;
+    padding: 10px 16px 12px;
+    border-top: 1px solid var(--card-edge);
+    background: var(--bg-primary);
+    border-radius: 0 0 7px 7px;
 }
 
+/* The switch and the word it belongs to are ONE thing: never stretched apart,
+   never wrapped between. In the previous layout the toggle sat at the left edge
+   of the card and its word was pushed to the right edge — at full width that put
+   "Quantize" some 1800px from the switch it named. */
 .param-modifiers .toggle-label {
-    /* 44px min target: this is a touch instrument, and these are the smallest
+    flex: 0 0 auto;
+    white-space: nowrap;
+    gap: 8px;
+    /* 44px min target: this is a touch instrument and these are the smallest
        hit areas in the panel. */
     min-height: 44px;
 }
 
+/* The subdivision belongs to Quantize, so it sits tight against it and further
+   from Randomize than the strip's own gap. */
 .param-modifiers .subdiv-select {
-    margin-left: -6px;
+    margin-left: -10px;
+    min-height: 30px;
 }
 
 /* === Focus visibility ===
