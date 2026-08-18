@@ -37,13 +37,21 @@ function themeTokens(selector) {
 }
 
 const THEMES = { dark: themeTokens(':root'), light: themeTokens('[data-theme="light"]') };
-const GROUNDS = ['bg-primary', 'bg-secondary', 'bg-surface'];
-
-/** Tokens used as BODY TEXT somewhere in the UI: the 4.5:1 floor applies. */
+/* Each token is checked against the grounds it ACTUALLY appears on, not against
+   every ground in the palette. Both directions of that matter:
+   - Too narrow and you certify a colour that fails where it is used. The first
+     audit here covered only the three bg-* tokens, so --text-secondary was
+     signed off at 4.87:1 while the modifier words — which sit on --card-shelf
+     and nowhere else — were at 3.87:1.
+   - Too broad and you darken a colour to satisfy a pairing that never renders.
+     --accent is 3.76:1 on --card-shelf, and it is never drawn there. */
 const TEXT_TOKENS = [
-    ['text-primary', 'parameter names, values, headings'],
-    ['text-secondary', 'MIN/MAX tags, modifier words, helper lines'],
-    ['accent', 'section headings, at 11px'],
+    ['text-primary', ['bg-primary', 'bg-secondary', 'bg-surface', 'card-bg'],
+        'parameter names, values, headings'],
+    ['text-secondary', ['bg-primary', 'bg-secondary', 'bg-surface', 'card-bg', 'card-shelf'],
+        'MIN/MAX tags, modifier words on the shelf, reason lines on the card'],
+    ['accent', ['bg-primary', 'bg-secondary', 'card-bg'],
+        'section headings at 15px and value readouts at 11px'],
 ];
 
 /** Tokens used as non-text UI: the 3:1 floor of WCAG 1.4.11 applies.
@@ -51,24 +59,26 @@ const TEXT_TOKENS = [
  *  control; a divider that groups is decoration, and forcing it to 3:1 would make
  *  the panel harsh for no accessibility gain. Their job is measured below instead. */
 const UI_TOKENS = [
-    ['focus-ring', 'the keyboard focus indicator'],
+    ['focus-ring', ['bg-primary', 'bg-secondary', 'bg-surface', 'card-bg', 'card-shelf'],
+        'the keyboard focus indicator — it must be findable on every surface a ' +
+        'control can sit on, including the modifier shelf'],
 ];
 
 for (const [theme, tokens] of Object.entries(THEMES)) {
-    for (const [token, used] of TEXT_TOKENS) {
-        test(`${theme}: --${token} reaches 4.5:1 on every ground (${used})`, () => {
+    for (const [token, grounds, used] of TEXT_TOKENS) {
+        test(`${theme}: --${token} reaches 4.5:1 where it is used (${used})`, () => {
             assert.ok(tokens[token], `${theme} defines no --${token}`);
-            for (const g of GROUNDS) {
+            for (const g of grounds) {
                 const r = contrast(tokens[token], tokens[g]);
                 assert.ok(r >= 4.5,
                     `--${token} ${tokens[token]} on --${g} ${tokens[g]} is ${r.toFixed(2)}:1`);
             }
         });
     }
-    for (const [token, used] of UI_TOKENS) {
-        test(`${theme}: --${token} reaches 3:1 on every ground (${used})`, () => {
+    for (const [token, grounds, used] of UI_TOKENS) {
+        test(`${theme}: --${token} reaches 3:1 where it is used (${used})`, () => {
             assert.ok(tokens[token], `${theme} defines no --${token}`);
-            for (const g of GROUNDS) {
+            for (const g of grounds) {
                 const r = contrast(tokens[token], tokens[g]);
                 assert.ok(r >= 3.0,
                     `--${token} ${tokens[token]} on --${g} ${tokens[g]} is ${r.toFixed(2)}:1`);
@@ -99,5 +109,19 @@ test('a parameter card is actually distinguishable from the panel behind it', ()
             `${theme}: --card-bg ${t['card-bg']} is ${fill.toFixed(2)}:1 against the page — invisible`);
         assert.ok(edge >= 1.45,
             `${theme}: --card-edge ${t['card-edge']} is ${edge.toFixed(2)}:1 against the card — no delineation`);
+    }
+});
+
+test('the modifier shelf still reads as a step down from the card face', () => {
+    // It has two jobs that pull against each other: enough contrast with the card
+    // to look like a shelf rather than a hole, and a light enough ground for
+    // --text-secondary to clear 4.5:1 on it. Fixing one alone broke the other
+    // twice — first --bg-primary (1.07:1, a hole), then a lighter shelf (text
+    // fine, 1.07:1 again).
+    for (const [theme, t] of Object.entries(THEMES)) {
+        const step = contrast(t['card-shelf'], t['card-bg']);
+        assert.ok(step >= 1.12,
+            `${theme}: --card-shelf ${t['card-shelf']} is ${step.toFixed(2)}:1 against ` +
+            `--card-bg — the modifier strip reads as a hole in the card, not a shelf`);
     }
 });

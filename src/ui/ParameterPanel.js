@@ -288,6 +288,8 @@ export class ParameterPanel {
         // Max rows cached too: updateParamRelevance runs from main.js's render
         // loop, so a closest() per parameter per frame is 240 DOM walks a second
         // in an app whose whole point is not stalling the audio thread's feeder.
+        this._notes = Object.fromEntries(
+            [...document.querySelectorAll('[data-note]')].map(el => [el.dataset.note, el]));
         this._maxRows = {
             grainSize: this._ranges.grainSize.maxSlider.closest('.range-row'),
             density:   this._ranges.density.maxSlider.closest('.range-row'),
@@ -297,6 +299,19 @@ export class ParameterPanel {
         // Param groups for musical controls
         this._rootNoteGroup = this._rootNoteSelect.closest('.param-group');
         this._scaleGroup    = this._scaleSelect.closest('.param-group');
+    }
+
+    /**
+     * Write (or clear) the one-line reason a card's control is unavailable.
+     * @param {string} key - the data-note value on the target <p>
+     * @param {string|null} text - null clears and hides the line
+     * @private
+     */
+    _setNote(key, text) {
+        const el = this._notes[key];
+        if (!el) return;
+        if (el.textContent !== (text || '')) el.textContent = text || '';
+        el.hidden = !text;
     }
 
     /** Show/hide arp controls based on randomize pitch toggle and arp mode. */
@@ -900,20 +915,38 @@ export class ParameterPanel {
         // across their whole travel while the numbers never moved and never
         // differed. Nothing on screen said whether the control or the user was
         // at fault. Disable them and let the subdivision select be the control.
-        const setRows = (minRow, key, active, quantized) => {
+        // `quantized` alone is NOT the condition. main.js:290 substitutes the
+        // subdivision only when quantize is on AND randomize is off; with both on,
+        // the min/max pair is live — it is the random range, which is then snapped
+        // to the grid. Disabling on `quantized` alone locked the user out (by the
+        // disabled attribute, so keyboard too) of the exact two sliders shaping
+        // what they were hearing, and overwrote both readouts with one static
+        // string that was not what the engine was producing.
+        const setRows = (minRow, key, active, quantized, randomized) => {
             const r = this._ranges[key];
             const maxRow = this._maxRows[key];
-            const showMin = active && !quantized;
+            const derived = quantized && !randomized;
+            const showMin = active && !derived;
             minRow.hidden = !showMin;
             r.minSlider.disabled = !showMin;
             maxRow.classList.toggle('range-row-solo', !showMin);
-            r.maxSlider.disabled = quantized;
-            maxRow.classList.toggle('range-row-derived', quantized);
+            r.maxSlider.disabled = derived;
+            maxRow.classList.toggle('range-row-derived', derived);
+            return derived;
         };
-        setRows(this._grainSizeMinRow, 'grainSize', gsMinActive, this._quantizeGrainSize.checked);
-        setRows(this._densityMinRow, 'density', denMinActive, this._quantizeDensity.checked);
-        setRows(this._spreadMinRow, 'spread', sprMinActive, false);
-        setRows(this._panMinRow, 'pan', panMinActive, false);
+        const gsDerived = setRows(this._grainSizeMinRow, 'grainSize', gsMinActive,
+            this._quantizeGrainSize.checked, m.randomGrainSize);
+        const denDerived = setRows(this._densityMinRow, 'density', denMinActive,
+            this._quantizeDensity.checked, m.randomDensity);
+        setRows(this._spreadMinRow, 'spread', sprMinActive, false, false);
+        setRows(this._panMinRow, 'pan', panMinActive, false, m.randomPan);
+
+        // Say WHY a control is unavailable, in place of the control. Greying
+        // something out states that it is off and nothing else; the user is left
+        // to discover the switch that wakes it. These are the only dead controls
+        // a musician meets in the first ten seconds.
+        this._setNote('grain-size', gsDerived ? 'Set by Quantize' : null);
+        this._setNote('density', denDerived ? 'Set by Quantize' : null);
 
         // --- Root Note & Scale: active when quantize pitch, or arp pattern ≠ random ---
         const arpPattern = m.arpPattern || 'random';
@@ -926,6 +959,9 @@ export class ParameterPanel {
         // could previously change both while they read as inactive.
         this._rootNoteSelect.disabled = !noteActive;
         this._scaleSelect.disabled = !noteActive;
+        const why = noteActive ? null : 'Needs Pitch → Quantize, or an arpeggiated Pitch Motion';
+        this._setNote('root-note', why);
+        this._setNote('scale', why);
     }
 
     /**

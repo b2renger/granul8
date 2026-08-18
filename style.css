@@ -58,8 +58,12 @@
     --text-primary: #2a2420;
     /* 3.61:1 on --bg-surface before. Every MIN/MAX tag, every modifier word and
        every helper line in the panel is set in this colour, so it is body text
-       and needs 4.5:1, not the 3:1 of an incidental mark. Now 4.87 worst. */
-    --text-secondary: #665a51;
+       and needs 4.5:1, not the 3:1 of an incidental mark.
+       Deepened again once --card-shelf existed: the first audit covered
+       --bg-primary, --bg-secondary and --bg-surface but NOT the shelf, which is
+       the only surface the modifier words ever sit on, and there it measured
+       3.87:1. Worst ground now 4.53:1 (the shelf); 5.45:1 elsewhere. */
+    --text-secondary: #5e534a;
     /* Deepened from #c47a4a, which reached only 2.46-2.98:1 on these backgrounds
        and failed even the 3:1 non-text floor. Hue held at 26deg — the dark theme
        accent's own hue — and lightness taken down until it clears 4.5:1 on all
@@ -84,7 +88,7 @@
        1.57 edge-to-card — so the panel has identical structure in both themes. */
     --card-bg: #e4dcd3;
     --card-edge: #bcb0a1;
-    --card-shelf: #cec3b5;
+    --card-shelf: #d3c8ba;
 
     --canvas-bg: #ede8e2;
     --canvas-waveform: rgba(180, 110, 60, 0.7);
@@ -589,7 +593,12 @@ html, body {
 
 .snap-btn {
     font-size: 14px;
-    opacity: 0.5;
+    /* Not 0.5 on the whole element. These are fully operable in their OFF
+       state, and at 0.5 they rendered knocked back harder than the genuinely
+       disabled Play/Stop/Loop beside them — the four things you cannot press
+       looked more solid than the two you can. Dim the glyph, keep the box. */
+    opacity: 1;
+    color: var(--text-secondary);
     padding: 2px 6px;
 }
 
@@ -603,7 +612,12 @@ html, body {
 .loop-station-btn {
     font-size: 11px;
     font-weight: bold;
-    opacity: 0.5;
+    /* Not 0.5 on the whole element. These are fully operable in their OFF
+       state, and at 0.5 they rendered knocked back harder than the genuinely
+       disabled Play/Stop/Loop beside them — the four things you cannot press
+       looked more solid than the two you can. Dim the glyph, keep the box. */
+    opacity: 1;
+    color: var(--text-secondary);
     padding: 2px 5px;
     letter-spacing: 0.5px;
 }
@@ -716,7 +730,12 @@ html, body {
 
 .metronome-btn {
     font-size: 14px;
-    opacity: 0.5;
+    /* Not 0.5 on the whole element. These are fully operable in their OFF
+       state, and at 0.5 they rendered knocked back harder than the genuinely
+       disabled Play/Stop/Loop beside them — the four things you cannot press
+       looked more solid than the two you can. Dim the glyph, keep the box. */
+    opacity: 1;
+    color: var(--text-secondary);
     padding: 2px 6px;
 }
 
@@ -965,7 +984,7 @@ html, body {
 .param-group {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 12px;
     padding: 14px 16px 16px;
     background: var(--card-bg);
     /* Rows sit 10px apart; the name binds tighter, at 8px, to the block it
@@ -1080,13 +1099,12 @@ html, body {
 .param-group > label,
 .param-group > .param-name {
     /* -2px against a 10px gap was arithmetically "tighter" and perceptually
-       nothing: an 8px vs 10px difference on a 10px baseline is not a signal, so
-       the card border was carrying all of the grouping. 6px vs 12px is. */
-    margin-bottom: -4px;
-}
-
-.param-group {
-    row-gap: 12px;
+       nothing: an 8px vs 10px difference is not a signal, so the card border was
+       carrying all of the grouping. -6px against the 12px row gap gives a real
+       6-vs-12 step. (.param-group was ALSO declared twice, gap:10px then
+       row-gap:12px, so the earlier comment's arithmetic described a 10px gap
+       that never rendered. One declaration now.) */
+    margin-bottom: -6px;
 }
 
 /* [MIN] [========= slider =========] [ 400 ms ]
@@ -1781,6 +1799,17 @@ button {
     cursor: pointer;
 }
 
+/* The reason a control is unavailable, in place of the control. Dimming states
+   that something is off; it never says which switch turns it on, and a musician
+   meeting three dead cards in the first ten seconds reads them as broken. */
+.param-note {
+    margin: -2px 0 0;
+    font-size: 11px;
+    line-height: 1.35;
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
 /* === Focus visibility ===
    There was no focus styling anywhere in 1551 lines, so a keyboard user had no
    way to tell where they were. :focus-visible leaves pointer interaction alone. */
@@ -1839,6 +1868,16 @@ button {
 
 /* === Responsive: phone === */
 @media (max-width: 600px) {
+    /* The level meter is decoration; the transport buttons are the instrument.
+       At 400px the meter's flex-shrink: 0 plus a nowrap time display forced the
+       seven buttons down to ~19px each, on a device whose only input is a
+       fingertip and in a file that holds a 44px floor everywhere else. */
+    #level-meter { display: none; }
+    #transport-bar { flex-wrap: wrap; row-gap: 8px; }
+    #transport-bar button { flex: 0 0 auto; }
+    #tempo-control { flex-wrap: wrap; row-gap: 6px; }
+    #parameter-panel { max-height: 44vh; }
+
     #top-bar {
         gap: 6px;
         padding: 6px 10px;
@@ -1859,12 +1898,15 @@ button {
     }
 
     .section-content {
-        /* One column, not two. Forcing 1fr 1fr regardless of how narrow the
-           viewport is gives ~186px columns at 400px, which cannot hold a slider,
-           its tag and its value on one line. Same padding-top argument as 768. */
+        /* One column, not two: forcing 1fr 1fr at any width down to 400px gives
+           ~186px columns, too narrow for a slider, its tag and its value on one
+           line. And 18px between cards, not 10 — at 10 the heading sat 12px from
+           its own content while two UNRELATED cards sat 10px apart, and rows
+           inside a single card sat 12px apart. Proximity was telling the reader
+           that every control belonged to its neighbour's card. */
         grid-template-columns: 1fr;
-        gap: 10px;
-        padding: 4px 10px 14px;
+        gap: 18px;
+        padding: 4px 10px 18px;
     }
 
     #transport-bar {

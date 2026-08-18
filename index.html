@@ -161,6 +161,7 @@
                         </div>
                         <div class="param-group">
                             <label for="param-root-note">Root Note</label>
+                            <p class="param-note" data-note="root-note" hidden></p>
                             <select id="param-root-note">
                                 <option value="0" selected>C</option>
                                 <option value="1">C#</option>
@@ -178,6 +179,7 @@
                         </div>
                         <div class="param-group">
                             <label for="param-scale">Scale</label>
+                            <p class="param-note" data-note="scale" hidden></p>
                             <select id="param-scale">
                                 <option value="chromatic" selected>Chromatic</option>
                                 <option value="major">Major (Ionian)</option>
@@ -202,8 +204,8 @@
                         <div class="param-group" id="arp-mode-group" style="display: none;">
                             <label for="param-arp-pattern">Pitch Motion</label>
                             <select id="param-arp-pattern">
-                                <option value="random" selected>Random</option>
-                                <option value="arpeggiator">Arpeggiator</option>
+                                <option value="random" selected>Free (random notes)</option>
+                                <option value="arpeggiator">Arpeggio (fixed pattern)</option>
                             </select>
                         </div>
                         <div class="param-group" id="arp-steps-group" style="display: none;">
@@ -213,8 +215,8 @@
                         <div class="param-group" id="arp-type-group" style="display: none;">
                             <label for="param-arp-type">Pattern Playback</label>
                             <select id="param-arp-type">
-                                <option value="straight" selected>Straight</option>
-                                <option value="looped">Looped</option>
+                                <option value="straight" selected>Play once per step</option>
+                                <option value="looped">Repeat the pattern</option>
                             </select>
                         </div>
                         <div class="param-group arp-style-group" id="arp-style-group" style="display: none;">
@@ -233,6 +235,7 @@
                     <div class="section-content">
                         <div class="param-group range-group">
                             <h3 class="param-name">Grain Size</h3>
+                            <p class="param-note" data-note="grain-size" hidden></p>
                             <div class="range-row">
                                 <span class="range-label">Min</span>
                                 <input type="range" id="param-grain-size-min" aria-label="Grain size minimum" aria-describedby="val-grain-size-min" min="0" max="1" value="0.8674" step="0.001">
@@ -293,6 +296,7 @@
                         </div>
                         <div class="param-group range-group">
                             <h3 class="param-name">Grain Spacing</h3>
+                            <p class="param-note" data-note="density" hidden></p>
                             <div class="range-row">
                                 <span class="range-label">Min</span>
                                 <input type="range" id="param-density-min" aria-label="Grain spacing minimum" aria-describedby="val-density-min" min="0" max="1" value="0.651" step="0.001">
