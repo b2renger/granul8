@@ -185,3 +185,35 @@ test('the playhead never jumps backwards at a loop-station wrap', () => {
         p.stop();
     } finally { restore(); }
 });
+
+test('a non-loop-station player with a trimmed loop range begins dispatching in-range events promptly, not after a loopStart-length freeze', () => {
+    // Regression test: setLoopRange(1.0, 3.0) on a NON-loop-station player (e.g. via the
+    // waveform loop-trim UI, which is not gated on loop-station mode). The pre-roll guard
+    // added for loop-station phase-locking must not stall a plain player for `_loopStart`
+    // seconds of dead air before it starts, nor cause in-range events to be missed as a
+    // result of that stall.
+    const { timers, ctx, p, dispatched, restore } = harness();
+    try {
+        const l = lane([
+            { time: 0.1, voiceIndex: 0, type: 'start', params: P('pre-a') },
+            { time: 0.5, voiceIndex: 0, type: 'stop' },
+            { time: 1.2, voiceIndex: 1, type: 'start', params: P('in-a') },
+            { time: 1.8, voiceIndex: 1, type: 'stop' },
+            { time: 2.4, voiceIndex: 2, type: 'start', params: P('in-b') },
+        ]);
+        p.setLoopRange(1.0, 3.0);
+        p.play(l, true);                 // loop-station mode is NOT enabled
+        advance(ctx, timers, 1.5);        // stays within the first pass (loop wraps at elapsed 3.0);
+                                           // long enough to reach both in-range events under a
+                                           // correctly-anchored player, too short to reach them
+                                           // under the buggy anchor's loopStart-length freeze
+
+        const inRangeStarts = dispatched.filter(d => d.type === 'start' && (d.tag === 'in-a' || d.tag === 'in-b'));
+        assert.equal(inRangeStarts.length, 2,
+            `expected both in-range events (1.2, 2.4) to be dispatched within 1.5s, got ${inRangeStarts.length}: ${JSON.stringify(dispatched)}`);
+        assert.ok(dispatched.length > 0, 'nothing was dispatched at all');
+        assert.ok(dispatched[0].at < 0.5,
+            `first dispatch should happen promptly (near the play() call), not after a loopStart-length freeze: first dispatch at ${dispatched[0].at}`);
+        p.stop();
+    } finally { restore(); }
+});

@@ -145,7 +145,15 @@ export class Player {
         if (this._loopStationMode && this._clock) {
             this._startTime = this._clock.getNextBarTime() - this._loopStart;
         } else {
-            this._startTime = this._audioContext.currentTime;
+            // Subtract _loopStart here too. The pre-roll guard below blocks
+            // dispatch until `elapsed` reaches _loopStart, so anchoring at plain
+            // currentTime would freeze a NON-loop-station player for _loopStart
+            // seconds of dead air and then drop everything before it. Anchoring
+            // back by _loopStart makes elapsed START at _loopStart, so playback
+            // begins immediately at the trimmed loop start — which is also the
+            // correct fix for AUDIT-CODE #22 (play() ignoring _loopStart on the
+            // first pass).
+            this._startTime = this._audioContext.currentTime - this._loopStart;
         }
         this._lastProcessedTime = this._loopStart;
         this._currentIteration = 'A';
