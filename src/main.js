@@ -975,6 +975,11 @@ function updateGestureMeters() {
 
     gestureMeterEls.contactSize.style.width = hasPointers ? `${live.contactSize * 100}%` : '0%';
     setGestureStatus(gestureStatusEls.contactSize, caps.contactSize);
+    // Velocity too. Its badge was hardcoded to "supported" in the HTML and its
+    // JS handle never used, so it read as an earned answer in accent while the
+    // two rows above it still said "checking…" — three rows, two epistemic
+    // states, only one of them actually established.
+    setGestureStatus(gestureStatusEls.velocity, caps.velocity);
 
     gestureMeterEls.velocity.style.width = hasPointers ? `${live.velocity * 100}%` : '0%';
 }

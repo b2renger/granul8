@@ -78,6 +78,7 @@
                 </div>
                 <div id="metronome-control" class="metronome-control">
                     <button id="btn-metronome" type="button" title="Toggle metronome click" aria-label="Metronome click" class="metronome-btn">♩</button>
+                    <span class="metronome-caption" aria-hidden="true">Click</span>
                     <input type="range" id="metronome-volume" aria-label="Metronome volume" min="0" max="1" value="0.5" step="0.01" title="Metronome volume">
                 </div>
                 <div id="beat-indicator" class="beat-indicator"></div>
@@ -405,7 +406,7 @@
                                 <option value="grainSize">Grain Size</option>
                                 <option value="density">Grain Spacing</option>
                                 <option value="spread">Position Scatter</option>
-                                <option value="amplitude">Grain level (no slider)</option>
+                                <option value="amplitude">Grain level</option>
                                 <option value="pitch">Pitch</option>
                             </select>
                             <div class="gesture-meter">
@@ -422,7 +423,7 @@
                                 <option value="grainSize">Grain Size</option>
                                 <option value="density">Grain Spacing</option>
                                 <option value="spread">Position Scatter</option>
-                                <option value="amplitude">Grain level (no slider)</option>
+                                <option value="amplitude">Grain level</option>
                                 <option value="pitch">Pitch</option>
                             </select>
                             <div class="gesture-meter">
@@ -432,14 +433,14 @@
                         <div class="param-group gesture-map-group">
                             <label for="map-velocity">
                                 Velocity
-                                <span class="gesture-status active" id="status-velocity">supported</span>
+                                <span class="gesture-status" id="status-velocity">checking&hellip;</span>
                             </label>
                             <select id="map-velocity">
                                 <option value="none" selected>None</option>
                                 <option value="grainSize">Grain Size</option>
                                 <option value="density">Grain Spacing</option>
                                 <option value="spread">Position Scatter</option>
-                                <option value="amplitude">Grain level (no slider)</option>
+                                <option value="amplitude">Grain level</option>
                                 <option value="pitch">Pitch</option>
                             </select>
                             <div class="gesture-meter">

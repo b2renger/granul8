@@ -903,7 +903,11 @@ export class ParameterPanel {
         const denMinActive = m.randomDensity   || hasMapping('density');
         const sprMinActive = hasMapping('spread');
 
-        const panMinActive = m.randomPan || hasMapping('pan');
+        // Not `|| hasMapping('pan')`: no gesture select offers value="pan" (the
+        // options are grainSize / density / spread / amplitude / pitch), so that
+        // half was unreachable and would read as working code to whoever next
+        // wonders why mapping a gesture to Pan reveals nothing.
+        const panMinActive = m.randomPan;
 
         // A range needs two ends; a single value does not. With randomize off and
         // no gesture mapped, MIN is not a control the user can use for anything,

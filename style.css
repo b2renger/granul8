@@ -139,9 +139,10 @@ html, body {
        the right edge and unreachable. iPad landscape at 1024px sits inside that
        dead zone, and it is one of the two stated devices. */
     flex-wrap: wrap;
-    row-gap: 8px;
     align-items: center;
-    gap: 16px;
+    /* One shorthand. `row-gap: 8px` was declared four lines above a `gap: 16px`
+       that resets it, so wrapped rows sat 16px apart, not 8. */
+    gap: 8px 16px;
     padding: 8px 16px;
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border);
@@ -455,10 +456,6 @@ html, body {
     font-weight: 600;
     pointer-events: none;
     z-index: 10;
-}
-
-#drop-overlay[hidden] {
-    display: none;
 }
 
 /* === Transport Bar === */
@@ -1229,10 +1226,10 @@ html, body {
    0.55 rather than 0.35: at 0.35 --text-secondary over --card-bg measured
    1.71:1, which is not a dimmed control but an unreadable one. The `disabled`
    attribute set alongside is what actually conveys inactive; this only hints. */
+/* label and select only: .param-inactive is applied to the Root Note and Scale
+   groups and nothing else, and neither contains a direct input or .param-name. */
 .param-inactive > label,
-.param-inactive > select,
-.param-inactive > input,
-.param-inactive > .param-name {
+.param-inactive > select {
     opacity: 0.55;
     transition: opacity 0.2s;
 }
@@ -1474,8 +1471,8 @@ html, body {
 }
 
 .subdiv-select:disabled {
-    /* This is the control that says what Quantize WILL do before you commit to it; at 0.3 it measured 2.40:1 dark / 1.83:1 light, illegible in exactly that pre-decision state. */
-    opacity: 0.6;
+    /* This is the control that says what Quantize WILL do before you commit to it; at 0.3 it measured 2.40:1 dark / 1.83:1 light, illegible in exactly that pre-decision state. The inactive-component exemption is the wrong thing to lean on here, for the reason this comment itself gives: it must be readable WHILE still off. 0.7 measures 4.52:1 light / 6.1:1 dark, over the 4.5 line rather than under it. */
+    opacity: 0.7;
     cursor: default;
 }
 
@@ -1798,8 +1795,10 @@ html, body {
     min-height: 44px;
 }
 
-/* The subdivision belongs to Quantize, so it sits tight against it and further
-   from Randomize than the strip's own gap. */
+/* The subdivision belongs to Quantize, so it sits 8px from it against the strip's
+   own 18px column gap to Randomize — 8/8/18, two clean units. (An earlier comment
+   here claimed the distance to Randomize was MORE than the strip gap. It is
+   exactly the strip gap.) */
 .param-modifiers .subdiv-select {
     min-height: 44px;
     margin-left: -10px;
@@ -1899,6 +1898,18 @@ button {
     gap: 6px;
 }
 
+/* The metronome volume slider was the last control in the app whose only name
+   was a `title` attribute — which never fires on touch. On a tablet it read as
+   "♩ [—●———]": click volume, click pitch, or subdivision? Everything else in this
+   bar carries a visible word. */
+.metronome-caption {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-secondary);
+    user-select: none;
+}
+
 /* === Focus visibility ===
    There was no focus styling anywhere in 1551 lines, so a keyboard user had no
    way to tell where they were. :focus-visible leaves pointer interaction alone. */
@@ -1958,12 +1969,24 @@ button {
 
 /* === Responsive: phone === */
 @media (max-width: 600px) {
+    /* At 400x800 the used height came to 609px in a 532px #main-area — 77px
+       overflowing under body { overflow: hidden }, with no way to scroll to it.
+       The top bar was 239px of that, wrapped into five rows above a waveform
+       pinned at its 150px floor: 30% of the screen given to chrome above the
+       instrument. Compact the bar, and let the PANEL yield rather than the pad. */
+    #top-bar { padding: 6px 10px; gap: 6px 10px; }
+    #top-bar h1 { font-size: 13px; }
+    #parameter-panel { flex-shrink: 1; min-height: 0; max-height: 38vh; }
+    #waveform-container { min-height: 120px; }
+}
+
+@media (max-width: 600px) {
     /* The level meter is decoration; the transport buttons are the instrument.
        At 400px the meter's flex-shrink: 0 plus a nowrap time display forced the
        seven buttons down to ~19px each, on a device whose only input is a
        fingertip and in a file that holds a 44px floor everywhere else. */
     #level-meter { display: none; }
-    #transport-bar { flex-wrap: wrap; row-gap: 8px; }
+    #transport-bar { flex-wrap: wrap; }
     #transport-bar button { flex: 0 0 auto; }
     #tempo-control { flex-wrap: wrap; row-gap: 6px; }
     #parameter-panel { max-height: 44vh; }
@@ -2012,7 +2035,10 @@ button {
         /* Asymmetric, like the desktop rule: more above than below, so the
            heading stays bound to the content under it rather than floating
            equidistant between two sections. */
-        padding: 16px 10px 8px;
+        /* 12px below, not 8: at 8 the heading-to-first-card gap equalled the
+           12px row gap INSIDE a card, collapsing the ladder at exactly the width
+           where cards go single-column and space is the only grouping cue left. */
+        padding: 18px 10px 12px;
         font-size: 14px;
     }
 }
@@ -2049,7 +2075,11 @@ button {
     }
 
     #parameter-panel {
-        max-height: 120px;
+        /* 120px was shorter than a single card (167px for Grain Size: 14 + 16
+           name + 6 + 44 slider + 12 + 71 shelf), so no parameter could ever be
+           seen whole. 190px shows one complete card and the start of the next,
+           which is also what tells the reader the panel scrolls. */
+        max-height: 190px;
         overflow-y: auto;
     }
 }
