@@ -39,13 +39,22 @@ const RANGE_PARAMS = [
         name: 'spread',
         minId: 'param-spread-min', minValId: 'val-spread-min',
         maxId: 'param-spread-max', maxValId: 'val-spread-max',
-        display: n => parseFloat(n).toFixed(2),
+        // A fraction of the whole buffer, so a percentage says what it is. Note it
+        // ALSO widens pan by spread * 0.5 (grainFactory.js), which nothing on
+        // screen states; the card name covers only the position half.
+        display: n => `${Math.round(parseFloat(n) * 100)}% of sample`,
     },
     {
         name: 'pan',
         minId: 'param-pan-min', minValId: 'val-pan-min',
         maxId: 'param-pan-max', maxValId: 'val-pan-max',
-        display: n => parseFloat(n).toFixed(2),
+        // "-0.40" says nothing about which side that is. Every other readout in
+        // the panel carries its unit; this one carried a bare signed number.
+        display: (n) => {
+            const v = parseFloat(n);
+            if (Math.abs(v) < 0.005) return 'centre';
+            return `${Math.round(Math.abs(v) * 100)}% ${v < 0 ? 'L' : 'R'}`;
+        },
     },
 ];
 
@@ -959,7 +968,12 @@ export class ParameterPanel {
         // could previously change both while they read as inactive.
         this._rootNoteSelect.disabled = !noteActive;
         this._scaleSelect.disabled = !noteActive;
-        const why = noteActive ? null : 'Needs Pitch → Quantize, or an arpeggiated Pitch Motion';
+        // Names only what is on screen right now. The previous wording pointed at
+        // "Pitch Motion", a card that is display:none in exactly the state that
+        // shows this note — so half the instruction referred to a control the
+        // reader could not see. It also used an arrow, which reads as a menu path
+        // in an interface that has no menus.
+        const why = noteActive ? null : 'Turn on Quantize in the Pitch card to use this';
         this._setNote('root-note', why);
         this._setNote('scale', why);
     }

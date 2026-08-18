@@ -23,7 +23,9 @@
     --slider-thumb: #e8a87c;
 
     /* Focus indicator. A token of its own, NOT --accent: the light theme's accent
-       reaches only 2.46:1 against --bg-surface, below the 3:1 WCAG 1.4.11 floor
+       reached only 2.46:1 against --bg-surface when this token was introduced
+       (it has since been deepened to #944f1a, 4.51:1 there, but the two still
+       have different jobs and different constraints), below the 3:1 WCAG 1.4.11 floor
        for a non-text indicator, so sharing the accent makes the ring invisible in
        one theme. Measured worst case here: 7.77:1 against --bg-surface. */
     --focus-ring: #e8a87c;
@@ -88,7 +90,7 @@
        1.57 edge-to-card — so the panel has identical structure in both themes. */
     --card-bg: #e4dcd3;
     --card-edge: #bcb0a1;
-    --card-shelf: #d3c8ba;
+    --card-shelf: #d6ccbf;
 
     --canvas-bg: #ede8e2;
     --canvas-waveform: rgba(180, 110, 60, 0.7);
@@ -502,10 +504,13 @@ html, body {
        currently unavailable" are two separate, legible facts.) */
     opacity: 1;
     cursor: not-allowed;
-    /* NOT --bg-secondary: that is #transport-bar's own background, so the face
-       vanished and the only edge left was a 1px border at 1.34:1 — four ghosts
-       where the comment above promises a visible-but-unavailable control. The
-       card tokens give the face a real step off the bar. */
+    /* The face is essentially the enabled face (--card-bg #262220 vs --bg-surface
+       #252220 — one unit of red, 1.121:1 vs 1.118:1 against the bar), and that is
+       fine: the state is carried by the rule below, which dims the ICON to 45%
+       while the chrome stays full strength. Play reads 7.77:1 -> 2.74:1, stop
+       4.67:1 -> 2.01:1. "There is a control here" and "it is unavailable" stay
+       two separate legible facts, and an inactive component is exempt from the
+       1.4.11 floor, so the icon is allowed to go quiet. */
     background: var(--card-bg);
     border-color: var(--card-edge);
 }
@@ -1214,11 +1219,20 @@ html, body {
    announced as active, and changeable with the arrow keys. The controls inside
    now carry the real `disabled` attribute (see ParameterPanel.updateParamRelevance),
    so keyboard, screen readers and the screen finally agree. */
-.param-inactive {
-    /* 0.55, not 0.35. At 0.35 --text-secondary over --card-bg composites to
-       1.71:1 — not a dimmed control, an unreadable one. The `disabled` attribute
-       set alongside this is what actually conveys "inactive"; the opacity only
-       has to hint at it. */
+/* Dims the card's CONTROLS, not the card. Putting opacity on .param-group made
+   the whole subtree one composited group, and a child cannot climb back out of
+   that — `opacity: 1` on .param-note only means "do not dim me further". So the
+   one sentence naming the switch that wakes the card rendered at 2.29:1 dark and
+   2.23:1 light, under a comment asserting it had been exempted. Ancestor opacity
+   is the single mechanism a descendant cannot opt out of; the fix is not to
+   apply it to an ancestor of something that must stay readable.
+   0.55 rather than 0.35: at 0.35 --text-secondary over --card-bg measured
+   1.71:1, which is not a dimmed control but an unreadable one. The `disabled`
+   attribute set alongside is what actually conveys inactive; this only hints. */
+.param-inactive > label,
+.param-inactive > select,
+.param-inactive > input,
+.param-inactive > .param-name {
     opacity: 0.55;
     transition: opacity 0.2s;
 }
@@ -1226,10 +1240,9 @@ html, body {
 /* Retained for any row dimmed without being hidden. The panel no longer uses it
    for MIN rows — at 0.35 over --card-bg the tag measured 1.71:1 and the value
    2.15:1, so "dimmed" meant "illegible" rather than "inactive". */
-.range-row-inactive {
-    opacity: 0.55;
-    transition: opacity 0.2s;
-}
+/* .range-row-inactive removed. It stopped matching anything when the MIN row
+   began being hidden rather than dimmed; a rule nothing applies is a rule the
+   next reader has to disprove. */
 
 /* === Gesture Indicator (real-time feedback on range sliders) === */
 .range-group {
@@ -1306,7 +1319,10 @@ html, body {
 }
 
 .gesture-status.active {
-    background: rgba(232, 168, 124, 0.15);
+    /* No hardcoded tint. rgba(232,168,124,0.15) is the DARK accent, applied in
+       both themes: in light it put #944f1a at 4.29:1 at 10px. The base rule's
+       tint was removed for this exact reason and the .active variant kept it. */
+    background: transparent;
     color: var(--accent);
     opacity: 1;
 }
@@ -1830,13 +1846,10 @@ button {
 /* The reason a control is unavailable, in place of the control. Dimming states
    that something is off; it never says which switch turns it on, and a musician
    meeting three dead cards in the first ten seconds reads them as broken. */
-/* Never dimmed. .param-inactive drops a card to 0.55 opacity, which put this
-   line — the only text naming the switch that wakes the card — at 2.32:1 dark
-   and 2.22:1 light, while the card title beside it survived at 4.84:1 because it
-   is --text-primary. The explanation was the part that got hidden. */
-.param-inactive .param-note,
+/* Full strength always — see the note on .param-inactive, which now dims the
+   card's controls rather than the card, so this line is never inside the
+   composited group. */
 .param-note {
-    opacity: 1;
     margin: -2px 0 0;
     font-size: 11px;
     line-height: 1.35;
@@ -1856,7 +1869,11 @@ button {
     margin: 0;
     padding: 5px 10px;
     border-radius: 5px;
-    background: color-mix(in srgb, var(--bg-primary) 72%, transparent);
+    /* 88%, not 72%. This is the only place the pad's axes are stated, and at 72%
+       it measured 3.80:1 over the brightest waveform peaks — faintest exactly
+       where the eye goes. */
+    background: var(--bg-primary);
+    background: color-mix(in srgb, var(--bg-primary) 88%, transparent);
     font-size: 11px;
     letter-spacing: 0.02em;
     color: var(--text-secondary);
@@ -1886,9 +1903,11 @@ button {
    There was no focus styling anywhere in 1551 lines, so a keyboard user had no
    way to tell where they were. :focus-visible leaves pointer interaction alone. */
 :focus-visible {
+    /* No border-radius here. Unscoped, it squared the corners of every control
+       that has its own — transport buttons at 6px, panel selects at 4px — the
+       moment they took focus. The outline follows the element's existing shape. */
     outline: 2px solid var(--focus-ring);
     outline-offset: 2px;
-    border-radius: 3px;
 }
 
 /* No #waveform-canvas:focus-visible rule. The pad has no tabindex, so it can

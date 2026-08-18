@@ -946,6 +946,20 @@ function setGestureStatus(el, supported) {
     el.classList.toggle('active', touched && supported);
 }
 
+/**
+ * Keep the pad legend honest. Y sets pitch only while Randomize (pitch) is off —
+ * with it on, Voice picks each grain's note from a table and the Y axis is
+ * ignored, so a permanent "Pitch +/-2 oct" is a promise the instrument stops
+ * keeping the moment that switch is flipped.
+ */
+function updatePadLegend() {
+    const el = document.getElementById('pad-legend-pitch');
+    if (!el) return;
+    const random = params.getMusicalParams().randomPitch;
+    const text = random ? 'Pitch set by Randomize' : 'Pitch ±2 oct';
+    if (el.textContent !== text) el.textContent = text;
+}
+
 function updateGestureMeters() {
     const live = pointer.liveGesture;
     const caps = pointer.capabilities;
@@ -1479,6 +1493,7 @@ function render() {
     updateGestureMeters();
     params.updateRandomIndicators(params.getMusicalParams());
     params.updateParamRelevance();
+    updatePadLegend();
 
     // Update transport display during recording
     if (active?.recorder.isRecording) {

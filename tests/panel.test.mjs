@@ -148,12 +148,18 @@ test('an irrelevant control is disabled, never merely un-clickable', () => {
     // focusable, announced as active, and changeable with the arrow keys. The
     // dimming may stay; blocking interaction must go through the disabled
     // attribute so keyboard and screen readers agree with what is on screen.
-    for (const cls of ['param-inactive', 'range-row-inactive']) {
+    // range-row-inactive is gone: the MIN row is hidden rather than dimmed, so
+    // nothing applied it any more and a rule nobody applies is a rule the next
+    // reader has to disprove.
+    for (const cls of ['param-inactive >']) {
         // Extracted by index, not by a built regex: the escaping in a template
         // literal is easy to get wrong, and `\.${cls}\s*` silently degraded to
         // the literal text "param-inactives*", which can never match.
-        const at = css.indexOf('.' + cls + ' {');
+        const at = css.indexOf('.' + cls);
         const rule = at === -1 ? null : css.slice(at, css.indexOf('}', at) + 1);
+        // `.param-inactive >` because the dimming targets the card's CONTROLS:
+        // applied to the card itself, ancestor opacity would composite the whole
+        // subtree and drag the reason line down with it.
         assert.ok(rule, `.${cls} rule not found`);
         assert.ok(!/pointer-events:\s*none/.test(rule),
             `.${cls} uses pointer-events: none, which blocks the mouse and nothing ` +

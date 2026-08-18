@@ -163,11 +163,24 @@ test('a toggle state rule can out-specify the base rule it overrides', () => {
     }
 });
 
-test('the reason line explaining a dead card is never itself dimmed', () => {
-    // .param-inactive drops a card to 0.55, which put the one sentence naming the
-    // switch that wakes it at 2.32:1 — while the card title beside it survived at
-    // 4.84:1. The explanation was the part that disappeared.
+test('the inactive dimming is never applied to an ancestor of the reason line', () => {
+    // This test previously asserted that `.param-inactive .param-note` existed —
+    // i.e. that a child had opted out with opacity: 1. It cannot. Ancestor
+    // opacity composites the whole subtree as one group, and `opacity: 1` on a
+    // descendant only means "do not dim me FURTHER". So the rule was present, the
+    // test passed, and the sentence naming the switch that wakes a dead card
+    // still rendered at 2.29:1 while a comment insisted it had been exempted.
+    // Assert the mechanism instead: .param-inactive must dim the card's controls,
+    // never the card.
     const css = cssRaw.replace(/\/\*[\s\S]*?\*\//g, '');
-    assert.ok(/\.param-inactive\s+\.param-note/.test(css),
-        '.param-note inherits .param-inactive opacity; exempt it explicitly');
+    const at = css.indexOf('.param-inactive');
+    assert.ok(at !== -1, '.param-inactive rule not found');
+    const selectorStart = css.lastIndexOf('}', at) + 1;
+    const block = css.slice(selectorStart, css.indexOf('}', at));
+    const selector = block.slice(0, block.indexOf('{'));
+    assert.ok(/opacity/.test(block), 'sanity: .param-inactive should still dim something');
+    assert.ok(selector.includes('>'),
+        'the .param-inactive opacity applies to the whole card. Ancestor opacity ' +
+        'is the one mechanism a descendant cannot opt out of, and .param-note has ' +
+        'to stay readable — target the controls, not their container');
 });
