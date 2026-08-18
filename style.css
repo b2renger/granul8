@@ -498,8 +498,12 @@ html, body {
        currently unavailable" are two separate, legible facts.) */
     opacity: 1;
     cursor: not-allowed;
-    border-color: var(--border);
-    background: var(--bg-secondary);
+    /* NOT --bg-secondary: that is #transport-bar's own background, so the face
+       vanished and the only edge left was a 1px border at 1.34:1 — four ghosts
+       where the comment above promises a visible-but-unavailable control. The
+       card tokens give the face a real step off the bar. */
+    background: var(--card-bg);
+    border-color: var(--card-edge);
 }
 
 #transport-bar button:disabled > * {
@@ -630,11 +634,12 @@ html, body {
 }
 
 /* Forced/locked state for loop and snap buttons when loop station mode is active */
-.loop-forced,
-.snap-forced {
-    opacity: 0.5;
-    pointer-events: none;
-}
+/* .loop-forced / .snap-forced removed. main.js sets the real `disabled`
+   attribute on both buttons, and #transport-bar button:disabled (1-1-1) outranks
+   a 0-1-0 class, so these never rendered; `pointer-events: none` was redundant
+   beside `disabled` in any case. The "locked by loop-station, not merely
+   unavailable" signal they were meant to carry does not exist — a .param-note
+   style reason line on the transport is the way to say it. */
 
 /* Bar count selector (visible only in loop station mode) */
 .bar-count-selector {
@@ -730,12 +735,17 @@ html, body {
 
 .metronome-btn {
     font-size: 14px;
-    /* Not 0.5 on the whole element. These are fully operable in their OFF
-       state, and at 0.5 they rendered knocked back harder than the genuinely
-       disabled Play/Stop/Loop beside them — the four things you cannot press
-       looked more solid than the two you can. Dim the glyph, keep the box. */
+    /* Dim the glyph rather than the element, as with .snap-btn — but note this
+       button lives in #top-bar, so `#transport-bar button` (which supplies the
+       44px box, face and border) never reaches it. An earlier copy of this
+       comment said "keep the box"; there was no box, and the off state rendered
+       as a naked 22px glyph, the smallest tap target in the app. Given one here. */
     opacity: 1;
     color: var(--text-secondary);
+    min-width: 44px;
+    min-height: 44px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
     padding: 2px 6px;
 }
 
@@ -987,10 +997,9 @@ html, body {
     gap: 12px;
     padding: 14px 16px 16px;
     background: var(--card-bg);
-    /* Rows sit 10px apart; the name binds tighter, at 8px, to the block it
-       names. Previously the name was 12px from its own first control and the
-       controls were 10px from each other — the label read as loose as the gap
-       between two unrelated rows. */
+    /* Rows sit 12px apart; the name binds tighter, at 6px, to the block it names
+       (see the margin-bottom on .param-group > label). The point is the ratio:
+       a name must be closer to what it names than two rows are to each other. */
     border: 1px solid var(--card-edge);
     border-radius: 8px;
 }
@@ -1120,6 +1129,7 @@ html, body {
 .range-row input[type="range"] {
     flex: 1;
     min-width: 0;
+    min-height: 44px;
 }
 
 .range-row .param-value {
@@ -1273,8 +1283,13 @@ html, body {
     letter-spacing: 0.03em;
     padding: 1px 5px;
     border-radius: 3px;
-    background: rgba(255, 255, 255, 0.06);
-    color: var(--text-secondary);
+    /* No tint. --text-secondary was audited against --card-bg, but this badge
+       draws on its own rgba(255,255,255,0.06) over the card — a LIGHTER ground —
+       where it measured 3.92:1 in dark. This is status text, not an inactive
+       control, so there is no exemption to lean on. Dropping the tint puts it
+       back on the ground the token was measured against. */
+    background: transparent;
+    color: var(--text-primary);
     /* The only thing on screen saying whether pressure is a real input on this device; at 9px and 0.7 opacity it measured 2.67:1 dark / 2.84:1 light. */
     opacity: 1;
 }
@@ -1749,16 +1764,18 @@ html, body {
     flex: 0 0 auto;
     white-space: nowrap;
     gap: 8px;
-    /* 44px min target: this is a touch instrument and these are the smallest
-       hit areas in the panel. */
+    /* 44px min target: this is a touch instrument. (An earlier version of this
+       comment called these "the smallest hit areas in the panel" — they are not.
+       The eight range inputs are 32px tall and the subdivision selects 30px, so
+       the PRIMARY sound controls are the smallest targets. Both raised below.) */
     min-height: 44px;
 }
 
 /* The subdivision belongs to Quantize, so it sits tight against it and further
    from Randomize than the strip's own gap. */
 .param-modifiers .subdiv-select {
+    min-height: 44px;
     margin-left: -10px;
-    min-height: 30px;
 }
 
 /* A caption for the bar-count buttons. They were four naked digits next to the
@@ -1810,6 +1827,44 @@ button {
     font-style: italic;
 }
 
+/* The pad's two axes, on the pad. This is the instrument's primary gesture and
+   it was documented nowhere in the UI — which left an entire panel section
+   modifying a quantity the player had no way of knowing existed. */
+#pad-legend {
+    position: absolute;
+    left: 12px;
+    bottom: 10px;
+    display: flex;
+    gap: 16px;
+    margin: 0;
+    padding: 5px 10px;
+    border-radius: 5px;
+    background: color-mix(in srgb, var(--bg-primary) 72%, transparent);
+    font-size: 11px;
+    letter-spacing: 0.02em;
+    color: var(--text-secondary);
+    pointer-events: none;
+    user-select: none;
+}
+
+/* Two transport buttons carried their meaning only in `title`, which never fires
+   on touch — the device this instrument is built for. The bar-count buttons got
+   a caption for exactly this reason; these are the same problem. */
+.btn-caption {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+#transport-bar .snap-btn,
+#transport-bar .loop-station-btn {
+    width: auto;
+    padding: 0 12px;
+    gap: 6px;
+}
+
 /* === Focus visibility ===
    There was no focus styling anywhere in 1551 lines, so a keyboard user had no
    way to tell where they were. :focus-visible leaves pointer interaction alone. */
@@ -1853,15 +1908,14 @@ button {
         flex: 1;
     }
 
-    /* padding-top stays non-zero. At 0 the heading-to-first-card gap equals the
-       card-to-card gap exactly, so a section stops binding to its own content on
-       precisely the device this breakpoint exists for. */
+    /* The previous comment here had this backwards: it warned that padding-top: 0
+       makes heading-to-card equal card-to-card, when 4px is what produced that
+       (10 + 4 = 14 against a 14px gap). iPad portrait is exactly 768px, so this
+       is the breakpoint where it mattered most. 18px between cards restores the
+       desktop relationship: 6 inside a group < 12 between rows < 14 heading to
+       its own content < 18 between cards. */
     .section-content {
-        /* 14px, not 10px. At 10px the gap between two unrelated cards equalled
-           the row gap INSIDE a card, so on the tablet this breakpoint exists for
-           a heading sat further from its own content than siblings sat from each
-           other, and only the border rescued the grouping. */
-        gap: 14px;
+        gap: 18px;
         padding: 4px 12px 18px;
     }
 }

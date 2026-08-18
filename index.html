@@ -98,6 +98,14 @@
         <main id="main-area">
             <div id="waveform-container">
                 <canvas id="waveform-canvas"></canvas>
+                <!-- The instrument's primary gesture, stated on the surface it
+                     applies to. Both axes were previously documented nowhere in
+                     the UI, which left the whole "Pitch and Harmony" section
+                     modifying something the player could not know existed. -->
+                <p id="pad-legend">
+                    <span><span aria-hidden="true">&#8596;</span> Position in sample</span>
+                    <span><span aria-hidden="true">&#8597;</span> Pitch &plusmn;2 oct</span>
+                </p>
                 <div id="drop-overlay" hidden>Drop audio file here</div>
             </div>
 
@@ -125,9 +133,12 @@
                     <span class="icon loop-icon"></span>
                 </button>
                 <button id="btn-snap-grid" type="button" title="Snap loop to BPM grid" aria-label="Snap loop to grid" class="snap-btn">
-                    <span class="snap-icon">⊞</span>
+                    <span class="snap-icon" aria-hidden="true">&#8862;</span>
+                    <span class="btn-caption">Snap</span>
                 </button>
-                <button id="btn-loop-station" type="button" title="Loop station mode (bar-aligned sync)" aria-label="Loop station mode" class="loop-station-btn">LS</button>
+                <button id="btn-loop-station" type="button" title="Loop station mode (bar-aligned sync)" aria-label="Loop station mode" class="loop-station-btn">
+                    <span class="btn-caption">Loop station</span>
+                </button>
                 <div id="level-meter" title="Output Level">
                     <div class="level-meter-fill"></div>
                 </div>
@@ -375,7 +386,7 @@
                             </div>
                         </div>
                         <div class="param-group">
-                            <label for="param-volume">Volume <span class="param-value" id="val-volume">0.70</span></label>
+                            <label for="param-volume">Layer volume <span class="param-value" id="val-volume">0.70</span></label>
                             <input type="range" id="param-volume" min="0" max="1" value="0.7" step="0.01">
                         </div>
                     </div>
@@ -387,14 +398,14 @@
                         <div class="param-group gesture-map-group">
                             <label for="map-pressure">
                                 Pressure
-                                <span class="gesture-status" id="status-pressure">not detected</span>
+                                <span class="gesture-status" id="status-pressure">touch the pad to check</span>
                             </label>
                             <select id="map-pressure">
                                 <option value="none" selected>None</option>
                                 <option value="grainSize">Grain Size</option>
                                 <option value="density">Grain spacing</option>
                                 <option value="spread">Position scatter</option>
-                                <option value="amplitude">Volume</option>
+                                <option value="amplitude">Grain level</option>
                                 <option value="pitch">Pitch</option>
                             </select>
                             <div class="gesture-meter">
@@ -404,14 +415,14 @@
                         <div class="param-group gesture-map-group">
                             <label for="map-contact-size">
                                 Contact Size
-                                <span class="gesture-status" id="status-contact-size">not detected</span>
+                                <span class="gesture-status" id="status-contact-size">touch the pad to check</span>
                             </label>
                             <select id="map-contact-size">
                                 <option value="none" selected>None</option>
                                 <option value="grainSize">Grain Size</option>
                                 <option value="density">Grain spacing</option>
                                 <option value="spread">Position scatter</option>
-                                <option value="amplitude">Volume</option>
+                                <option value="amplitude">Grain level</option>
                                 <option value="pitch">Pitch</option>
                             </select>
                             <div class="gesture-meter">
@@ -428,7 +439,7 @@
                                 <option value="grainSize">Grain Size</option>
                                 <option value="density">Grain spacing</option>
                                 <option value="spread">Position scatter</option>
-                                <option value="amplitude">Volume</option>
+                                <option value="amplitude">Grain level</option>
                                 <option value="pitch">Pitch</option>
                             </select>
                             <div class="gesture-meter">

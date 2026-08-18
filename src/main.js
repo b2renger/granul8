@@ -938,13 +938,13 @@ function updateGestureMeters() {
 
     gestureMeterEls.pressure.style.width = hasPointers ? `${live.pressure * 100}%` : '0%';
     if (caps.pressure && !gestureStatusEls.pressure.classList.contains('active')) {
-        gestureStatusEls.pressure.textContent = 'available';
+        gestureStatusEls.pressure.textContent = 'supported';
         gestureStatusEls.pressure.classList.add('active');
     }
 
     gestureMeterEls.contactSize.style.width = hasPointers ? `${live.contactSize * 100}%` : '0%';
     if (caps.contactSize && !gestureStatusEls.contactSize.classList.contains('active')) {
-        gestureStatusEls.contactSize.textContent = 'available';
+        gestureStatusEls.contactSize.textContent = 'supported';
         gestureStatusEls.contactSize.classList.add('active');
     }
 
