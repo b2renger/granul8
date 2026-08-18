@@ -89,6 +89,16 @@ export class Voice {
         this.gainNode.gain.cancelScheduledValues(now);
         this.gainNode.gain.setValueAtTime(this.gainNode.gain.value, now);
 
+        // Reset modulation to a known state. Voices are pooled, and update() only
+        // overwrites keys that are defined, so without this a gesture with no
+        // arpeggiator would inherit the previous gesture's note table.
+        this.randomize = { grainSize: null, pitch: null, pan: null };
+        this.grainSizeQuantize = null;
+        this.pitchQuantize = null;
+        this.scheduler.quantizeBpm = null;
+        this.scheduler.quantizeDivisor = null;
+        this.scheduler.interOnsetRange = null;
+
         this.active = true;
         this.arpIndex = 0;
         this.arpDirection = 1;
