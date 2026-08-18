@@ -7,12 +7,14 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div id="audio-unlock-overlay">
+    <div id="audio-unlock-overlay" role="dialog" aria-modal="true" aria-labelledby="unlock-title">
         <div class="unlock-content">
-            <h1 class="unlock-title">Granul8</h1>
+            <h1 class="unlock-title" id="unlock-title">Granul8</h1>
             <p class="unlock-description">A granular sampler and loopstation<br>for the web and multitouch devices</p>
-            <div class="unlock-icon"></div>
-            <div class="unlock-text">Tap to start</div>
+            <button id="unlock-btn" type="button" class="unlock-button">
+                <span class="unlock-icon" aria-hidden="true"></span>
+                <span class="unlock-text">Tap to start</span>
+            </button>
             <div class="unlock-credits">All sounds from <a href="https://freemusicarchive.org/home" target="_blank" rel="noopener">Free Music Archive</a></div>
         </div>
     </div>

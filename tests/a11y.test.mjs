@@ -11,7 +11,13 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
-const css = await readFile(new URL('../style.css', import.meta.url), 'utf8');
+
+// Comments are stripped before anything is matched. Several assertions here are
+// about the ABSENCE of a declaration, and a comment recording what was removed
+// ("the rgba(18,17,15) that was here...") would otherwise fail the very test
+// that motivated writing it down. A comment is not a declaration.
+const cssRaw = await readFile(new URL('../style.css', import.meta.url), 'utf8');
+const css = cssRaw.replace(/\/\*[\s\S]*?\*\//g, '');
 
 test('no interactive control is removed from the tab order with display:none', () => {
     // .toggle-label input[type="checkbox"] { display: none } took seven
@@ -136,4 +142,76 @@ test('the focus rules use the dedicated ring token, not the accent', () => {
             `a focus outline uses ${outline.trim()} instead of var(--focus-ring); ` +
             `--accent is 2.46:1 in the light theme`);
     }
+});
+
+// --- The audio-unlock gate --------------------------------------------------
+
+const mainJs = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
+
+test('the unlock gate is a real button inside a dialog', () => {
+    const overlay = /<div id="audio-unlock-overlay"[\s\S]*?<\/div>\s*<\/div>/.exec(html);
+    assert.ok(overlay, 'overlay markup found');
+    assert.ok(/role="dialog"/.test(overlay[0]), 'needs role="dialog"');
+    assert.ok(/aria-modal="true"/.test(overlay[0]), 'needs aria-modal');
+    assert.ok(/<button[^>]*id="unlock-btn"/.test(overlay[0]),
+        'the affordance must be a real button so Enter and Space work — a <div> is ' +
+        'unreachable, so a keyboard user could never start the audio at all');
+});
+
+test('the app behind the overlay is made inert', () => {
+    // Without this, Tab walks through sliders that sit behind a blurred,
+    // click-blocking overlay: focus is somewhere the user cannot see or operate.
+    //
+    // Matches the attribute CALLS, not the word "inert" — the source comment
+    // explaining the mechanism contains that word, so a bare /inert/ test
+    // passed with both calls deleted. Found by trying to falsify it.
+    assert.match(mainJs, /setAttribute\(\s*'inert'/,
+        'nothing sets inert on #app - focus escapes behind the overlay');
+    assert.match(mainJs, /removeAttribute\(\s*'inert'/,
+        'inert is set but never cleared - the app stays unusable after unlocking');
+});
+
+test('dismissing the unlock gate cannot run twice', () => {
+    // The button's click and the document-wide pointerdown fallback both fire for
+    // one tap (pointerdown precedes click). Every step happens to be idempotent
+    // today, which is exactly why an explicit guard belongs here rather than a
+    // comment promising it stays that way.
+    const fn = /function dismissUnlockOverlay\(\)\s*\{[\s\S]*?\n\}/.exec(mainJs);
+    assert.ok(fn, 'dismissUnlockOverlay not found');
+    // Deliberately narrow: an `|| return;` alternative here would let ANY early
+    // return in the function satisfy the assertion, which is how a test ends up
+    // passing for a reason that has nothing to do with what it claims.
+    assert.match(fn[0], /if \(\s*unlocked\s*\)\s*return;/,
+        'dismissUnlockOverlay has no `if (unlocked) return;` re-entry guard');
+});
+
+test('the unlock scrim is theme-derived, not a hardcoded near-black', () => {
+    const rule = /#audio-unlock-overlay\s*\{[^}]*\}/s.exec(css)[0];
+    assert.ok(!/rgba\(18,\s*17,\s*15/.test(rule),
+        'a hardcoded dark scrim under themed text renders "Tap to start" at 1.21:1 ' +
+        'in light mode (measured: text #2a2420 on the composited rgb(52,50,48))');
+    assert.ok(/var\(--bg-primary\)/.test(rule),
+        'the scrim should derive from the theme background');
+});
+
+test('the unlock credits are not dimmed below legibility', () => {
+    // opacity: 0.6 on --text-secondary put the credits at 2.22:1 (light) and
+    // 2.52:1 (dark) — failing in BOTH themes, which the plan did not mention.
+    const rule = /#audio-unlock-overlay \.unlock-credits\s*\{[^}]*\}/s.exec(css);
+    assert.ok(rule, '.unlock-credits rule not found');
+    const op = /opacity:\s*([\d.]+)/.exec(rule[0]);
+    assert.ok(!op || parseFloat(op[1]) >= 0.9,
+        `opacity ${op && op[1]} multiplies against an already-dim --text-secondary; ` +
+        `measured 2.22:1 in light and 2.52:1 in dark, both below the 4.5:1 floor`);
+});
+
+test('no focus rule targets an element that cannot receive focus', () => {
+    // #waveform-canvas has no tabindex and must not get one: this is a touch
+    // instrument with no keyboard play mode, so a focus ring on the pad would
+    // advertise an interaction that does not exist. The rule styling it was
+    // therefore dead CSS. If the pad ever becomes operable, add tabindex FIRST.
+    const canvasFocus = /#waveform-canvas:focus-visible/.test(css);
+    const canvasTabbable = /<canvas[^>]*id="waveform-canvas"[^>]*tabindex/.test(html);
+    assert.ok(!canvasFocus || canvasTabbable,
+        'style.css styles #waveform-canvas:focus-visible but the canvas has no tabindex');
 });

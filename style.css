@@ -1315,7 +1315,14 @@ html, body {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(18, 17, 15, 0.85);
+    /* Derived from the theme. The hardcoded rgba(18, 17, 15, 0.85) that was here
+       composited to rgb(52, 50, 48) in the light theme, under .unlock-content's
+       var(--text-primary) of #2a2420 — putting "Tap to start" at 1.21:1 for
+       anyone returning in light mode. Now 13.52:1 light / 15.49:1 dark.
+       The first declaration is the fallback for engines without color-mix(): an
+       opaque themed scrim, less pretty but legible, which is the right way round. */
+    background: var(--bg-primary);
+    background: color-mix(in srgb, var(--bg-primary) 85%, transparent);
     z-index: 100;
     cursor: pointer;
     -webkit-backdrop-filter: blur(6px);
@@ -1343,10 +1350,33 @@ html, body {
     margin: 0 0 32px;
 }
 
+/* The affordance is a real <button> now; strip the UA chrome and restore the
+   stacked layout the two <div>s used to get for free. */
+#audio-unlock-overlay .unlock-button {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    margin: 24px auto 0;
+    padding: 16px 32px;
+    min-height: 44px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+#audio-unlock-overlay .unlock-button:hover,
+#audio-unlock-overlay .unlock-button:focus-visible {
+    background: var(--bg-surface);
+}
+
 #audio-unlock-overlay .unlock-icon {
     width: 72px;
     height: 72px;
-    margin: 0 auto 20px;
+    margin: 0;
     border: 3px solid var(--accent);
     border-radius: 50%;
     display: flex;
@@ -1375,8 +1405,10 @@ html, body {
     font-size: 14px;
     color: var(--text-secondary);
     margin-top: 32px;
-    opacity: 0.6;
-}
+    /* No opacity. 0.6 on top of an already-dim --text-secondary measured 2.22:1
+       in light and 2.52:1 in dark — failing in BOTH themes, which is why this is
+       not just a light-theme problem. Dropping it gives 4.37 / 4.59; task 17's
+       --text-secondary rework is what takes the light figure over 4.5. */
 
 #audio-unlock-overlay .unlock-credits a {
     color: var(--accent);
@@ -1485,12 +1517,11 @@ html, body {
     border-radius: 3px;
 }
 
-/* The canvas fills its container; an inset ring reads better than an outline
-   that would be clipped by the surrounding overflow. */
-#waveform-canvas:focus-visible {
-    outline: 2px solid var(--focus-ring);
-    outline-offset: -2px;
-}
+/* No #waveform-canvas:focus-visible rule. The pad has no tabindex, so it can
+   never receive focus and the rule was dead CSS advertising an interaction that
+   does not exist. This is a touch instrument with no keyboard play mode. If the
+   pad ever becomes operable by keyboard or MIDI, add tabindex FIRST, then style
+   the ring — in that order, so the rule and the reachability ship together. */
 
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {

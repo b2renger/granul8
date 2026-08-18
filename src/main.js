@@ -163,24 +163,53 @@ const waveform = new WaveformDisplay(canvas);
 // --- iOS / Safari audio unlock overlay ---
 
 const unlockOverlay = document.getElementById('audio-unlock-overlay');
+const unlockBtn = document.getElementById('unlock-btn');
+const appEl = document.getElementById('app');
+
+let unlocked = false;
 
 function dismissUnlockOverlay() {
+    // The button's click and the document-wide pointerdown fallback below both
+    // fire for a single tap, because pointerdown precedes click. Every step here
+    // happens to be idempotent today; the guard means that stays true if one of
+    // them stops being.
+    if (unlocked) return;
+    unlocked = true;
+
     masterBus.resume();
     // Anchor the shared musical grid the first time audio starts. Everything —
     // metronome, every Player's bar alignment — derives from this instant.
     masterBus.clock.ensureEpoch();
+
+    appEl?.removeAttribute('inert');
     if (unlockOverlay) {
         unlockOverlay.style.opacity = '0';
         unlockOverlay.style.pointerEvents = 'none';
         unlockOverlay.style.transition = 'opacity 0.3s';
         setTimeout(() => unlockOverlay.remove(), 400);
     }
+    // Move focus off the disappearing dialog. Deliberately NOT the pad canvas:
+    // it has no tabindex and must not get one — this is a touch instrument with
+    // no keyboard play mode, so a focus ring there would advertise an
+    // interaction that does not exist.
+    appEl?.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')?.focus();
 }
 
 if (masterBus.audioContext.state === 'running') {
+    // No gesture needed, so nothing will call dismissUnlockOverlay(). Anchor the
+    // epoch here so both startup paths anchor at the moment audio becomes
+    // available rather than leaving this one to whatever plays first.
+    unlocked = true;
+    masterBus.clock.ensureEpoch();
     unlockOverlay?.remove();
 } else {
-    unlockOverlay?.addEventListener('pointerdown', dismissUnlockOverlay, { once: true });
+    // `inert` keeps focus out of the controls behind the blurred, click-blocking
+    // overlay — without it Tab walks through sliders the user cannot see.
+    appEl?.setAttribute('inert', '');
+    // 'click', not 'pointerdown', so Enter and Space work for keyboard users.
+    unlockBtn?.addEventListener('click', dismissUnlockOverlay, { once: true });
+    unlockBtn?.focus();
+    // Any pointer anywhere still unlocks, matching the previous behaviour.
     document.addEventListener('pointerdown', function unlock() {
         dismissUnlockOverlay();
         document.removeEventListener('pointerdown', unlock);
