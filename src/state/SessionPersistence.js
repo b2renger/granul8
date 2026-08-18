@@ -60,7 +60,11 @@ export class SessionPersistence {
 
     /** Clear stored session from localStorage. */
     clear() {
-        localStorage.removeItem(STORAGE_KEY);
+        try {
+            localStorage.removeItem(STORAGE_KEY);
+        } catch (e) {
+            console.warn('Failed to clear saved session:', e);
+        }
     }
 
     /** @private */

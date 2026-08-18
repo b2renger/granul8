@@ -485,7 +485,7 @@ const tabBar = new TabBar(
 
             // Update sample display and loop station UI
             if (active) {
-                sampleNameEl.textContent = active.state.sampleDisplayName;
+                sampleNameEl.textContent = sampleLabel(active.state);
                 sampleSelect.value = active.state.sampleUrl || '';
                 applyLoopStationUI(active.state.loopStationMode);
             }
@@ -518,7 +518,7 @@ const tabBar = new TabBar(
             // Update sample display after potential tab switch
             const active = instanceManager.getActive();
             if (active) {
-                sampleNameEl.textContent = active.state.sampleDisplayName;
+                sampleNameEl.textContent = sampleLabel(active.state);
                 sampleSelect.value = active.state.sampleUrl || '';
             }
         },
@@ -633,9 +633,10 @@ async function restoreSampleForInstance(state, entry) {
         try {
             const buffer = await entry.engine.loadSample(state.sampleUrl);
             entry.buffer = buffer;
+            state.sampleMissing = false;
             if (instanceManager.activeId === state.id) {
                 waveform.setBuffer(buffer);
-                sampleNameEl.textContent = state.sampleDisplayName;
+                sampleNameEl.textContent = sampleLabel(state);
                 sampleSelect.value = state.sampleUrl;
             }
         } catch (err) {
@@ -647,15 +648,23 @@ async function restoreSampleForInstance(state, entry) {
     }
 }
 
+/** Display label for an instance's sample, flagging a sample that could not be reloaded. */
+function sampleLabel(state) {
+    return state.sampleMissing
+        ? `\u26A0 ${state.sampleDisplayName} (missing)`
+        : state.sampleDisplayName;
+}
+
 function markSampleMissing(state, entry) {
-    // Derive the label instead of mutating the persisted name, which used to
-    // accumulate a fresh "\u26A0 \u2026 (missing)" wrapper on every reload.
-    const base = state.sampleDisplayName.replace(/^\u26A0\s+|\s+\(missing\)$/g, '');
-    const label = `\u26A0 ${base || state.sampleFileName} (missing)`;
+    // Persist the fact, not the formatting \u2014 mutating sampleDisplayName used to
+    // accumulate a fresh "\u26A0 \u2026 (missing)" wrapper on every reload. Every redisplay
+    // site now derives the label from this flag via sampleLabel(), so the marker
+    // survives a tab switch instead of only showing at the instant this runs.
+    state.sampleMissing = true;
     entry.buffer = null;
     if (instanceManager.activeId === state.id) {
         waveform.setBuffer(null);
-        sampleNameEl.textContent = label;
+        sampleNameEl.textContent = sampleLabel(state);
         sampleSelect.value = '';
     }
 }
@@ -728,7 +737,7 @@ async function initializeSession() {
 
             const active = instanceManager.getActive();
             if (active) {
-                sampleNameEl.textContent = active.state.sampleDisplayName;
+                sampleNameEl.textContent = sampleLabel(active.state);
                 sampleSelect.value = active.state.sampleUrl || '';
                 applyLoopStationUI(active.state.loopStationMode);
                 transport.setHasRecording(active.recorder.getRecording().length > 0);
@@ -817,7 +826,7 @@ async function importSessionFromFile(file) {
 
         const active = instanceManager.getActive();
         if (active) {
-            sampleNameEl.textContent = active.state.sampleDisplayName;
+            sampleNameEl.textContent = sampleLabel(active.state);
             sampleSelect.value = active.state.sampleUrl || '';
             applyLoopStationUI(active.state.loopStationMode);
             transport.setHasRecording(active.recorder.getRecording().length > 0);

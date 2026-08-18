@@ -206,6 +206,7 @@ export class InstanceManager {
         active.state.sampleDisplayName = displayName;
         active.state.sampleUrl = url;
         active.state.sampleFileName = fileName;
+        active.state.sampleMissing = false;
     }
 
     /**
