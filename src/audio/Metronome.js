@@ -1,6 +1,12 @@
 // Metronome.js — Audible click track with count-in support.
 // Uses look-ahead scheduling (same pattern as GrainScheduler) for sample-accurate timing.
 
+/** Bound on clicks scheduled per tick, so a stall cannot burst. */
+const MAX_CLICKS_PER_TICK = 8;
+
+/** Nudge past exact boundaries so float equality never stalls the walk. */
+const EPS = 1e-6;
+
 export class Metronome {
     /**
      * @param {AudioContext} audioContext
@@ -24,7 +30,9 @@ export class Metronome {
         this._running = false;
         this._timerId = null;
         this._nextBeatTime = 0;
-        this._nextBeatIndex = 0;  // 0-based beat within bar
+        // Beat duration as of the last tick, so a tempo/signature change can be
+        // detected even while `_nextBeatTime` is still ahead of `now` — see _tick.
+        this._lastBeatDuration = 0;
 
         // Look-ahead parameters (same as GrainScheduler)
         this._scheduleAhead = 0.1;  // 100ms
@@ -33,7 +41,7 @@ export class Metronome {
         // Count-in state
         this._countInRemaining = 0;
         this._onCountInComplete = null;
-        this._countInBeatTime = 0;  // the time the count-in will complete (downbeat)
+        this._countInEndTime = 0;  // the time the count-in will complete (downbeat)
 
         /** @type {number[]} Pending visual callback timeout IDs */
         this._beatTimeoutIds = [];
@@ -58,15 +66,9 @@ export class Metronome {
     start() {
         if (this._running) return;
         this._running = true;
-
-        const now = this._ctx.currentTime;
-        this._nextBeatTime = this._clock.getNextBeatTime(now);
-
-        // Determine which beat index we're starting on
-        const elapsed = this._nextBeatTime - this._clock._epoch;
-        const beatDur = this._clock.getBeatDuration();
-        this._nextBeatIndex = Math.round(elapsed / beatDur) % this._clock.numerator;
-
+        // Derive the first beat from the clock. Nothing is cached beyond this —
+        // see _tick.
+        this._nextBeatTime = this._clock.getNextBeatTime(this._ctx.currentTime);
         this._tick();
     }
 
@@ -99,10 +101,9 @@ export class Metronome {
         const now = this._ctx.currentTime;
         this._clock.setEpoch(now);
         this._nextBeatTime = now;
-        this._nextBeatIndex = 0;
 
         // Pre-compute when the count-in completes (= 1 bar from now)
-        this._countInBeatTime = now + this._clock.getBarDuration();
+        this._countInEndTime = now + this._clock.getBarDuration();
 
         if (!this._running) {
             this._running = true;
@@ -143,26 +144,54 @@ export class Metronome {
     _tick() {
         if (!this._running) return;
 
-        const deadline = this._ctx.currentTime + this._scheduleAhead;
+        const now = this._ctx.currentTime;
+        const beatDur = this._clock.getBeatDuration();
 
-        while (this._nextBeatTime < deadline) {
-            this._scheduleClick(this._nextBeatTime, this._nextBeatIndex);
+        // Re-derive rather than accumulate. The old code computed the grid once at
+        // start() and then did `_nextBeatTime += getBeatDuration()`, so it kept the
+        // OLD phase and adopted the NEW period on any tempo or time-signature
+        // change — while MasterClock re-maps every boundary from the epoch. Players
+        // align to the clock grid and the user hears the metronome grid, so the two
+        // ended up a permanent half beat apart after a single BPM tweak.
+        //
+        // Re-deriving must not be unconditional: `_nextBeatTime` is deliberately
+        // advanced past each click as it's scheduled (below) so the same click isn't
+        // scheduled twice while it sits inside the look-ahead window across several
+        // ticks. Re-deriving from `now` on every tick throws that progress away and
+        // re-schedules the same upcoming click repeatedly.
+        //
+        // So re-derive on two conditions only: the cached time has already passed
+        // (`< now`, e.g. after a stall — Test 4), or the grid itself moved out from
+        // under it (a tempo/signature change since the last tick — Test 2). A plain
+        // `< now` check misses the second case: right after a BPM change, the
+        // previously-cached time can still be in the future yet wrong, because it
+        // was computed under the old period.
+        if (this._nextBeatTime < now || beatDur !== this._lastBeatDuration) {
+            this._nextBeatTime = this._clock.getNextBeatTime(now);
+        }
+        this._lastBeatDuration = beatDur;
+
+        const deadline = now + this._scheduleAhead;
+
+        let budget = MAX_CLICKS_PER_TICK;
+        while (this._nextBeatTime < deadline && budget-- > 0) {
+            const beatIndex = this._clock.getBeatInBar(this._nextBeatTime + EPS);
+            this._scheduleClick(this._nextBeatTime, beatIndex);
 
             // Handle count-in completion
             if (this._countInRemaining > 0) {
                 this._countInRemaining--;
                 if (this._countInRemaining === 0 && this._onCountInComplete) {
-                    // Fire the callback aligned to the downbeat after the count-in
                     const cb = this._onCountInComplete;
                     this._onCountInComplete = null;
-                    const delay = Math.max(0, (this._countInBeatTime - this._ctx.currentTime) * 1000);
-                    setTimeout(() => cb(), delay);
+                    const at = this._countInEndTime;
+                    // Hand the exact audio time to the callback so recording t=0
+                    // lands on the bar boundary rather than on a wall-clock estimate.
+                    setTimeout(() => cb(at), Math.max(0, (at - this._ctx.currentTime) * 1000));
                 }
             }
 
-            // Advance to next beat
-            this._nextBeatTime += this._clock.getBeatDuration();
-            this._nextBeatIndex = (this._nextBeatIndex + 1) % this._clock.numerator;
+            this._nextBeatTime = this._clock.getNextBeatTime(this._nextBeatTime + EPS);
         }
 
         this._timerId = setTimeout(() => this._tick(), this._timerInterval);
