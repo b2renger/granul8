@@ -931,22 +931,36 @@ const gestureStatusEls = {
     velocity:    document.getElementById('status-velocity'),
 };
 
+/**
+ * Report whether a gesture dimension is real on this device.
+ * Stays at "checking…" until the pad has actually been touched, because until
+ * then neither answer is known; after that it commits either way.
+ * @param {HTMLElement} el
+ * @param {boolean} supported
+ */
+function setGestureStatus(el, supported) {
+    if (!el) return;
+    const touched = pointer.hasSeenPointer || pointer.pointers.size > 0;
+    const text = !touched ? 'checking…' : (supported ? 'supported' : 'not on this device');
+    if (el.textContent !== text) el.textContent = text;
+    el.classList.toggle('active', touched && supported);
+}
+
 function updateGestureMeters() {
     const live = pointer.liveGesture;
     const caps = pointer.capabilities;
     const hasPointers = pointer.pointers.size > 0;
 
+    // Two states, two words, and BOTH reachable. Previously this only ever wrote
+    // in the supported direction, so on a mouse-only laptop the badge sat on its
+    // initial string for ever — telling the user to run a test whose failure
+    // state was indistinguishable from not having run it. Once the pad has been
+    // touched, absence of the capability is a real answer and gets said.
     gestureMeterEls.pressure.style.width = hasPointers ? `${live.pressure * 100}%` : '0%';
-    if (caps.pressure && !gestureStatusEls.pressure.classList.contains('active')) {
-        gestureStatusEls.pressure.textContent = 'supported';
-        gestureStatusEls.pressure.classList.add('active');
-    }
+    setGestureStatus(gestureStatusEls.pressure, caps.pressure);
 
     gestureMeterEls.contactSize.style.width = hasPointers ? `${live.contactSize * 100}%` : '0%';
-    if (caps.contactSize && !gestureStatusEls.contactSize.classList.contains('active')) {
-        gestureStatusEls.contactSize.textContent = 'supported';
-        gestureStatusEls.contactSize.classList.add('active');
-    }
+    setGestureStatus(gestureStatusEls.contactSize, caps.contactSize);
 
     gestureMeterEls.velocity.style.width = hasPointers ? `${live.velocity * 100}%` : '0%';
 }

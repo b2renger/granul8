@@ -135,3 +135,39 @@ test('a parameter name and its own value are not flung to opposite edges', () =>
         'the parameter name row uses space-between, so a value sits hundreds of ' +
         'pixels from the name it belongs to');
 });
+
+test('a toggle state rule can out-specify the base rule it overrides', () => {
+    // `#transport-bar button` is (1,0,1). An ID beats any number of classes, so
+    // `.snap-btn.snap-active` at (0,2,0) lost every declaration it made — Snap on
+    // rendered pixel-identical to Snap off, likewise Loop station, likewise all
+    // four bar-count buttons, so you could not see which bar count you were about
+    // to record. Nothing in the file's text hints at it; only the cascade does.
+    const css = cssRaw.replace(/\/\*[\s\S]*?\*\//g, '');
+    for (const state of ['.snap-btn.snap-active', '.loop-station-btn.active',
+                         '.bar-count-btn.active']) {
+        // Scanned by index, not by a built regex. The first version of this line
+        // was `new RegExp('(^|\})\s*' + ...)` written through a shell heredoc,
+        // which ate a backslash level and left `\s` meaning a literal "s" — so the
+        // test could not fail. Same trap as the one in panel.test.mjs.
+        // Everything between the previous rule's closing brace and this match is
+        // the selector text. If it contains a '#', the rule is id-scoped and can
+        // win. No newline literal and no built regex here on purpose: both have
+        // now been mangled by escaping in this file, each time producing a test
+        // that silently could not fail.
+        const idx = css.indexOf(state);
+        const selector = idx === -1 ? '' : css.slice(css.lastIndexOf('}', idx) + 1, idx);
+        const scoped = idx === -1 || selector.includes('#');
+        assert.ok(scoped,
+            `${state} is declared without an id scope, so #transport-bar button ` +
+            `(1,0,1) outranks it and none of its declarations render`);
+    }
+});
+
+test('the reason line explaining a dead card is never itself dimmed', () => {
+    // .param-inactive drops a card to 0.55, which put the one sentence naming the
+    // switch that wakes it at 2.32:1 — while the card title beside it survived at
+    // 4.84:1. The explanation was the part that disappeared.
+    const css = cssRaw.replace(/\/\*[\s\S]*?\*\//g, '');
+    assert.ok(/\.param-inactive\s+\.param-note/.test(css),
+        '.param-note inherits .param-inactive opacity; exempt it explicitly');
+});

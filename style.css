@@ -477,7 +477,11 @@ html, body {
     align-items: center;
     justify-content: center;
     background: var(--bg-surface);
-    border: 1px solid var(--border);
+    /* --card-edge, not --border. The disabled rule below was given --card-edge to
+       stop those buttons vanishing, which left the ENABLED buttons outlined at
+       1.34:1 and the unpressable ones at 1.78:1 — the four things you cannot use
+       carrying the crispest edges in the transport. */
+    border: 1px solid var(--card-edge);
     border-radius: 6px;
     cursor: pointer;
     color: var(--text-primary);
@@ -595,7 +599,7 @@ html, body {
     border-left-color: var(--accent);
 }
 
-.snap-btn {
+#transport-bar .snap-btn {
     font-size: 14px;
     /* Not 0.5 on the whole element. These are fully operable in their OFF
        state, and at 0.5 they rendered knocked back harder than the genuinely
@@ -606,14 +610,21 @@ html, body {
     padding: 2px 6px;
 }
 
-.snap-btn.snap-active {
+/* Scoped into #transport-bar deliberately. At .snap-btn.snap-active (0,2,0)
+   this lost to `#transport-bar button` (1,0,1) — an ID beats any number of
+   classes — so every declaration here was dead and Snap on was pixel-identical
+   to Snap off. Same for loop-station and all four bar-count buttons: the user
+   could not see which bar count they were about to record. The comment 30 lines
+   down diagnoses exactly this bug class for .loop-forced while three live
+   instances of it sat above. */
+#transport-bar .snap-btn.snap-active {
     opacity: 1;
     border-color: var(--accent);
     color: var(--accent);
 }
 
 /* Loop station toggle */
-.loop-station-btn {
+#transport-bar .loop-station-btn {
     font-size: 11px;
     font-weight: bold;
     /* Not 0.5 on the whole element. These are fully operable in their OFF
@@ -626,7 +637,7 @@ html, body {
     letter-spacing: 0.5px;
 }
 
-.loop-station-btn.active {
+#transport-bar .loop-station-btn.active {
     opacity: 1;
     background: var(--accent);
     color: var(--bg-primary);
@@ -670,11 +681,11 @@ html, body {
     transition: background 0.15s, border-color 0.15s;
 }
 
-.bar-count-btn:hover {
+#transport-bar .bar-count-btn:hover {
     background: var(--border);
 }
 
-.bar-count-btn.active {
+#transport-bar .bar-count-btn.active {
     background: var(--accent);
     color: var(--bg-primary);
     border-color: var(--accent);
@@ -1819,7 +1830,13 @@ button {
 /* The reason a control is unavailable, in place of the control. Dimming states
    that something is off; it never says which switch turns it on, and a musician
    meeting three dead cards in the first ten seconds reads them as broken. */
+/* Never dimmed. .param-inactive drops a card to 0.55 opacity, which put this
+   line — the only text naming the switch that wakes the card — at 2.32:1 dark
+   and 2.22:1 light, while the card title beside it survived at 4.84:1 because it
+   is --text-primary. The explanation was the part that got hidden. */
+.param-inactive .param-note,
 .param-note {
+    opacity: 1;
     margin: -2px 0 0;
     font-size: 11px;
     line-height: 1.35;
