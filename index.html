@@ -77,7 +77,7 @@
                     </select>
                 </div>
                 <div id="metronome-control" class="metronome-control">
-                    <button id="btn-metronome" type="button" title="Toggle metronome click" class="metronome-btn">♩</button>
+                    <button id="btn-metronome" type="button" title="Toggle metronome click" aria-label="Metronome click" class="metronome-btn">♩</button>
                     <input type="range" id="metronome-volume" aria-label="Metronome volume" min="0" max="1" value="0.5" step="0.01" title="Metronome volume">
                 </div>
                 <div id="beat-indicator" class="beat-indicator"></div>
@@ -102,16 +102,17 @@
             </div>
 
             <div id="transport-bar">
-                <div id="bar-count-selector" class="bar-count-selector">
-                    <button class="bar-count-btn" data-bars="1">1</button>
-                    <button class="bar-count-btn" data-bars="2">2</button>
-                    <button class="bar-count-btn" data-bars="3">3</button>
-                    <button class="bar-count-btn active" data-bars="4">4</button>
+                <div id="bar-count-selector" class="bar-count-selector" role="group" aria-label="Bars to record">
+                    <span class="bar-count-caption" aria-hidden="true">Bars</span>
+                    <button class="bar-count-btn" data-bars="1" aria-label="Record 1 bar">1</button>
+                    <button class="bar-count-btn" data-bars="2" aria-label="Record 2 bars">2</button>
+                    <button class="bar-count-btn" data-bars="3" aria-label="Record 3 bars">3</button>
+                    <button class="bar-count-btn active" data-bars="4" aria-label="Record 4 bars">4</button>
                 </div>
-                <button id="btn-record" type="button" title="Record">
+                <button id="btn-record" type="button" title="Record" aria-label="Record">
                     <span class="icon record-icon"></span>
                 </button>
-                <button id="btn-overdub" type="button" title="Overdub — layer new gestures on existing recording" disabled>
+                <button id="btn-overdub" type="button" title="Overdub — layer new gestures on existing recording" aria-label="Overdub" disabled>
                     <span class="icon overdub-icon"></span>
                 </button>
                 <button id="btn-play" type="button" title="Play" disabled>
@@ -123,10 +124,10 @@
                 <button id="btn-loop" type="button" title="Loop" disabled>
                     <span class="icon loop-icon"></span>
                 </button>
-                <button id="btn-snap-grid" type="button" title="Snap loop to BPM grid" class="snap-btn">
+                <button id="btn-snap-grid" type="button" title="Snap loop to BPM grid" aria-label="Snap loop to grid" class="snap-btn">
                     <span class="snap-icon">⊞</span>
                 </button>
-                <button id="btn-loop-station" type="button" title="Loop station mode (bar-aligned sync)" class="loop-station-btn">LS</button>
+                <button id="btn-loop-station" type="button" title="Loop station mode (bar-aligned sync)" aria-label="Loop station mode" class="loop-station-btn">LS</button>
                 <div id="level-meter" title="Output Level">
                     <div class="level-meter-fill"></div>
                 </div>
@@ -290,7 +291,6 @@
                                 <canvas id="adsr-canvas"></canvas>
                             </div>
                         </div>
-                    </div>
                         <div class="param-group range-group">
                             <label>Density</label>
                             <div class="range-row">
@@ -374,6 +374,7 @@
                             <label for="param-volume">Volume <span class="param-value" id="val-volume">0.70</span></label>
                             <input type="range" id="param-volume" min="0" max="1" value="0.7" step="0.01">
                         </div>
+                    </div>
                 </details>
 
                 <details class="panel-section">
@@ -389,7 +390,7 @@
                                 <option value="grainSize">Grain Size</option>
                                 <option value="density">Density</option>
                                 <option value="spread">Spread</option>
-                                <option value="amplitude">Amplitude</option>
+                                <option value="amplitude">Volume</option>
                                 <option value="pitch">Pitch</option>
                             </select>
                             <div class="gesture-meter">
@@ -406,7 +407,7 @@
                                 <option value="grainSize">Grain Size</option>
                                 <option value="density">Density</option>
                                 <option value="spread">Spread</option>
-                                <option value="amplitude">Amplitude</option>
+                                <option value="amplitude">Volume</option>
                                 <option value="pitch">Pitch</option>
                             </select>
                             <div class="gesture-meter">
@@ -423,7 +424,7 @@
                                 <option value="grainSize">Grain Size</option>
                                 <option value="density">Density</option>
                                 <option value="spread">Spread</option>
-                                <option value="amplitude">Amplitude</option>
+                                <option value="amplitude">Volume</option>
                                 <option value="pitch">Pitch</option>
                             </select>
                             <div class="gesture-meter">

@@ -840,8 +840,16 @@ html, body {
     display: flex;
     flex-direction: column;
     background: var(--bg-primary);
+    /* flex-shrink: 0 with no height cap meant the panel's height was whatever its
+       content came to. With both sections open that runs past 1000px, and since
+       #waveform-container is the only shrinkable sibling, the PLAYING SURFACE
+       collapsed to its 150px floor and the panel's own tail overflowed #main-area,
+       clipped by body{overflow:hidden} with no way to scroll to it. Capping the
+       panel makes its own overflow-y: auto actually engage. */
     flex-shrink: 0;
+    max-height: 52vh;
     overflow-y: auto;
+    overscroll-behavior: contain;
 }
 
 /* Collapsible sections */
@@ -853,9 +861,14 @@ html, body {
    of padding it read as the same rank as a parameter's own label, so the panel
    had no visible hierarchy: every line of text carried equal weight. */
 .panel-section summary {
-    padding: 18px 24px 10px;
-    font-size: 11px;
-    font-weight: 600;
+    padding: 20px 24px 10px;
+    /* Was 11px — the smallest text in the panel, ranked below the 13px parameter
+       names it governs. Hierarchy was carried entirely by hue, which is the
+       weakest cue in a dark room and the first to go for a colour-blind player.
+       13px uppercase at 0.14em tracking reads considerably larger than 13px
+       sentence case, so this now leads on size, weight AND colour. */
+    font-size: 13px;
+    font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.14em;
     color: var(--accent);
@@ -902,28 +915,40 @@ html, body {
     gap: 10px;
     padding: 14px 16px 16px;
     background: var(--card-bg);
+    /* Rows sit 10px apart; the name binds tighter, at 8px, to the block it
+       names. Previously the name was 12px from its own first control and the
+       controls were 10px from each other — the label read as loose as the gap
+       between two unrelated rows. */
     border: 1px solid var(--card-edge);
     border-radius: 8px;
 }
 
-/* The parameter's own name. Full strength, above its controls, always. */
+
+/* The parameter's own NAME — direct children only.
+   This was `.param-group label`, which also matched every .toggle-label nested
+   inside .param-modifiers and handed them `justify-content: space-between`. In a
+   full-width card that pinned the switch to the left edge and the word naming it
+   to the right edge: "Quantize" some 1800px from its own toggle. The descendant
+   selector was doing two unrelated jobs, and the second one was a bug.
+   It is also the panel's second rank of text, so it is set at --text-primary:
+   at 12px/--text-secondary it was indistinguishable from the helper words
+   underneath it, and only font-weight separated a name from its own footnote. */
 .param-group > label {
-    font-size: 13px;
-    font-weight: 500;
-    letter-spacing: 0.01em;
-    color: var(--text-primary);
     display: flex;
     align-items: baseline;
     justify-content: space-between;
     gap: 12px;
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    color: var(--text-primary);
+    user-select: none;
 }
 
-.param-group label {
-    display: flex;
-    justify-content: space-between;
-    font-size: 12px;
-    color: var(--text-secondary);
-    user-select: none;
+/* A switch and the word it names are one unit and are never spread apart, no
+   matter what a parent flex rule wants. */
+.toggle-label {
+    justify-content: flex-start;
 }
 
 .param-value {
@@ -986,8 +1011,8 @@ html, body {
 }
 
 /* === Range Slider Rows === */
-.range-group label {
-    margin-bottom: 2px;
+.param-group > label {
+    margin-bottom: -2px;
 }
 
 /* [MIN] [========= slider =========] [ 400 ms ]
@@ -1163,9 +1188,12 @@ html, body {
 }
 
 /* === Envelope row (select + ADSR always inline) === */
-.envelope-row {
-    grid-column: 1 / -1;
-}
+/* No grid-column: 1 / -1. Spanning every column gave this card ~1870px to hold a
+   120px select and a 160px canvas — around 1560px of empty bordered box, reading
+   as a panel that failed to load, and the widest thing in the section for the
+   least content. It is an ordinary card; the flex row wraps if a column is
+   narrow. .arp-style-group spanned too, so the panel had two full-bleed cards
+   with nothing in common to explain why. */
 
 .envelope-inline {
     display: flex;
@@ -1481,6 +1509,7 @@ html, body {
        in light and 2.52:1 in dark — failing in BOTH themes, which is why this is
        not just a light-theme problem. Dropping it gives 4.37 / 4.59; task 17's
        --text-secondary rework is what takes the light figure over 4.5. */
+}
 
 #audio-unlock-overlay .unlock-credits a {
     color: var(--accent);
@@ -1488,9 +1517,6 @@ html, body {
 }
 
 /* === Arp Style Navigator === */
-.arp-style-group {
-    grid-column: 1 / -1;
-}
 
 /* Previous / preview / next, on one line. The buttons flank the shape they step
    through; stacked vertically they read as unrelated to it. */
@@ -1621,6 +1647,17 @@ html, body {
 .param-modifiers .subdiv-select {
     margin-left: -10px;
     min-height: 30px;
+}
+
+/* A caption for the bar-count buttons. They were four naked digits next to the
+   transport with no label and no title — "1 2 3 4" naming nothing. */
+.bar-count-caption {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-secondary);
+    margin-right: 2px;
+    user-select: none;
 }
 
 /* === Focus visibility ===
