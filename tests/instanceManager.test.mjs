@@ -84,3 +84,35 @@ test('restoreFromSession falls back to loopBars\' own span for sessions saved be
     assert.equal(entry.player.getTakeBars(), 3,
         'takeBars should fall back to startBars + lengthBars when not separately saved');
 });
+
+const { MasterClock } = await import(SRC + 'audio/MasterClock.js');
+const { serializeSession } = await import(SRC + 'state/SessionSerializer.js');
+
+test('serializeSession persists a loopRange that actually describes a bar-based loop', async () => {
+    // The serializer writes `loopRange` for legacy readers alongside the musical
+    // `loopBars`. It reads Player.getLoopRange(), which used to report the raw
+    // seconds fields -- never written for a bar-based loop -- so a live 2-bar loop
+    // was persisted as {start: 0, end: 0}. Harmless while restore prefers loopBars,
+    // but wrong on its face and a trap for anything else that reads it.
+    const ctx = new FakeAudioContext();
+    const clock = new MasterClock(ctx);
+    clock.bpm = 120;                            // bar = 2.0 s
+    clock.setEpoch(0);
+    const masterBus = { audioContext: ctx, masterGain: ctx.createGain(), clock };
+    const panel = { setFullState() {}, getFullState: () => ({}) };
+    const im = new InstanceManager(masterBus, panel, {});
+
+    await im.restoreFromSession(sessionWith({
+        loopBars: { startBars: 1, lengthBars: 2 },   // bar 1 .. bar 3 => 2.0 s .. 6.0 s
+        takeBars: 4,
+    }), null);
+    // main.js attaches the clock right after restoring, which is what lets the
+    // player resolve its musical loop at all.
+    im.instances.get('inst-1').player.setLoopStationMode(true, clock);
+
+    const json = serializeSession(im, panel, 120, 0.7, {});
+    assert.deepEqual(json.instances[0].recording.loopRange, { start: 2.0, end: 6.0 },
+        'the legacy seconds field must describe the musical loop the player is really using');
+    assert.deepEqual(json.instances[0].recording.loopBars, { startBars: 1, lengthBars: 2 },
+        'and the musical loop itself must still round-trip');
+});

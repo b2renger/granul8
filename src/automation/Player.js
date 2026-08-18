@@ -145,6 +145,12 @@ export class Player {
     setLoopStationMode(enabled, clock) {
         this._loopStationMode = enabled;
         this._clock = clock || null;
+        // Leaving loop-station mode drops the musical loop with it. main.js passes
+        // the clock unconditionally, including on the way out, so _loopBars and
+        // _clock both used to survive: _resolveLoop()'s bar branch kept winning
+        // while the loop handles — now on the seconds path — wrote setLoopRange(),
+        // which that branch ignores. The handles moved and the loop did not.
+        if (!enabled) this._loopBars = null;
     }
 
     /**
@@ -248,14 +254,17 @@ export class Player {
     }
 
     /**
-     * Get the effective loop range.
+     * Get the effective loop range in seconds — the same window playback uses.
+     *
+     * Delegates to _resolveLoop() rather than reading the raw seconds fields.
+     * Those two disagreed for a bar-based loop, whose seconds fields are never
+     * written: one concept with two getters giving different answers, which is
+     * how SessionSerializer came to persist `loopRange: {start: 0, end: 0}` for a
+     * live 2-bar loop.
      * @returns {{ start: number, end: number }}
      */
     getLoopRange() {
-        return {
-            start: this._loopStart,
-            end: this._loopEnd > 0 ? this._loopEnd : this._duration,
-        };
+        return this._resolveLoop();
     }
 
     /**

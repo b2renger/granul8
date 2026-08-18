@@ -667,3 +667,67 @@ test('a retime whose nearest bar line lands ahead of now holds for that line and
         p.stop();
     } finally { restore(); }
 });
+
+test('leaving loop-station mode clears the musical loop, so the seconds handles take effect again', () => {
+    // main.js passes masterBus.clock to setLoopStationMode() unconditionally,
+    // including when toggling loop-station mode OFF, and _loopBars was only ever
+    // cleared by setLoopBars(0, 0) when starting a new take. So an instance with a
+    // bar-based take that was toggled out of loop-station mode kept BOTH _loopBars
+    // and _clock, _resolveLoop()'s bar branch went on winning, and the loop handles
+    // — now on the seconds path — called setLoopRange(), which that branch ignores.
+    // The handles moved and the loop did not.
+    const { timers, ctx, p, restore } = harness();
+    try {
+        const clock = new MasterClock(ctx);
+        clock.bpm = 120;                       // bar = 2.0 s
+        clock.setEpoch(0);
+        p.setLoopStationMode(true, clock);
+        p.setLoopBars(0, 2);                   // a 2-bar (4.0 s) musical loop
+        assert.deepEqual(p.getLoopBars(), { startBars: 0, lengthBars: 2 }, 'sanity');
+
+        p.setLoopStationMode(false, clock);    // the clock is still passed — as main.js does
+        assert.equal(p.getLoopBars(), null,
+            'the musical loop must not outlive loop-station mode');
+
+        // And the seconds range must now actually drive playback.
+        p.setLoopRange(0, 2.0);
+        const wraps = [];
+        p.onLoopWrap = () => wraps.push(ctx.currentTime);
+        p.play(lane([{ time: 1.9, voiceIndex: 0, type: 'stop' }]), true);
+        advance(ctx, timers, 10.0);
+        assert.ok(wraps.length >= 3, `expected wraps on the 2.0 s seconds loop, got ${wraps.length}`);
+        for (let i = 1; i < wraps.length; i++) {
+            const interval = wraps[i] - wraps[i - 1];
+            assert.ok(Math.abs(interval - 2.0) < 0.05,
+                `wrap interval ${interval.toFixed(3)} s — the stale 4.0 s bar loop is still winning`);
+        }
+        p.stop();
+    } finally { restore(); }
+});
+
+test('getLoopRange() reports the window playback actually uses, including a bar-based one', () => {
+    // getLoopRange() read the raw seconds fields while _resolveLoop() preferred
+    // _loopBars: two getters for one concept, giving different answers. That is how
+    // SessionSerializer came to persist a `loopRange` of {0, 0} for a live 2-bar
+    // loop — harmless while restore prefers loopBars, but a trap for any reader
+    // that does not.
+    const { ctx, p, restore } = harness();
+    try {
+        const clock = new MasterClock(ctx);
+        clock.bpm = 120;                       // bar = 2.0 s
+        clock.setEpoch(0);
+        p.setLoopStationMode(true, clock);
+        p.setLoopBars(1, 2);                   // bar 1 .. bar 3 => 2.0 s .. 6.0 s
+        assert.deepEqual(p.getLoopRange(), { start: 2.0, end: 6.0 },
+            'a bar-based loop must report its resolved seconds, not the untouched seconds fields');
+
+        clock.bpm = 60;                        // bar = 4.0 s
+        assert.deepEqual(p.getLoopRange(), { start: 4.0, end: 12.0 },
+            'and it must retime with the tempo, exactly as the loop itself does');
+
+        // The seconds path is unchanged.
+        p.setLoopStationMode(false, clock);
+        p.setLoopRange(0.5, 3.5);
+        assert.deepEqual(p.getLoopRange(), { start: 0.5, end: 3.5 });
+    } finally { restore(); }
+});
