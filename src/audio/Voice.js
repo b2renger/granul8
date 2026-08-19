@@ -234,12 +234,28 @@ export class Voice {
         }
 
         // Per-grain pitch selection
-        if (this.pitchQuantize && this.pitchQuantize.arpSequence) {
-            // Permutation arpeggiator: walk arpSequence cyclically into arpNotes
-            const { arpNotes, arpSequence } = this.pitchQuantize;
-            const stepIdx = arpSequence[this.arpIndex % arpSequence.length];
-            this.arpIndex++;
-            if (stepIdx === null) return; // muted step: skip grain
+        if (this.pitchQuantize && this.pitchQuantize.arpNotes) {
+            const { arpNotes, arpSequence, arpProbability } = this.pitchQuantize;
+
+            // The gate advances the step even when it silences it. A gate that
+            // skipped without advancing would not thin the pattern, it would
+            // SLOW it — same notes in the same order, just further apart — and
+            // the point of a probability gate is to open holes in a rhythm that
+            // keeps its shape.
+            const step = this.arpIndex++;
+
+            if (arpProbability !== undefined && arpProbability < 1
+                && Math.random() >= arpProbability) {
+                return;                       // gated out: no grain this step
+            }
+
+            // A null sequence means the mode is `random`: the choice is per
+            // grain, not a fixed order walked cyclically.
+            const stepIdx = arpSequence === null
+                ? Math.floor(Math.random() * arpNotes.length)
+                : arpSequence[step % arpSequence.length];
+
+            if (stepIdx === null) return;     // muted step in a custom pattern
             const semitones = arpNotes[stepIdx % arpNotes.length];
             pitch = semitonesToRate(semitones);
         } else if (this.pitchQuantize && this.pitchQuantize.noteTable) {

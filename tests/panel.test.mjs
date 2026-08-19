@@ -69,24 +69,26 @@ function ids(doc) {
 // layout problem. 108 ids; the reorganisation moves markup and adds containers,
 // so ids may be ADDED but never removed.
 const IDS_BEFORE = `
-adsr-canvas app arp-mode-group arp-steps-group arp-style-group arp-style-next
-arp-style-prev arp-style-svg arp-type-group audio-unlock-overlay bar-count-selector beat-indicator
-btn-loop btn-loop-station btn-metronome btn-overdub btn-play btn-record
-btn-snap-grid btn-stop drop-overlay envelope-row file-controls file-input
-level-meter load-sample-btn loop-end-handle loop-region loop-start-handle main-area
-map-contact-size map-pressure map-velocity master-volume master-volume-control meter-contact-size
-meter-pressure meter-velocity metronome-control metronome-volume param-arp-pattern param-arp-steps
-param-arp-type param-bpm param-density-max param-density-min param-envelope param-grain-size-max
-param-grain-size-min param-pan-max param-pan-min param-pitch-range param-root-note param-scale
-param-spread-max param-spread-min param-volume parameter-panel pitch-range-group quantize-density
-quantize-grain-size quantize-pitch random-density random-grain-size random-pan random-pitch
-sample-name sample-select session-export-btn session-import-btn session-import-input status-contact-size
-status-pressure status-velocity subdiv-density subdiv-grain-size tab-add tab-bar
-tab-list tap-tempo tempo-control theme-toggle time-display time-sig-control
-time-sig-den time-sig-num top-bar transport-bar transport-progress transport-progress-fill
-unlock-btn unlock-title val-arp-steps val-arp-style val-bpm val-density-max
-val-density-min val-grain-size-max val-grain-size-min val-master-volume val-pan-max val-pan-min
-val-pitch-range val-spread-max val-spread-min val-volume waveform-canvas waveform-container
+adsr-canvas app arp-chance-group arp-mode-group arp-pingpong arp-steps-group
+arp-style-group arp-style-reset arp-style-svg arp-type-group audio-unlock-overlay bar-count-selector
+beat-indicator btn-loop btn-loop-station btn-metronome btn-overdub btn-play
+btn-record btn-snap-grid btn-stop btn-undo drop-overlay envelope-row
+file-controls file-input level-meter load-sample-btn loop-end-handle loop-region
+loop-start-handle main-area map-contact-size map-pressure map-velocity master-volume
+master-volume-control meter-contact-size meter-pressure meter-velocity metronome-control metronome-volume
+pad-legend pad-legend-pitch param-arp-chance param-arp-pattern param-arp-steps param-arp-type
+param-bpm param-density-max param-density-min param-envelope param-grain-size-max param-grain-size-min
+param-pan-max param-pan-min param-pitch-range param-root-note param-scale param-spread-max
+param-spread-min param-volume parameter-panel pitch-chain pitch-mod-group pitch-range-group
+quantize-density quantize-grain-size quantize-pitch random-density random-grain-size random-pan
+random-pitch sample-name sample-select session-export-btn session-import-btn session-import-input
+status-contact-size status-pressure status-velocity subdiv-density subdiv-grain-size tab-add
+tab-bar tab-list tap-tempo tempo-control theme-toggle time-display
+time-sig-control time-sig-den time-sig-num top-bar transport-bar transport-progress
+transport-progress-fill unlock-btn unlock-title val-arp-chance val-arp-steps val-arp-style
+val-bpm val-density-max val-density-min val-grain-size-max val-grain-size-min val-master-volume
+val-pan-max val-pan-min val-pitch-range val-spread-max val-spread-min val-volume
+waveform-canvas waveform-container
 `.split(/\s+/).filter(Boolean);
 
 test('no element id was lost in the reorganisation', () => {

@@ -45,8 +45,9 @@ export class InstanceState {
         this.randomPan = false;
         this.arpPattern = 'random';   // 'random' or 'arpeggiator'
         this.arpSteps = 4;            // number of notes in arp cycle (3–6)
-        this.arpType = 'straight';    // 'straight' or 'looped'
-        this.arpStyle = 0;            // permutation index (0..N!-1)
+        this.arpMode = 'up';          // up | down | outsideIn | insideOut | random
+        this.arpPingPong = false;     // come back down after reaching the end
+        this.arpProbability = 1;      // per-step chance to sound; 1 = play all
         this.arpCustomPattern = null; // null = use permutation, or { values: number[], muted: boolean[] }
         this.pitchRange = 2;
 

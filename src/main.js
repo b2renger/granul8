@@ -15,7 +15,7 @@ import { expMap, lerp } from './utils/math.js';
 import {
     SCALES, quantizePitch, rateToSemitones, semitonesToRate,
     getSubdivisionSeconds, buildNoteTable,
-    selectArpNotes, getPermutations, applyArpType, quantizeTimeToGrid,
+    selectArpNotes, buildArpSequence, applyPingPong, quantizeTimeToGrid,
 } from './utils/musicalQuantizer.js';
 import {
     fractionsToBarLoop,
@@ -336,19 +336,28 @@ function resolveParams(p, g, m) {
         const fullTable = buildNoteTable(scaleIntervals, m.rootNote, -range, range);
         const steps = m.arpSteps || 4;
         const arpNotes = selectArpNotes(fullTable, steps);
-        let pattern;
+        const mode = m.arpMode || 'up';
+
+        let arpSequence;
         if (m.arpCustomPattern) {
-            // Custom edited pattern: values array with possible nulls for muted steps
-            pattern = m.arpCustomPattern.values.map((v, i) =>
+            // A hand-edited pattern outranks the mode: the player drew it, so it
+            // is more specific than any named ordering. Nulls are muted steps.
+            const pattern = m.arpCustomPattern.values.map((v, i) =>
                 m.arpCustomPattern.muted[i] ? null : v
             );
+            arpSequence = m.arpPingPong ? applyPingPong(pattern) : [...pattern];
         } else {
-            const perms = getPermutations(steps);
-            const styleIdx = Math.min(m.arpStyle || 0, perms.length - 1);
-            pattern = perms[styleIdx];
+            const base = buildArpSequence(steps, mode);
+            // null means `random` — a per-grain choice, so there is no order to
+            // bounce and ping-pong does not apply. Voice reads the null directly.
+            arpSequence = base === null ? null
+                : (m.arpPingPong ? applyPingPong(base) : base);
         }
-        const arpSequence = applyArpType(pattern, m.arpType || 'straight');
-        pitchQuantize = { arpNotes, arpSequence };
+
+        // Default 1: every step sounds. The gate has to be opt-in or turning the
+        // arpeggiator on would quietly start dropping notes.
+        const arpProbability = m.arpProbability === undefined ? 1 : m.arpProbability;
+        pitchQuantize = { arpNotes, arpSequence, arpProbability };
     } else if (m.randomPitch && m.quantizePitch) {
         // Random pitch with scale quantization (no arpeggiator)
         const noteTable = buildNoteTable(scaleIntervals, m.rootNote, -range, range);
