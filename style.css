@@ -1953,6 +1953,14 @@ button {
     }
 }
 
+/* The undo glyph is a character, not a CSS shape like the other transport
+   icons, so it needs its own sizing to sit on the same optical line as them. */
+.undo-icon {
+    font-size: 19px;
+    line-height: 1;
+    color: var(--text-primary);
+}
+
 /* === Focus visibility ===
    There was no focus styling anywhere in 1551 lines, so a keyboard user had no
    way to tell where they were. :focus-visible leaves pointer interaction alone. */

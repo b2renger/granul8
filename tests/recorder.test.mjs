@@ -119,3 +119,59 @@ test('stopRecording emits stops for voices still held', () => {
     assert.ok(stopped.has(0), 'voice 0 was never released — it would sustain forever on playback');
     assert.ok(stopped.has(1));
 });
+
+test('starting a new take does not destroy the previous one', () => {
+    // Record and Play are adjacent 44px squares in the transport. startRecording
+    // cleared the lane AND cleared _undoSnapshot, so a mis-hit destroyed a
+    // multi-pass loop permanently, mid-set, with no way back. Overdub already
+    // snapshotted; a new take is the more destructive of the two and did not.
+    const ctx = new FakeAudioContext();
+    const r = new Recorder(ctx);
+    r.startRecording();
+    r.captureStart(0, RESOLVED);
+    ctx.advance(1);
+    r.captureStop(0);
+    r.stopRecording();
+    const takeOne = r.getRecording().length;
+    assert.ok(takeOne > 0, `sanity: the first take recorded ${takeOne} events`);
+
+    r.startRecording();
+    r.stopRecording();
+    assert.equal(r.getRecording().length, 0, 'sanity: the new take is empty');
+    assert.equal(r.canUndo, true, 'the destroyed take must be recoverable');
+
+    assert.equal(r.undo(), true);
+    assert.equal(r.getRecording().length, takeOne, 'undo restores the destroyed take');
+});
+
+test('undo on a first take with nothing behind it is a no-op, not a crash', () => {
+    const ctx = new FakeAudioContext();
+    const r = new Recorder(ctx);
+    r.startRecording();
+    assert.equal(r.canUndo, false, 'there is nothing to go back to');
+    assert.equal(r.undo(), false);
+});
+
+test('undo is available after an overdub too, and undoOverdub still works', () => {
+    // undoOverdub is the existing public name; renaming it outright would break
+    // any caller that has not been updated in the same commit.
+    const ctx = new FakeAudioContext();
+    const r = new Recorder(ctx);
+    r.startRecording();
+    r.captureStart(0, RESOLVED);
+    ctx.advance(1);
+    r.captureStop(0);
+    r.stopRecording();
+    const before = r.getRecording().length;
+
+    r.startOverdub(ctx.currentTime);
+    r.captureStart(1, RESOLVED);
+    ctx.advance(0.5);
+    r.captureStop(1);
+    r.stopRecording();
+    assert.ok(r.getRecording().length > before, 'sanity: the overdub added events');
+
+    assert.equal(r.canUndo, true);
+    assert.equal(r.undoOverdub(), true, 'the old name must keep working');
+    assert.equal(r.getRecording().length, before);
+});

@@ -1213,6 +1213,43 @@ transport.onOverdub = () => {
 
 // --- Loop snap-to-grid toggle ---
 let loopSnapToGrid = false;
+// --- Undo ---
+// The recorder could already undo, but only from Ctrl+Z — which does not exist
+// on a tablet, the device this instrument is built for. Recording over a
+// multi-pass loop is the most destructive thing the transport does and it had no
+// reachable way back.
+const undoBtn = document.getElementById('btn-undo');
+
+/**
+ * Enable Undo only when there is something to go back to and it is safe.
+ * Driven from the render loop rather than from each of the six places that can
+ * change the answer (finish a take, stop, overdub, switch tab, restore a
+ * session, undo itself) — enumerating those is how one gets missed and the
+ * button goes stale. The write is guarded so it only touches the DOM on a real
+ * change.
+ */
+function refreshUndoButton() {
+    const active = instanceManager.getActive();
+    const disabled = !active?.recorder.canUndo
+        || active.recorder.isRecording
+        || active.player.isPlaying;
+    if (undoBtn.disabled !== disabled) undoBtn.disabled = disabled;
+}
+
+function performUndo() {
+    const active = instanceManager.getActive();
+    if (!active || !active.recorder.canUndo) return;
+    // Not mid-take and not mid-playback: swapping the lane underneath either one
+    // would leave the Player dispatching from a lane that no longer exists.
+    if (active.recorder.isRecording || active.player.isPlaying) return;
+    active.recorder.undo();
+    transport.setHasRecording(active.recorder.getRecording().length > 0);
+    refreshUndoButton();
+    showNotification('Undid last take');
+}
+
+undoBtn.addEventListener('click', performUndo);
+
 const snapBtn = document.getElementById('btn-snap-grid');
 snapBtn.addEventListener('click', () => {
     loopSnapToGrid = !loopSnapToGrid;
@@ -1427,14 +1464,11 @@ document.addEventListener('keydown', (e) => {
         e.preventDefault();
         if (transport.onRecord) transport.onRecord();
     }
-    // Ctrl+Z: undo last overdub
-    if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
-        const active = instanceManager.getActive();
-        if (active && active.recorder.canUndo && transport.state === 'idle') {
-            e.preventDefault();
-            active.recorder.undoOverdub();
-            transport.setHasRecording(active.recorder.getRecording().length > 0);
-        }
+    // Ctrl/Cmd+Z: the same path as the button, so the two cannot drift apart.
+    // `e.key === 'z'` missed with CapsLock on, where the key reports as 'Z'.
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        performUndo();
     }
 });
 
@@ -1499,6 +1533,7 @@ function render() {
     params.updateRandomIndicators(params.getMusicalParams());
     params.updateParamRelevance();
     updatePadLegend();
+    refreshUndoButton();
 
     // Update transport display during recording
     if (active?.recorder.isRecording) {
