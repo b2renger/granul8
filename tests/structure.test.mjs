@@ -81,10 +81,25 @@ test('every parameter card is a direct child of a grid container', () => {
     // column sizing, the 24px side inset and the 18px gap — so it renders at the
     // full panel width, flush to both edges, butted against its neighbour with
     // zero space. Four parameters shipped like that.
+    //
+    // A card may also sit inside a nested grid — .pitch-chain groups the five
+    // pitch cards onto one row. That is allowed only because the class really is
+    // a grid container, which is asserted below rather than assumed: exempting a
+    // parent by name would let the next wrapper through without one.
+    const css = cssRaw.replace(/\/\*[\s\S]*?\*\//g, '');
+    const GRID_PARENTS = ['section-content', 'pitch-chain'];
+    for (const cls of GRID_PARENTS) {
+        const at = css.indexOf('.' + cls + ' {');
+        assert.ok(at !== -1, `.${cls} has no rule, so it cannot be sizing anything`);
+        const rule = css.slice(at, css.indexOf('}', at));
+        assert.ok(/display:\s*grid/.test(rule),
+            `.${cls} is treated as a grid parent here but does not declare display: grid`);
+    }
+
     const cards = walk(html, (n) => n.cls.includes('param-group'));
     assert.ok(cards.length >= 15, `sanity: found ${cards.length} param-groups`);
     const orphans = cards
-        .filter((n) => !(n.parent && n.parent.cls.includes('section-content')))
+        .filter((n) => !(n.parent && n.parent.cls.some((c) => GRID_PARENTS.includes(c))))
         .map((n) => `line ${n.line} (parent <${n.parent?.name} class="${n.parent?.cls.join(' ')}">)`);
     assert.deepEqual(orphans, [],
         'these parameter cards are outside the grid that is supposed to size them');

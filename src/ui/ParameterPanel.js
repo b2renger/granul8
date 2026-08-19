@@ -280,6 +280,7 @@ export class ParameterPanel {
 
         // --- Pitch range slider (visible when randomize pitch is active) ---
         this._pitchRangeGroup = document.getElementById('pitch-range-group');
+        this._pitchChain = document.getElementById('pitch-chain');
         this._pitchRangeSlider = document.getElementById('param-pitch-range');
         this._pitchRangeDisplay = document.getElementById('val-pitch-range');
         this._pitchRangeSlider.addEventListener('input', () => {
@@ -328,6 +329,11 @@ export class ParameterPanel {
         const showPitch = this._randomPitch.checked;
         const isArpeggiator = this._arpPatternSelect.value === 'arpeggiator';
         const showArpControls = showPitch && isArpeggiator;
+
+        // The wrapper carries the whole chain's visibility. Without this it would
+        // still occupy a grid row when every child inside it is display:none —
+        // an empty band of row-gap between Scale and the Sound Engine heading.
+        if (this._pitchChain) this._pitchChain.hidden = !showPitch;
 
         this._arpModeGroup.style.display = showPitch ? '' : 'none';
         this._pitchRangeGroup.style.display = showPitch ? '' : 'none';

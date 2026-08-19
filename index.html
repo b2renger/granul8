@@ -209,34 +209,41 @@
                                 <option value="wholeTone">Whole Tone</option>
                             </select>
                         </div>
-                        <div class="param-group" id="pitch-range-group" style="display: none;">
-                            <label for="param-pitch-range">Pitch Range <span class="param-value" id="val-pitch-range">&plusmn;2 oct</span></label>
-                            <input type="range" id="param-pitch-range" min="1" max="4" value="2" step="1">
-                        </div>
-                        <div class="param-group" id="arp-mode-group" style="display: none;">
-                            <label for="param-arp-pattern">Pitch Motion</label>
-                            <select id="param-arp-pattern">
-                                <option value="random" selected>Free (random notes)</option>
-                                <option value="arpeggiator">Arpeggio (fixed pattern)</option>
-                            </select>
-                        </div>
-                        <div class="param-group" id="arp-steps-group" style="display: none;">
-                            <label for="param-arp-steps">Notes in Pattern <span class="param-value" id="val-arp-steps">4</span></label>
-                            <input type="range" id="param-arp-steps" min="3" max="6" value="4" step="1">
-                        </div>
-                        <div class="param-group" id="arp-type-group" style="display: none;">
-                            <label for="param-arp-type">Pattern Playback</label>
-                            <select id="param-arp-type">
-                                <option value="straight" selected>Play once per step</option>
-                                <option value="looped">Repeat the pattern</option>
-                            </select>
-                        </div>
-                        <div class="param-group arp-style-group" id="arp-style-group" style="display: none;">
-                            <h3 class="param-name">Pattern <span class="param-value" id="val-arp-style">1 of 24</span></h3>
-                            <div class="arp-style-nav">
-                                <button type="button" id="arp-style-prev" title="Previous pattern">&lsaquo;</button>
-                                <svg id="arp-style-svg" class="arp-style-preview" viewBox="0 0 100 50"></svg>
-                                <button type="button" id="arp-style-next" title="Next pattern">&rsaquo;</button>
+                        <!-- The pitch chain reads left to right as one decision:
+                             how wide the range, what motion, then the shape of the
+                             pattern. Wrapping it keeps those cards on a single grid
+                             line instead of letting them wrap into the middle of
+                             the Root Note / Scale row above. -->
+                        <div class="pitch-chain" id="pitch-chain" hidden>
+                            <div class="param-group" id="pitch-range-group" style="display: none;">
+                                <label for="param-pitch-range">Pitch Range <span class="param-value" id="val-pitch-range">&plusmn;2 oct</span></label>
+                                <input type="range" id="param-pitch-range" min="1" max="4" value="2" step="1">
+                            </div>
+                            <div class="param-group" id="arp-mode-group" style="display: none;">
+                                <label for="param-arp-pattern">Pitch Motion</label>
+                                <select id="param-arp-pattern">
+                                    <option value="random" selected>Free (random notes)</option>
+                                    <option value="arpeggiator">Arpeggio (fixed pattern)</option>
+                                </select>
+                            </div>
+                            <div class="param-group" id="arp-steps-group" style="display: none;">
+                                <label for="param-arp-steps">Notes in Pattern <span class="param-value" id="val-arp-steps">4</span></label>
+                                <input type="range" id="param-arp-steps" min="3" max="6" value="4" step="1">
+                            </div>
+                            <div class="param-group" id="arp-type-group" style="display: none;">
+                                <label for="param-arp-type">Pattern Playback</label>
+                                <select id="param-arp-type">
+                                    <option value="straight" selected>Play once per step</option>
+                                    <option value="looped">Repeat the pattern</option>
+                                </select>
+                            </div>
+                            <div class="param-group arp-style-group" id="arp-style-group" style="display: none;">
+                                <h3 class="param-name">Pattern <span class="param-value" id="val-arp-style">1 of 24</span></h3>
+                                <div class="arp-style-nav">
+                                    <button type="button" id="arp-style-prev" title="Previous pattern">&lsaquo;</button>
+                                    <svg id="arp-style-svg" class="arp-style-preview" viewBox="0 0 100 50"></svg>
+                                    <button type="button" id="arp-style-next" title="Next pattern">&rsaquo;</button>
+                                </div>
                             </div>
                         </div>
                     </div>

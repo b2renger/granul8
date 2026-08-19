@@ -1910,6 +1910,33 @@ button {
     user-select: none;
 }
 
+/* The pitch chain, on one grid line.
+   These five cards are a single decision read left to right — range, motion,
+   then the pattern's length, playback and shape — and they appear together when
+   Randomize pitch goes on. Left as loose grid items they flowed into whatever
+   columns happened to be free, so the chain started mid-row beside Root Note or
+   Scale and continued on the next line, which reads as five unrelated cards
+   rather than one sequence.
+   grid-auto-flow: column forces a single row: 5 tracks at 1920 (~355px each),
+   and 2 when only Pitch Range and Pitch Motion are showing, since display:none
+   items are not grid items at all. Below 1000px five tracks would fall under the
+   190px floor, so it wraps there instead of overflowing. */
+.pitch-chain {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(190px, 1fr);
+    gap: 18px;
+    align-items: start;
+}
+
+@media (max-width: 1000px) {
+    .pitch-chain {
+        grid-auto-flow: row;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    }
+}
+
 /* === Focus visibility ===
    There was no focus styling anywhere in 1551 lines, so a keyboard user had no
    way to tell where they were. :focus-visible leaves pointer interaction alone. */
