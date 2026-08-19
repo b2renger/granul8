@@ -199,3 +199,44 @@ test('the inactive dimming is never applied to an ancestor of the reason line', 
         'is the one mechanism a descendant cannot opt out of, and .param-note has ' +
         'to stay readable — target the controls, not their container');
 });
+
+test('no breakpoint shrinks a transport button below the 44px touch floor', () => {
+    // The base rule set 44x44 correctly, and then two media queries overrode it:
+    // 40x40 under 380px and 36x36 under 420px tall. So the narrower or shorter
+    // the viewport — the more likely a phone in one hand — the SMALLER the
+    // target. Both broke a rule the stylesheet had already satisfied, in a file
+    // that holds 44px everywhere else.
+    const css = cssRaw.replace(/\/\*[\s\S]*?\*\//g, '');
+    const offenders = [];
+    let from = 0;
+    for (;;) {
+        const at = css.indexOf('#transport-bar button', from);
+        if (at === -1) break;
+        from = at + 1;
+        const open = css.indexOf('{', at);
+        const rule = css.slice(open, css.indexOf('}', open));
+        for (const m of rule.matchAll(/(width|height):\s*(\d+)px/g)) {
+            if (Number(m[2]) < 44) offenders.push(`${m[1]}: ${m[2]}px`);
+        }
+    }
+    assert.deepEqual(offenders, [],
+        'a transport button is sized below 44px somewhere; shrink the level meter ' +
+        'or wrap the bar instead — the buttons are the instrument');
+});
+
+test('the loop handles have a real touch target', () => {
+    // 6x16 with cursor: ew-resize and a :hover state — designed mouse-first, and
+    // roughly seven times under the guideline on the control the loop is dragged
+    // by. A ::before expands the hit area without moving the visual handle.
+    const css = cssRaw.replace(/\/\*[\s\S]*?\*\//g, '');
+    const at = css.indexOf('.loop-handle::before');
+    assert.ok(at !== -1, '.loop-handle has no expanded hit area');
+    const rule = css.slice(at, css.indexOf('}', at));
+    const m = /inset:\s*(-?\d+)px\s+(-?\d+)px/.exec(rule);
+    assert.ok(m, '.loop-handle::before does not set a symmetric inset');
+    const [, y, x] = m.map(Number);
+    const width = 6 + 2 * Math.abs(x);
+    const height = 16 + 2 * Math.abs(y);
+    assert.ok(width >= 44 && height >= 44,
+        `the handle's touch target is ${width}x${height}, under the 44x44 floor`);
+});

@@ -848,6 +848,18 @@ html, body {
     transform: translateX(-50%);
 }
 
+/* The visual handle stays 6px wide; this expands the TOUCH target to 44x44
+   without moving anything. At 6x16 with cursor: ew-resize and a :hover state it
+   was designed mouse-first, roughly seven times under the guideline on the one
+   control this instrument is dragged by — and the control whose arithmetic phase
+   1 fixed twice. The maths was correct to within a bar line and the thing you
+   grab was six pixels wide. */
+.loop-handle::before {
+    content: '';
+    position: absolute;
+    inset: -14px -19px;
+}
+
 .loop-handle:hover,
 .loop-handle:active {
     background: var(--text-primary);
@@ -2084,9 +2096,14 @@ button {
         width: 60px;
     }
 
-    #transport-bar button {
-        width: 40px;
-        height: 40px;
+    /* No #transport-bar button shrink here. It set 40x40 at <=380px, and the
+       landscape block below set 36x36 — so the narrower or shorter the viewport,
+       the SMALLER the target, which is exactly backwards: a narrow viewport is a
+       phone in one hand. 44px is the WCAG 2.5.5 floor and the base rule already
+       met it; these overrides broke a rule the stylesheet had satisfied. The bar
+       wraps instead, and the level meter (no touch role) yields first. */
+    #level-meter {
+        width: 44px;
     }
 }
 
@@ -2100,10 +2117,9 @@ button {
         padding: 4px 8px;
     }
 
-    #transport-bar button {
-        width: 36px;
-        height: 36px;
-    }
+    /* Buttons keep 44px here too — see the note in the <=380px block. Landscape
+       phone is short, not narrow, so height is what has to give: the panel and
+       the waveform are capped above, and the bar wraps if it must. */
 
     #parameter-panel {
         /* 120px was shorter than a single card (167px for Grain Size: 14 + 16
