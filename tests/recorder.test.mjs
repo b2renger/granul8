@@ -140,7 +140,7 @@ test('starting a new take does not destroy the previous one', () => {
     assert.equal(r.getRecording().length, 0, 'sanity: the new take is empty');
     assert.equal(r.canUndo, true, 'the destroyed take must be recoverable');
 
-    assert.equal(r.undo(), true);
+    assert.ok(r.undo(), 'undo reports success by returning the caller context');
     assert.equal(r.getRecording().length, takeOne, 'undo restores the destroyed take');
 });
 
@@ -149,7 +149,7 @@ test('undo on a first take with nothing behind it is a no-op, not a crash', () =
     const r = new Recorder(ctx);
     r.startRecording();
     assert.equal(r.canUndo, false, 'there is nothing to go back to');
-    assert.equal(r.undo(), false);
+    assert.equal(r.undo(), null, 'null distinguishes "nothing to undo" from a context of {}');
 });
 
 test('undo is available after an overdub too, and undoOverdub still works', () => {
@@ -172,6 +172,44 @@ test('undo is available after an overdub too, and undoOverdub still works', () =
     assert.ok(r.getRecording().length > before, 'sanity: the overdub added events');
 
     assert.equal(r.canUndo, true);
-    assert.equal(r.undoOverdub(), true, 'the old name must keep working');
+    assert.ok(r.undoOverdub(), 'the old name must keep working');
     assert.equal(r.getRecording().length, before);
+});
+
+test('undo hands back the context the caller stored with the take', () => {
+    // Loop geometry lives on the Player, not here, so restoring the lane alone
+    // left a recovered 4-bar take looping over the 2 bars of the take that
+    // replaced it — bars 3 and 4 silently never heard. The caller threads its own
+    // state through the same snapshot rather than keeping a second one in sync.
+    const ctx = new FakeAudioContext();
+    const r = new Recorder(ctx);
+    r.startRecording();
+    r.captureStart(0, RESOLVED);
+    ctx.advance(1);
+    r.captureStop(0);
+    r.stopRecording();
+
+    // The second take replaces the first, and says what the first was set up as.
+    r.startRecording(undefined, { loopBars: { startBars: 0, lengthBars: 4 }, takeBars: 4 });
+    r.stopRecording();
+
+    const restored = r.undo();
+    assert.deepEqual(restored, { loopBars: { startBars: 0, lengthBars: 4 }, takeBars: 4 },
+        'the geometry of the take being restored comes back with it');
+});
+
+test('a take recorded without a context still undoes cleanly', () => {
+    const ctx = new FakeAudioContext();
+    const r = new Recorder(ctx);
+    r.startRecording();
+    r.captureStart(0, RESOLVED);
+    ctx.advance(1);
+    r.captureStop(0);
+    r.stopRecording();
+    const n = r.getRecording().length;
+
+    r.startRecording();
+    r.stopRecording();
+    assert.deepEqual(r.undo(), {}, 'no context given, so an empty one comes back — not null');
+    assert.equal(r.getRecording().length, n);
 });

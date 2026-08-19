@@ -820,6 +820,25 @@ export class ParameterPanel {
 
             // Position relative to the slider track within the range-group
             const slider = this._ranges[rp.name].minSlider;
+
+            // The MIN row can be hidden (updateParamRelevance), and every number
+            // below comes out of it: offsetLeft/offsetWidth/offsetTop are all 0
+            // for a display:none element, so trackWidth became 0 - 14 = -14 and
+            // the marker ran BACKWARDS from 7px to -7px, off the card's left
+            // edge, spanning the full card height across the parameter's title.
+            //
+            // Hiding the indicator is the right answer rather than re-deriving
+            // the geometry from the visible row: the only way MIN is hidden while
+            // a gesture is still mapped is `derived` (quantized, not randomized),
+            // and in that state resolveParams overrides the gesture with the
+            // subdivision — so the marker was reporting a gesture that changes
+            // nothing. offsetParent is null exactly when the element is not
+            // rendered, whichever rule did the hiding.
+            if (slider.offsetParent === null) {
+                indicator.style.opacity = '0';
+                continue;
+            }
+
             const thumbHalf = 7; // half of 14px thumb
             const trackStart = slider.offsetLeft + thumbHalf;
             const trackWidth = slider.offsetWidth - thumbHalf * 2;
@@ -865,6 +884,13 @@ export class ParameterPanel {
             // Position the bar between min and max thumb positions on the slider track
             const r = this._ranges[name];
             const slider = r.minSlider;
+            // Same guard as updateGestureIndicators: every measurement below is
+            // 0 for a display:none element, which turns trackWidth negative and
+            // draws the bar backwards across the card. Unreachable today (the bar
+            // only shows when randomize is on, and that is exactly when the MIN
+            // row is visible) — but the two functions share the arithmetic, so
+            // they should not drift apart on the assumption.
+            if (slider.offsetParent === null) { bar.style.opacity = '0'; continue; }
             const thumbHalf = 7; // half of 14px thumb
             const trackStart = slider.offsetLeft + thumbHalf;
             const trackWidth = slider.offsetWidth - thumbHalf * 2;

@@ -435,7 +435,7 @@ const pointer = new PointerHandler(canvas, {
 
         // If armed, start actual recording on first touch
         if (transport.state === 'armed') {
-            active.recorder.startRecording();
+            active.recorder.startRecording(undefined, takeGeometry(active));
             active.ghostRenderer.recording = true;
             transport.setState('recording');
         }
@@ -610,6 +610,10 @@ function handleDroppedFile(file) {
         importSessionFromFile(file);
     } else if (isAudioFile(file)) {
         handleFile(file);
+    } else {
+        // Silently ignoring it is indistinguishable from the app being broken:
+        // the drop overlay accepted the file, then nothing happened.
+        showNotification(`${file.name} is not an audio file or a Granul8 session.`, true);
     }
 }
 
@@ -822,6 +826,18 @@ importInput.addEventListener('change', async () => {
     importSessionFromFile(file);
 });
 
+/**
+ * True when the workspace holds anything a user would mind losing: a loaded
+ * sample or a recorded take in any tab. A first-run empty workspace should not
+ * make someone dismiss a dialog to open their first session.
+ */
+function workspaceHasContent() {
+    for (const [, entry] of instanceManager.instances) {
+        if (entry.state.sampleName || entry.recorder.getRecording().length > 0) return true;
+    }
+    return false;
+}
+
 async function importSessionFromFile(file) {
     try {
         const json = await readSessionFile(file);
@@ -829,6 +845,22 @@ async function importSessionFromFile(file) {
         if (!validation.valid) {
             showNotification(`Invalid session: ${validation.error}`, true);
             return;
+        }
+
+        // Importing replaces every tab. Ask first when there is work to lose —
+        // dropping a .json onto the pad is one gesture away from a mis-drop, and
+        // there is no undo for it. The check is after validation so a malformed
+        // file is rejected without an interruption.
+        if (workspaceHasContent()) {
+            const ok = window.confirm(
+                [
+                    'Import this session?',
+                    '',
+                    'It replaces every sampler and recording currently open.',
+                    'This cannot be undone.',
+                ].join(String.fromCharCode(10))
+            );
+            if (!ok) return;
         }
 
         // Stop all active pointer voices before import
@@ -1013,7 +1045,7 @@ function beginFixedRecording(atTime) {
     const barCount = stillActive.state.recordBarCount || 4;
     fixedRecordDuration = barCount * masterBus.clock.getBarDuration();
 
-    stillActive.recorder.startRecording(atTime);
+    stillActive.recorder.startRecording(atTime, takeGeometry(stillActive));
     stillActive.ghostRenderer.recording = true;
     transport.setState('recording');
     transport.clearSpecialDisplay();
@@ -1211,7 +1243,7 @@ transport.onOverdub = () => {
         }
 
         // Start overdub recording aligned to playback start time
-        active.recorder.startOverdub(active.player._startTime);
+        active.recorder.startOverdub(active.player._startTime, takeGeometry(active));
         active.ghostRenderer.recording = true;
         transport.setState('overdubbing');
 
@@ -1225,6 +1257,17 @@ transport.onOverdub = () => {
 
 // --- Loop snap-to-grid toggle ---
 let loopSnapToGrid = false;
+/**
+ * The loop geometry of the take about to be replaced, so undo can bring it back.
+ * setLoopBars/setTakeBars live on the Player, not the Recorder, so a lane
+ * restored on its own kept the REPLACEMENT take's bar count — a recovered 4-bar
+ * take looping over 2 bars, with bars 3 and 4 never heard.
+ * @param {{ player: import('./automation/Player.js').Player }} entry
+ */
+function takeGeometry(entry) {
+    return { loopBars: entry.player.getLoopBars(), takeBars: entry.player.getTakeBars() };
+}
+
 // --- Undo ---
 // The recorder could already undo, but only from Ctrl+Z — which does not exist
 // on a tablet, the device this instrument is built for. Recording over a
@@ -1237,10 +1280,20 @@ const undoBtn = document.getElementById('btn-undo');
  *
  * tabBar.render() only runs on add, remove, rename and switch, so dots rendered
  * from it would show whatever was true the last time a tab was created — exactly
- * wrong for a state that changes on every transport press. Rather than re-render
- * the strip every frame (it rebuilds every button, which would fight focus and
- * any in-flight rename), this toggles the two classes in place and only when the
- * answer has changed.
+ * wrong for a state that changes on every transport press.
+ *
+ * This updates the dots IN PLACE. An earlier version called tabBar.render() when
+ * a signature changed, with a comment claiming it toggled classes in place; it
+ * did not — render() sets innerHTML = '' and rebuilds every button. The signature
+ * kept that off the per-frame path, but it still fired on every transport press,
+ * and rebuilding costs two things the comment did not mention:
+ *   - focus. A .tab-item is a real <button>; destroying the focused one drops
+ *     focus to <body>, so a keyboard user pressing R lost their place.
+ *   - scroll. #tab-bar scrolls horizontally; emptying #tab-list collapses
+ *     scrollWidth and resets scrollLeft, so with enough tabs, pressing Play
+ *     jumped the strip back to tab 1.
+ * (The risk it did name — an in-flight rename — was never one: rename uses
+ * prompt(), which blocks the frame loop outright.)
  */
 let _tabActivity = '';
 function refreshTabActivity() {
@@ -1248,7 +1301,7 @@ function refreshTabActivity() {
     const signature = tabs.map(t => `${t.id}:${t.isRecording ? 'r' : t.isPlaying ? 'p' : '-'}`).join('|');
     if (signature === _tabActivity) return;
     _tabActivity = signature;
-    tabBar.render(tabs);
+    if (!tabBar.updateActivity(tabs)) tabBar.render(tabs);
 }
 
 /**
@@ -1273,7 +1326,13 @@ function performUndo() {
     // Not mid-take and not mid-playback: swapping the lane underneath either one
     // would leave the Player dispatching from a lane that no longer exists.
     if (active.recorder.isRecording || active.player.isPlaying) return;
-    active.recorder.undo();
+    const restored = active.recorder.undo();
+    if (!restored) return;
+    // Put the take's own loop geometry back with it.
+    if (restored.loopBars) {
+        active.player.setLoopBars(restored.loopBars.startBars, restored.loopBars.lengthBars);
+    }
+    if (restored.takeBars) active.player.setTakeBars(restored.takeBars);
     transport.setHasRecording(active.recorder.getRecording().length > 0);
     refreshUndoButton();
     showNotification('Undid last take');
@@ -1329,22 +1388,28 @@ function applyLoopStationUI(enabled) {
         loopBtn.disabled = true;
         loopBtn.title = 'Looping is on and locked by loop station mode';
 
-        // Force snap on AND say so. The button was disabled and left showing its
-        // OFF state while snapping was in force — the control lying about the
-        // thing it exists to report. (.snap-forced was also dead: main.js sets
-        // the real disabled attribute, and #transport-bar button:disabled
-        // outranks a bare class.)
-        loopSnapToGrid = true;
+        // Do NOT touch loopSnapToGrid. An earlier version of this block set it
+        // to true, on the stated grounds that loop-station "forces snapping on"
+        // and the button was lying by showing OFF. That was wrong twice over:
+        // main never forced it (it only disabled the button, which reported the
+        // user's real setting), and loopSnapToGrid is a MODULE global while
+        // loopStationMode is per-instance — so merely visiting a tab that had the
+        // mode on turned snapping on for every tab, permanently, with no way back.
+        //
+        // What is actually true: a loop-station loop is bar-aligned by
+        // construction (Player resolves it from _loopBars), so the snap setting
+        // is irrelevant here rather than overridden. The button is disabled
+        // because it cannot change anything, and now says so.
         snapBtn.disabled = true;
-        snapBtn.classList.add('snap-active');
-        snapBtn.title = 'Snap is on and locked by loop station mode';
+        snapBtn.title = 'Loop station loops are always bar-aligned; snap does not apply';
     } else {
         // Unlock loop button
         loopBtn.title = 'Loop';
         transport._updateButtons(); // re-evaluates disabled state
 
-        // Unlock snap, and restore the visual to whatever the user last chose
-        // rather than leaving it stuck on from the forced state.
+        // The value was never changed, so there is nothing to restore — only the
+        // button to re-enable. The class toggle is kept because it is the honest
+        // way to re-assert the user's setting after the disabled spell.
         snapBtn.disabled = false;
         snapBtn.classList.toggle('snap-active', loopSnapToGrid);
         snapBtn.title = 'Snap loop to BPM grid';
@@ -1548,7 +1613,7 @@ instanceManager.onPlayerLoopWrap = (instanceId) => {
     inst.player.setLane(inst.recorder.getRecording());
 
     // 3. Start a fresh overdub pass for continuous layering
-    inst.recorder.startOverdub(inst.player._startTime);
+    inst.recorder.startOverdub(inst.player._startTime, takeGeometry(inst));
 
     // 4. Persist the merged state
     if (persistence) persistence.scheduleSave();

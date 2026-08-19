@@ -45,14 +45,14 @@ export class Recorder {
      *   now. Pass the count-in downbeat so the recording's origin sits exactly on
      *   the bar grid rather than on a wall-clock setTimeout estimate.
      */
-    startRecording(atTime) {
+    startRecording(atTime, context = null) {
         // Snapshot rather than discard. Record and Play are adjacent 44px squares
         // in the transport, and this used to clear the lane AND clear the
         // snapshot — so a mis-hit destroyed a multi-pass loop permanently,
         // mid-set, with nothing to go back to. Overdub already snapshotted; a new
         // take is the more destructive of the two and did not.
         this._undoSnapshot = this._lane.length > 0
-            ? AutomationLane.fromJSON(this._lane.toJSON())
+            ? { lane: AutomationLane.fromJSON(this._lane.toJSON()), context }
             : null;
         this._lane = new AutomationLane();
         this._lastMoveTime.clear();
@@ -66,8 +66,8 @@ export class Recorder {
      * Start overdub recording. Captures into a temp lane while the original plays.
      * @param {number} startTime - AudioContext.currentTime when playback started
      */
-    startOverdub(startTime) {
-        this._undoSnapshot = AutomationLane.fromJSON(this._lane.toJSON());
+    startOverdub(startTime, context = null) {
+        this._undoSnapshot = { lane: AutomationLane.fromJSON(this._lane.toJSON()), context };
         this._overdubLane = new AutomationLane();
         this._lastMoveTime.clear();
         this._held.clear();
@@ -106,10 +106,11 @@ export class Recorder {
      * @returns {boolean} True if undo was applied.
      */
     undo() {
-        if (!this._undoSnapshot) return false;
-        this._lane = this._undoSnapshot;
+        if (!this._undoSnapshot) return null;
+        const { lane, context } = this._undoSnapshot;
+        this._lane = lane;
         this._undoSnapshot = null;
-        return true;
+        return context ?? {};
     }
 
     /**

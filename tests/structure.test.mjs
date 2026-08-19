@@ -111,7 +111,9 @@ test('a switch and the word naming it are never spread apart', () => {
     // its word to the other — around 1800px apart in a full-width card. The
     // parameter-name rule must be a CHILD selector so it cannot reach them.
     const css = cssRaw.replace(/\/\*[\s\S]*?\*\//g, '');
-    assert.ok(!/(^|\})\s*\.param-group label\s*\{/.test(css),
+    // Not anchored on `}`: that made the same selector invisible inside any
+    // @media block, where a nested rule follows `{` instead.
+    assert.ok(!/(^|[{};])\s*\.param-group label\s*[,{]/.test(css),
         '`.param-group label` is a descendant selector: it reaches .toggle-label ' +
         'inside .param-modifiers. Use `.param-group > label`.');
     const at = css.indexOf('.toggle-label {');
@@ -169,9 +171,13 @@ test('a toggle state rule can out-specify the base rule it overrides', () => {
         // win. No newline literal and no built regex here on purpose: both have
         // now been mangled by escaping in this file, each time producing a test
         // that silently could not fail.
+        // `idx === -1 || ...` used to sit here, which meant DELETING the rule
+        // passed the test: the thing it guards is that these states render at
+        // all, so absence has to fail, not short-circuit to success.
         const idx = css.indexOf(state);
-        const selector = idx === -1 ? '' : css.slice(css.lastIndexOf('}', idx) + 1, idx);
-        const scoped = idx === -1 || selector.includes('#');
+        assert.notEqual(idx, -1, `${state} has no rule at all, so the state cannot render`);
+        const selector = css.slice(css.lastIndexOf('}', idx) + 1, idx);
+        const scoped = selector.includes('#');
         assert.ok(scoped,
             `${state} is declared without an id scope, so #transport-bar button ` +
             `(1,0,1) outranks it and none of its declarations render`);
@@ -188,16 +194,25 @@ test('the inactive dimming is never applied to an ancestor of the reason line', 
     // Assert the mechanism instead: .param-inactive must dim the card's controls,
     // never the card.
     const css = cssRaw.replace(/\/\*[\s\S]*?\*\//g, '');
-    const at = css.indexOf('.param-inactive');
-    assert.ok(at !== -1, '.param-inactive rule not found');
-    const selectorStart = css.lastIndexOf('}', at) + 1;
-    const block = css.slice(selectorStart, css.indexOf('}', at));
-    const selector = block.slice(0, block.indexOf('{'));
-    assert.ok(/opacity/.test(block), 'sanity: .param-inactive should still dim something');
-    assert.ok(selector.includes('>'),
-        'the .param-inactive opacity applies to the whole card. Ancestor opacity ' +
-        'is the one mechanism a descendant cannot opt out of, and .param-note has ' +
-        'to stay readable — target the controls, not their container');
+    // EVERY .param-inactive rule, not just the first. Reading only the first let
+    // a later duplicate reintroduce the ancestor opacity — which is precisely the
+    // bug that shipped here once already.
+    let found = 0, dims = 0;
+    for (let at = css.indexOf('.param-inactive'); at !== -1; at = css.indexOf('.param-inactive', at + 1)) {
+        const block = css.slice(css.lastIndexOf('}', at) + 1, css.indexOf('}', at));
+        const selector = block.slice(0, block.indexOf('{'));
+        if (!selector.includes('.param-inactive')) continue;
+        found++;
+        if (!/opacity/.test(block)) continue;
+        dims++;
+        assert.ok(selector.includes('>'),
+            `an .param-inactive rule sets opacity on the card itself (${selector.trim()}). ` +
+            'Ancestor opacity is the one mechanism a descendant cannot opt out of, ' +
+            'and .param-note has to stay readable — target the controls, not their ' +
+            'container');
+    }
+    assert.ok(found > 0, '.param-inactive rule not found');
+    assert.ok(dims > 0, 'sanity: .param-inactive should still dim something');
 });
 
 test('no breakpoint shrinks a transport button below the 44px touch floor', () => {
@@ -234,9 +249,18 @@ test('the loop handles have a real touch target', () => {
     const rule = css.slice(at, css.indexOf('}', at));
     const m = /inset:\s*(-?\d+)px\s+(-?\d+)px/.exec(rule);
     assert.ok(m, '.loop-handle::before does not set a symmetric inset');
+    // Read the handle's real size rather than hardcoding 6x16: with the numbers
+    // baked in, shrinking .loop-handle to 2x4px left this green while the target
+    // it computes collapsed with it.
+    const hAt = css.indexOf('.loop-handle {');
+    assert.notEqual(hAt, -1, '.loop-handle rule not found');
+    const hRule = css.slice(hAt, css.indexOf('}', hAt));
+    const hw = /width:\s*(\d+)px/.exec(hRule);
+    const hh = /height:\s*(\d+)px/.exec(hRule);
+    assert.ok(hw && hh, '.loop-handle declares no explicit size');
     const [, y, x] = m.map(Number);
-    const width = 6 + 2 * Math.abs(x);
-    const height = 16 + 2 * Math.abs(y);
+    const width = Number(hw[1]) + 2 * Math.abs(x);
+    const height = Number(hh[1]) + 2 * Math.abs(y);
     assert.ok(width >= 44 && height >= 44,
         `the handle's touch target is ${width}x${height}, under the 44x44 floor`);
 });

@@ -56,6 +56,8 @@ const SOURCES = await Promise.all(SOURCE_PATHS.map(async (rel) => ({
     rel,
     text: await readFile(new URL(rel, import.meta.url), 'utf8'),
 })));
+const panelSrc = await readFile(new URL('../src/ui/ParameterPanel.js', import.meta.url), 'utf8');
+
 /** Every id in the document. A move must not drop one. */
 function ids(doc) {
     return [...doc.matchAll(/\bid="([^"]+)"/g)].map(m => m[1]).sort();
@@ -151,20 +153,28 @@ test('an irrelevant control is disabled, never merely un-clickable', () => {
     // range-row-inactive is gone: the MIN row is hidden rather than dimmed, so
     // nothing applied it any more and a rule nobody applies is a rule the next
     // reader has to disprove.
-    for (const cls of ['param-inactive >']) {
-        // Extracted by index, not by a built regex: the escaping in a template
-        // literal is easy to get wrong, and `\.${cls}\s*` silently degraded to
-        // the literal text "param-inactives*", which can never match.
-        const at = css.indexOf('.' + cls);
-        const rule = at === -1 ? null : css.slice(at, css.indexOf('}', at) + 1);
-        // `.param-inactive >` because the dimming targets the card's CONTROLS:
-        // applied to the card itself, ancestor opacity would composite the whole
-        // subtree and drag the reason line down with it.
-        assert.ok(rule, `.${cls} rule not found`);
-        assert.ok(!/pointer-events:\s*none/.test(rule),
-            `.${cls} uses pointer-events: none, which blocks the mouse and nothing ` +
-            `else — the control is still operable by keyboard while looking inert`);
+    // Every matching rule, not just the first: slicing only the first let a
+    // duplicate selector carrying pointer-events: none straight through. And the
+    // test is named for `disabled`, so it now actually asserts that the source
+    // sets it rather than only that the CSS does not block the mouse.
+    let checked = 0;
+    for (let at = css.indexOf('.param-inactive'); at !== -1; at = css.indexOf('.param-inactive', at + 1)) {
+        const block = css.slice(css.lastIndexOf('}', at) + 1, css.indexOf('}', at) + 1);
+        if (!block.includes('.param-inactive')) continue;
+        checked++;
+        assert.ok(!/pointer-events:\s*none/.test(block),
+            'a .param-inactive rule uses pointer-events: none, which blocks the ' +
+            'mouse and nothing else — the control stays operable by keyboard ' +
+            'while looking inert');
     }
+    assert.ok(checked > 0, 'no .param-inactive rule found');
+
+    const rowAt = css.indexOf('.range-row-solo');
+    assert.notEqual(rowAt, -1, 'the solo-row rule is gone; the MIN row hiding has changed');
+
+    // The mechanism that actually takes the control out of reach.
+    assert.match(panelSrc, /\.disabled = /,
+        'ParameterPanel never sets .disabled, so nothing but opacity conveys inactive');
 });
 
 test('every id the source reaches for by getElementById exists in the markup', () => {
