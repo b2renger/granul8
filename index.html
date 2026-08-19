@@ -98,7 +98,15 @@
 
         <main id="main-area">
             <div id="waveform-container">
-                <canvas id="waveform-canvas"></canvas>
+                <!-- Named, but deliberately NOT tabindex="0" role="application". That role
+                     tells assistive tech to pass keystrokes through to the element,
+                     which is only honest if the pad can be played from the keyboard.
+                     It cannot: this is a touch instrument and external control is
+                     planned as MIDI. A focus stop that does nothing is worse than
+                     none. img + a label describes what is there without promising an
+                     interaction that does not exist. -->
+                <canvas id="waveform-canvas" role="img"
+                        aria-label="Performance pad showing the loaded sample's waveform. Drag horizontally to move the read position through the sample, vertically to change pitch."></canvas>
                 <!-- The instrument's primary gesture, stated on the surface it
                      applies to. Both axes were previously documented nowhere in
                      the UI, which left the whole "Pitch and Harmony" section

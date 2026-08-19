@@ -595,8 +595,13 @@ async function handleFile(file) {
         console.log(`Loaded: ${file.name} (${buffer.duration.toFixed(2)}s, ${buffer.sampleRate}Hz, ${buffer.numberOfChannels}ch)`);
         if (persistence) persistence.scheduleSave();
     } catch (err) {
+        // console.error is invisible to someone playing an instrument, and the
+        // old sample-name string ("Error loading file") stayed there afterwards
+        // giving no reason and no way back. Say what failed, in the same
+        // notification channel every other failure in this app uses.
         console.error('Failed to decode audio file:', err);
-        sampleNameEl.textContent = 'Error loading file';
+        sampleNameEl.textContent = sampleLabel(active.state);
+        showNotification(`Could not read ${file.name}. It may not be an audio file this browser can decode.`, true);
     }
 }
 
@@ -626,7 +631,8 @@ async function loadSampleFromUrl(url, displayName) {
         if (persistence) persistence.scheduleSave();
     } catch (err) {
         console.error('Failed to load sample:', err);
-        sampleNameEl.textContent = 'Error loading sample';
+        sampleNameEl.textContent = sampleLabel(active.state);
+        showNotification(`Could not load ${displayName}. Check the file is still there.`, true);
     }
 }
 

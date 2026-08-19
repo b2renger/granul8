@@ -232,6 +232,12 @@ export class WaveformDisplay {
         ctx.font = `${14 * devicePixelRatio}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText('Drop an audio file here or click "Load Sample"', w / 2, h / 2);
+        // Names the control that exists. The button is labelled "Load File"; this
+        // said "Load Sample", sending a new user to look for something that is
+        // not on screen. Two lines, because an empty screen is the one place
+        // there is room to say what the instrument is for.
+        ctx.fillText('Drop an audio file here, or press Load File', w / 2, h / 2 - 12 * devicePixelRatio);
+        ctx.font = `${12 * devicePixelRatio}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+        ctx.fillText('then drag across the pad to play it', w / 2, h / 2 + 12 * devicePixelRatio);
     }
 }
