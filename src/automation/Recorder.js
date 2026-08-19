@@ -45,9 +45,16 @@ export class Recorder {
      *   now. Pass the count-in downbeat so the recording's origin sits exactly on
      *   the bar grid rather than on a wall-clock setTimeout estimate.
      */
-    startRecording(atTime) {
-        this._lane.clear();
-        this._undoSnapshot = null;
+    startRecording(atTime, context = null) {
+        // Snapshot rather than discard. Record and Play are adjacent 44px squares
+        // in the transport, and this used to clear the lane AND clear the
+        // snapshot — so a mis-hit destroyed a multi-pass loop permanently,
+        // mid-set, with nothing to go back to. Overdub already snapshotted; a new
+        // take is the more destructive of the two and did not.
+        this._undoSnapshot = this._lane.length > 0
+            ? { lane: AutomationLane.fromJSON(this._lane.toJSON()), context }
+            : null;
+        this._lane = new AutomationLane();
         this._lastMoveTime.clear();
         this._held.clear();
         this._startTime = atTime ?? this._audioContext.currentTime;
@@ -59,8 +66,8 @@ export class Recorder {
      * Start overdub recording. Captures into a temp lane while the original plays.
      * @param {number} startTime - AudioContext.currentTime when playback started
      */
-    startOverdub(startTime) {
-        this._undoSnapshot = AutomationLane.fromJSON(this._lane.toJSON());
+    startOverdub(startTime, context = null) {
+        this._undoSnapshot = { lane: AutomationLane.fromJSON(this._lane.toJSON()), context };
         this._overdubLane = new AutomationLane();
         this._lastMoveTime.clear();
         this._held.clear();
@@ -98,12 +105,20 @@ export class Recorder {
      * Undo the last overdub — revert to the pre-overdub snapshot.
      * @returns {boolean} True if undo was applied.
      */
-    undoOverdub() {
-        if (!this._undoSnapshot) return false;
-        this._lane = this._undoSnapshot;
+    undo() {
+        if (!this._undoSnapshot) return null;
+        const { lane, context } = this._undoSnapshot;
+        this._lane = lane;
         this._undoSnapshot = null;
-        return true;
+        return context ?? {};
     }
+
+    /**
+     * @deprecated Use undo(). Kept because callers outside this file still use
+     * the old name, and it now covers new takes as well as overdub passes.
+     * @returns {boolean}
+     */
+    undoOverdub() { return this.undo(); }
 
     /** @returns {boolean} Whether an undo snapshot exists. */
     get canUndo() {

@@ -2,17 +2,19 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Granular Sampler</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div id="audio-unlock-overlay">
+    <div id="audio-unlock-overlay" role="dialog" aria-modal="true" aria-labelledby="unlock-title">
         <div class="unlock-content">
-            <h1 class="unlock-title">Granul8</h1>
+            <h1 class="unlock-title" id="unlock-title">Granul8</h1>
             <p class="unlock-description">A granular sampler and loopstation<br>for the web and multitouch devices</p>
-            <div class="unlock-icon"></div>
-            <div class="unlock-text">Tap to start</div>
+            <button id="unlock-btn" type="button" class="unlock-button">
+                <span class="unlock-icon" aria-hidden="true"></span>
+                <span class="unlock-text">Tap to start</span>
+            </button>
             <div class="unlock-credits">All sounds from <a href="https://freemusicarchive.org/home" target="_blank" rel="noopener">Free Music Archive</a></div>
         </div>
     </div>
@@ -21,7 +23,7 @@
         <header id="top-bar">
             <h1>Granul8</h1>
             <div id="file-controls">
-                <select id="sample-select">
+                <select id="sample-select" aria-label="Bundled sample">
                     <option value="">— Select a sample —</option>
                     <option value="samples/Soni_Ventorum_Wind_Quintet_-_08_-_Danzi_Wind_Quintet_Op_67_No_3_In_E-Flat_Major_4_Allegretto.mp3" selected>Danzi Wind Quintet — Allegretto</option>
                     <option value="samples/Real Vocal String Quartet - Chorale.mp3">Real Vocal String Quartet — Chorale</option>
@@ -42,7 +44,7 @@
                 <input type="file" id="session-import-input" accept=".json,application/json" hidden>
             </div>
             <div id="master-volume-control">
-                <label for="master-volume" title="Main Volume">Main Volume</label>
+                <label for="master-volume">Main Volume</label>
                 <input type="range" id="master-volume" min="0" max="1" value="0.7" step="0.01">
                 <span class="param-value" id="val-master-volume">0.70</span>
             </div>
@@ -54,7 +56,7 @@
                     <button id="tap-tempo" type="button" title="Tap tempo">TAP</button>
                 </div>
                 <div id="time-sig-control" class="time-sig-control">
-                    <select id="time-sig-num" title="Beats per bar">
+                    <select id="time-sig-num" aria-label="Beats per bar" title="Beats per bar">
                         <option value="2">2</option>
                         <option value="3">3</option>
                         <option value="4" selected>4</option>
@@ -68,15 +70,16 @@
                         <option value="12">12</option>
                     </select>
                     <span class="time-sig-slash">/</span>
-                    <select id="time-sig-den" title="Beat unit">
+                    <select id="time-sig-den" aria-label="Beat unit" title="Beat unit">
                         <option value="4" selected>4</option>
                         <option value="8">8</option>
                         <option value="16">16</option>
                     </select>
                 </div>
                 <div id="metronome-control" class="metronome-control">
-                    <button id="btn-metronome" type="button" title="Toggle metronome click" class="metronome-btn">♩</button>
-                    <input type="range" id="metronome-volume" min="0" max="1" value="0.5" step="0.01" title="Metronome volume">
+                    <button id="btn-metronome" type="button" title="Toggle metronome click" aria-label="Metronome click" class="metronome-btn">♩</button>
+                    <span class="metronome-caption" aria-hidden="true">Click</span>
+                    <input type="range" id="metronome-volume" aria-label="Metronome volume" min="0" max="1" value="0.5" step="0.01" title="Metronome volume">
                 </div>
                 <div id="beat-indicator" class="beat-indicator"></div>
             </div>
@@ -95,36 +98,59 @@
 
         <main id="main-area">
             <div id="waveform-container">
-                <canvas id="waveform-canvas"></canvas>
+                <!-- Named, but deliberately NOT tabindex="0" role="application". That role
+                     tells assistive tech to pass keystrokes through to the element,
+                     which is only honest if the pad can be played from the keyboard.
+                     It cannot: this is a touch instrument and external control is
+                     planned as MIDI. A focus stop that does nothing is worse than
+                     none. img + a label describes what is there without promising an
+                     interaction that does not exist. -->
+                <canvas id="waveform-canvas" role="img"
+                        aria-label="Performance pad showing the loaded sample's waveform. Drag horizontally to move the read position through the sample, vertically to change pitch."></canvas>
+                <!-- The instrument's primary gesture, stated on the surface it
+                     applies to. Both axes were previously documented nowhere in
+                     the UI, which left the whole "Pitch and Harmony" section
+                     modifying something the player could not know existed. -->
+                <p id="pad-legend">
+                    <span><span aria-hidden="true">&#8596;</span> Position in sample</span>
+                    <span><span aria-hidden="true">&#8597;</span> <span id="pad-legend-pitch">Pitch &plusmn;2 oct</span></span>
+                </p>
                 <div id="drop-overlay" hidden>Drop audio file here</div>
             </div>
 
             <div id="transport-bar">
-                <div id="bar-count-selector" class="bar-count-selector">
-                    <button class="bar-count-btn" data-bars="1">1</button>
-                    <button class="bar-count-btn" data-bars="2">2</button>
-                    <button class="bar-count-btn" data-bars="3">3</button>
-                    <button class="bar-count-btn active" data-bars="4">4</button>
+                <div id="bar-count-selector" class="bar-count-selector" role="group" aria-label="Bars to record">
+                    <span class="bar-count-caption" aria-hidden="true">Bars</span>
+                    <button class="bar-count-btn" data-bars="1" aria-label="Record 1 bar">1</button>
+                    <button class="bar-count-btn" data-bars="2" aria-label="Record 2 bars">2</button>
+                    <button class="bar-count-btn" data-bars="3" aria-label="Record 3 bars">3</button>
+                    <button class="bar-count-btn active" data-bars="4" aria-label="Record 4 bars">4</button>
                 </div>
-                <button id="btn-record" type="button" title="Record">
+                <button id="btn-record" type="button" title="Record" aria-label="Record">
                     <span class="icon record-icon"></span>
                 </button>
-                <button id="btn-overdub" type="button" title="Overdub — layer new gestures on existing recording" disabled>
+                <button id="btn-overdub" type="button" title="Overdub — layer new gestures on existing recording" aria-label="Overdub" disabled>
                     <span class="icon overdub-icon"></span>
                 </button>
                 <button id="btn-play" type="button" title="Play" disabled>
                     <span class="icon play-icon"></span>
                 </button>
-                <button id="btn-stop" type="button" title="Stop" disabled>
+                <button id="btn-stop" type="button" title="Stop" aria-label="Stop" disabled>
                     <span class="icon stop-icon"></span>
+                </button>
+                <button id="btn-undo" type="button" title="Undo last take or overdub (Ctrl+Z)" aria-label="Undo last take or overdub" disabled>
+                    <span class="icon undo-icon" aria-hidden="true">&#8630;</span>
                 </button>
                 <button id="btn-loop" type="button" title="Loop" disabled>
                     <span class="icon loop-icon"></span>
                 </button>
-                <button id="btn-snap-grid" type="button" title="Snap loop to BPM grid" class="snap-btn">
-                    <span class="snap-icon">⊞</span>
+                <button id="btn-snap-grid" type="button" title="Snap loop to BPM grid" aria-label="Snap loop to grid" class="snap-btn">
+                    <span class="snap-icon" aria-hidden="true">&#8862;</span>
+                    <span class="btn-caption">Snap</span>
                 </button>
-                <button id="btn-loop-station" type="button" title="Loop station mode (bar-aligned sync)" class="loop-station-btn">LS</button>
+                <button id="btn-loop-station" type="button" title="Loop station mode (bar-aligned sync)" aria-label="Loop station mode" class="loop-station-btn">
+                    <span class="btn-caption">Loop station</span>
+                </button>
                 <div id="level-meter" title="Output Level">
                     <div class="level-meter-fill"></div>
                 </div>
@@ -139,10 +165,26 @@
 
             <div id="parameter-panel">
                 <details class="panel-section" open>
-                    <summary>Rhythm and Harmony</summary>
+                    <summary>Pitch and Harmony</summary>
                     <div class="section-content musical-content">
+                        <div class="param-group" id="pitch-mod-group">
+                            <h3 class="param-name">Pitch</h3>
+                            <div class="param-modifiers">
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="quantize-pitch">
+                                    <span class="toggle-switch"></span>
+                                    Quantize
+                                </label>
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="random-pitch">
+                                    <span class="toggle-switch"></span>
+                                    Randomize
+                                </label>
+                            </div>
+                        </div>
                         <div class="param-group">
                             <label for="param-root-note">Root Note</label>
+                            <p class="param-note" data-note="root-note" hidden></p>
                             <select id="param-root-note">
                                 <option value="0" selected>C</option>
                                 <option value="1">C#</option>
@@ -160,6 +202,7 @@
                         </div>
                         <div class="param-group">
                             <label for="param-scale">Scale</label>
+                            <p class="param-note" data-note="scale" hidden></p>
                             <select id="param-scale">
                                 <option value="chromatic" selected>Chromatic</option>
                                 <option value="major">Major (Ionian)</option>
@@ -177,115 +220,41 @@
                                 <option value="wholeTone">Whole Tone</option>
                             </select>
                         </div>
-                        <div class="param-group quantize-toggles">
-                            <label>Quantize</label>
-                            <div class="toggle-row">
-                                <label class="toggle-label">
-                                    <input type="checkbox" id="quantize-grain-size">
-                                    <span class="toggle-switch"></span>
-                                    Grain Size
-                                </label>
-                                <select id="subdiv-grain-size" class="subdiv-select" disabled>
-                                    <optgroup label="Binary">
-                                        <option value="1">1/1</option>
-                                        <option value="2">1/2</option>
-                                        <option value="4" selected>1/4</option>
-                                        <option value="8">1/8</option>
-                                        <option value="16">1/16</option>
-                                        <option value="32">1/32</option>
-                                    </optgroup>
-                                    <optgroup label="Ternary">
-                                        <option value="3">1/2T</option>
-                                        <option value="6">1/4T</option>
-                                        <option value="12">1/8T</option>
-                                        <option value="24">1/16T</option>
-                                    </optgroup>
+                        <!-- The pitch chain reads left to right as one decision:
+                             how wide the range, what motion, then the shape of the
+                             pattern. Wrapping it keeps those cards on a single grid
+                             line instead of letting them wrap into the middle of
+                             the Root Note / Scale row above. -->
+                        <div class="pitch-chain" id="pitch-chain" hidden>
+                            <div class="param-group" id="pitch-range-group" style="display: none;">
+                                <label for="param-pitch-range">Pitch Range <span class="param-value" id="val-pitch-range">&plusmn;2 oct</span></label>
+                                <input type="range" id="param-pitch-range" min="1" max="4" value="2" step="1">
+                            </div>
+                            <div class="param-group" id="arp-mode-group" style="display: none;">
+                                <label for="param-arp-pattern">Pitch Motion</label>
+                                <select id="param-arp-pattern">
+                                    <option value="random" selected>Free (random notes)</option>
+                                    <option value="arpeggiator">Arpeggio (fixed pattern)</option>
                                 </select>
                             </div>
-                            <div class="toggle-row">
-                                <label class="toggle-label">
-                                    <input type="checkbox" id="quantize-density">
-                                    <span class="toggle-switch"></span>
-                                    Density
-                                </label>
-                                <select id="subdiv-density" class="subdiv-select" disabled>
-                                    <optgroup label="Binary">
-                                        <option value="1">1/1</option>
-                                        <option value="2">1/2</option>
-                                        <option value="4" selected>1/4</option>
-                                        <option value="8">1/8</option>
-                                        <option value="16">1/16</option>
-                                        <option value="32">1/32</option>
-                                    </optgroup>
-                                    <optgroup label="Ternary">
-                                        <option value="3">1/2T</option>
-                                        <option value="6">1/4T</option>
-                                        <option value="12">1/8T</option>
-                                        <option value="24">1/16T</option>
-                                    </optgroup>
+                            <div class="param-group" id="arp-steps-group" style="display: none;">
+                                <label for="param-arp-steps">Notes in Pattern <span class="param-value" id="val-arp-steps">4</span></label>
+                                <input type="range" id="param-arp-steps" min="3" max="6" value="4" step="1">
+                            </div>
+                            <div class="param-group" id="arp-type-group" style="display: none;">
+                                <label for="param-arp-type">Pattern Playback</label>
+                                <select id="param-arp-type">
+                                    <option value="straight" selected>Play once per step</option>
+                                    <option value="looped">Repeat the pattern</option>
                                 </select>
                             </div>
-                            <div class="toggle-row">
-                                <label class="toggle-label">
-                                    <input type="checkbox" id="quantize-pitch">
-                                    <span class="toggle-switch"></span>
-                                    Pitch
-                                </label>
-                            </div>
-                        </div>
-                        <div class="param-group quantize-toggles">
-                            <label>Randomize</label>
-                            <div class="toggle-row">
-                                <label class="toggle-label">
-                                    <input type="checkbox" id="random-grain-size">
-                                    <span class="toggle-switch"></span>
-                                    Grain Size
-                                </label>
-                                <label class="toggle-label">
-                                    <input type="checkbox" id="random-density">
-                                    <span class="toggle-switch"></span>
-                                    Density
-                                </label>
-                                <label class="toggle-label">
-                                    <input type="checkbox" id="random-pitch">
-                                    <span class="toggle-switch"></span>
-                                    Pitch
-                                </label>
-                                <label class="toggle-label">
-                                    <input type="checkbox" id="random-pan">
-                                    <span class="toggle-switch"></span>
-                                    Pan
-                                </label>
-                            </div>
-                        </div>
-                        <div class="param-group" id="arp-mode-group" style="display: none;">
-                            <label for="param-arp-pattern">Arp Mode</label>
-                            <select id="param-arp-pattern">
-                                <option value="random" selected>Random</option>
-                                <option value="arpeggiator">Arpeggiator</option>
-                            </select>
-                        </div>
-                        <div class="param-group" id="pitch-range-group" style="display: none;">
-                            <label for="param-pitch-range">Pitch Range <span class="param-value" id="val-pitch-range">&plusmn;2 oct</span></label>
-                            <input type="range" id="param-pitch-range" min="1" max="4" value="2" step="1">
-                        </div>
-                        <div class="param-group" id="arp-steps-group" style="display: none;">
-                            <label for="param-arp-steps">Arp Steps <span class="param-value" id="val-arp-steps">4</span></label>
-                            <input type="range" id="param-arp-steps" min="3" max="6" value="4" step="1">
-                        </div>
-                        <div class="param-group" id="arp-type-group" style="display: none;">
-                            <label for="param-arp-type">Arp Type</label>
-                            <select id="param-arp-type">
-                                <option value="straight" selected>Straight</option>
-                                <option value="looped">Looped</option>
-                            </select>
-                        </div>
-                        <div class="param-group arp-style-group" id="arp-style-group" style="display: none;">
-                            <label>Arp Shape <span class="param-value" id="val-arp-style">1/24</span></label>
-                            <div class="arp-style-nav">
-                                <button type="button" id="arp-style-prev" title="Previous pattern">&lsaquo;</button>
-                                <svg id="arp-style-svg" class="arp-style-preview" viewBox="0 0 100 50"></svg>
-                                <button type="button" id="arp-style-next" title="Next pattern">&rsaquo;</button>
+                            <div class="param-group arp-style-group" id="arp-style-group" style="display: none;">
+                                <h3 class="param-name">Pattern <span class="param-value" id="val-arp-style">1 of 24</span></h3>
+                                <div class="arp-style-nav">
+                                    <button type="button" id="arp-style-prev" title="Previous pattern">&lsaquo;</button>
+                                    <svg id="arp-style-svg" class="arp-style-preview" viewBox="0 0 100 50"></svg>
+                                    <button type="button" id="arp-style-next" title="Next pattern">&rsaquo;</button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -295,67 +264,48 @@
                     <summary>Sound Engine</summary>
                     <div class="section-content">
                         <div class="param-group range-group">
-                            <label>Grain Size</label>
+                            <h3 class="param-name">Grain Size</h3>
+                            <p class="param-note" data-note="grain-size" hidden></p>
                             <div class="range-row">
                                 <span class="range-label">Min</span>
-                                <input type="range" id="param-grain-size-min" min="0" max="1" value="0.8674" step="0.001">
+                                <input type="range" id="param-grain-size-min" aria-label="Grain size minimum" aria-describedby="val-grain-size-min" min="0" max="1" value="0.8674" step="0.001">
                                 <span class="param-value" id="val-grain-size-min">400 ms</span>
                             </div>
                             <div class="range-row">
                                 <span class="range-label">Max</span>
-                                <input type="range" id="param-grain-size-max" min="0" max="1" value="0.8674" step="0.001">
+                                <input type="range" id="param-grain-size-max" aria-label="Grain size maximum" aria-describedby="val-grain-size-max" min="0" max="1" value="0.8674" step="0.001">
                                 <span class="param-value" id="val-grain-size-max">400 ms</span>
                             </div>
                             <div class="gesture-indicator" data-param="grainSize"></div>
                             <div class="random-range-bar" data-param="grainSize"></div>
-                        </div>
-                        <div class="param-group range-group">
-                            <label>Density</label>
-                            <div class="range-row">
-                                <span class="range-label">Min</span>
-                                <input type="range" id="param-density-min" min="0" max="1" value="0.651" step="0.001">
-                                <span class="param-value" id="val-density-min">100 ms</span>
+                            <div class="param-modifiers">
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="quantize-grain-size">
+                                    <span class="toggle-switch"></span>
+                                    Quantize
+                                </label>
+                                <select id="subdiv-grain-size" aria-label="Grain size quantize subdivision" class="subdiv-select" disabled>
+                                    <optgroup label="Binary">
+                                        <option value="1">1/1</option>
+                                        <option value="2">1/2</option>
+                                        <option value="4" selected>1/4</option>
+                                        <option value="8">1/8</option>
+                                        <option value="16">1/16</option>
+                                        <option value="32">1/32</option>
+                                    </optgroup>
+                                    <optgroup label="Ternary">
+                                        <option value="3">1/2T</option>
+                                        <option value="6">1/4T</option>
+                                        <option value="12">1/8T</option>
+                                        <option value="24">1/16T</option>
+                                    </optgroup>
+                                </select>
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="random-grain-size">
+                                    <span class="toggle-switch"></span>
+                                    Randomize
+                                </label>
                             </div>
-                            <div class="range-row">
-                                <span class="range-label">Max</span>
-                                <input type="range" id="param-density-max" min="0" max="1" value="0.651" step="0.001">
-                                <span class="param-value" id="val-density-max">100 ms</span>
-                            </div>
-                            <div class="gesture-indicator" data-param="density"></div>
-                            <div class="random-range-bar" data-param="density"></div>
-                        </div>
-                        <div class="param-group range-group">
-                            <label>Spread</label>
-                            <div class="range-row">
-                                <span class="range-label">Min</span>
-                                <input type="range" id="param-spread-min" min="0" max="1" value="0" step="0.01">
-                                <span class="param-value" id="val-spread-min">0.00</span>
-                            </div>
-                            <div class="range-row">
-                                <span class="range-label">Max</span>
-                                <input type="range" id="param-spread-max" min="0" max="1" value="0" step="0.01">
-                                <span class="param-value" id="val-spread-max">0.00</span>
-                            </div>
-                            <div class="gesture-indicator" data-param="spread"></div>
-                        </div>
-                        <div class="param-group range-group">
-                            <label>Pan</label>
-                            <div class="range-row">
-                                <span class="range-label">Min</span>
-                                <input type="range" id="param-pan-min" min="-1" max="1" value="0" step="0.01">
-                                <span class="param-value" id="val-pan-min">0.00</span>
-                            </div>
-                            <div class="range-row">
-                                <span class="range-label">Max</span>
-                                <input type="range" id="param-pan-max" min="-1" max="1" value="0" step="0.01">
-                                <span class="param-value" id="val-pan-max">0.00</span>
-                            </div>
-                            <div class="gesture-indicator" data-param="pan"></div>
-                            <div class="random-range-bar" data-param="pan"></div>
-                        </div>
-                        <div class="param-group">
-                            <label for="param-volume">Volume <span class="param-value" id="val-volume">0.70</span></label>
-                            <input type="range" id="param-volume" min="0" max="1" value="0.7" step="0.01">
                         </div>
                         <div class="param-group envelope-row" id="envelope-row">
                             <label for="param-envelope">Envelope</label>
@@ -374,6 +324,90 @@
                                 <canvas id="adsr-canvas"></canvas>
                             </div>
                         </div>
+                        <div class="param-group range-group">
+                            <h3 class="param-name">Grain Spacing</h3>
+                            <p class="param-note" data-note="density" hidden></p>
+                            <div class="range-row">
+                                <span class="range-label">Min</span>
+                                <input type="range" id="param-density-min" aria-label="Grain spacing minimum" aria-describedby="val-density-min" min="0" max="1" value="0.651" step="0.001">
+                                <span class="param-value" id="val-density-min">100 ms</span>
+                            </div>
+                            <div class="range-row">
+                                <span class="range-label">Max</span>
+                                <input type="range" id="param-density-max" aria-label="Grain spacing maximum" aria-describedby="val-density-max" min="0" max="1" value="0.651" step="0.001">
+                                <span class="param-value" id="val-density-max">100 ms</span>
+                            </div>
+                            <div class="gesture-indicator" data-param="density"></div>
+                            <div class="random-range-bar" data-param="density"></div>
+                            <div class="param-modifiers">
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="quantize-density">
+                                    <span class="toggle-switch"></span>
+                                    Quantize
+                                </label>
+                                <select id="subdiv-density" aria-label="Grain spacing quantize subdivision" class="subdiv-select" disabled>
+                                    <optgroup label="Binary">
+                                        <option value="1">1/1</option>
+                                        <option value="2">1/2</option>
+                                        <option value="4" selected>1/4</option>
+                                        <option value="8">1/8</option>
+                                        <option value="16">1/16</option>
+                                        <option value="32">1/32</option>
+                                    </optgroup>
+                                    <optgroup label="Ternary">
+                                        <option value="3">1/2T</option>
+                                        <option value="6">1/4T</option>
+                                        <option value="12">1/8T</option>
+                                        <option value="24">1/16T</option>
+                                    </optgroup>
+                                </select>
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="random-density">
+                                    <span class="toggle-switch"></span>
+                                    Randomize
+                                </label>
+                            </div>
+                        </div>
+                        <div class="param-group range-group">
+                            <h3 class="param-name">Position Scatter</h3>
+                            <div class="range-row">
+                                <span class="range-label">Min</span>
+                                <input type="range" id="param-spread-min" aria-label="Position scatter minimum" aria-describedby="val-spread-min" min="0" max="1" value="0" step="0.01">
+                                <span class="param-value" id="val-spread-min">0.00</span>
+                            </div>
+                            <div class="range-row">
+                                <span class="range-label">Max</span>
+                                <input type="range" id="param-spread-max" aria-label="Position scatter maximum" aria-describedby="val-spread-max" min="0" max="1" value="0" step="0.01">
+                                <span class="param-value" id="val-spread-max">0.00</span>
+                            </div>
+                            <div class="gesture-indicator" data-param="spread"></div>
+                        </div>
+                        <div class="param-group range-group">
+                            <h3 class="param-name">Pan</h3>
+                            <div class="range-row">
+                                <span class="range-label">Min</span>
+                                <input type="range" id="param-pan-min" aria-label="Pan minimum" aria-describedby="val-pan-min" min="-1" max="1" value="0" step="0.01">
+                                <span class="param-value" id="val-pan-min">0.00</span>
+                            </div>
+                            <div class="range-row">
+                                <span class="range-label">Max</span>
+                                <input type="range" id="param-pan-max" aria-label="Pan maximum" aria-describedby="val-pan-max" min="-1" max="1" value="0" step="0.01">
+                                <span class="param-value" id="val-pan-max">0.00</span>
+                            </div>
+                            <div class="gesture-indicator" data-param="pan"></div>
+                            <div class="random-range-bar" data-param="pan"></div>
+                            <div class="param-modifiers">
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="random-pan">
+                                    <span class="toggle-switch"></span>
+                                    Randomize
+                                </label>
+                            </div>
+                        </div>
+                        <div class="param-group">
+                            <label for="param-volume">Sampler Volume <span class="param-value" id="val-volume">0.70</span></label>
+                            <input type="range" id="param-volume" min="0" max="1" value="0.7" step="0.01">
+                        </div>
                     </div>
                 </details>
 
@@ -383,14 +417,14 @@
                         <div class="param-group gesture-map-group">
                             <label for="map-pressure">
                                 Pressure
-                                <span class="gesture-status" id="status-pressure">not detected</span>
+                                <span class="gesture-status" id="status-pressure">checking&hellip;</span>
                             </label>
                             <select id="map-pressure">
                                 <option value="none" selected>None</option>
                                 <option value="grainSize">Grain Size</option>
-                                <option value="density">Density</option>
-                                <option value="spread">Spread</option>
-                                <option value="amplitude">Amplitude</option>
+                                <option value="density">Grain Spacing</option>
+                                <option value="spread">Position Scatter</option>
+                                <option value="amplitude">Grain level</option>
                                 <option value="pitch">Pitch</option>
                             </select>
                             <div class="gesture-meter">
@@ -400,14 +434,14 @@
                         <div class="param-group gesture-map-group">
                             <label for="map-contact-size">
                                 Contact Size
-                                <span class="gesture-status" id="status-contact-size">not detected</span>
+                                <span class="gesture-status" id="status-contact-size">checking&hellip;</span>
                             </label>
                             <select id="map-contact-size">
                                 <option value="none" selected>None</option>
                                 <option value="grainSize">Grain Size</option>
-                                <option value="density">Density</option>
-                                <option value="spread">Spread</option>
-                                <option value="amplitude">Amplitude</option>
+                                <option value="density">Grain Spacing</option>
+                                <option value="spread">Position Scatter</option>
+                                <option value="amplitude">Grain level</option>
                                 <option value="pitch">Pitch</option>
                             </select>
                             <div class="gesture-meter">
@@ -417,14 +451,14 @@
                         <div class="param-group gesture-map-group">
                             <label for="map-velocity">
                                 Velocity
-                                <span class="gesture-status active" id="status-velocity">available</span>
+                                <span class="gesture-status" id="status-velocity">checking&hellip;</span>
                             </label>
                             <select id="map-velocity">
                                 <option value="none" selected>None</option>
                                 <option value="grainSize">Grain Size</option>
-                                <option value="density">Density</option>
-                                <option value="spread">Spread</option>
-                                <option value="amplitude">Amplitude</option>
+                                <option value="density">Grain Spacing</option>
+                                <option value="spread">Position Scatter</option>
+                                <option value="amplitude">Grain level</option>
                                 <option value="pitch">Pitch</option>
                             </select>
                             <div class="gesture-meter">

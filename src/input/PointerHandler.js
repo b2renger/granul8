@@ -57,6 +57,17 @@ export class PointerHandler {
         };
 
         /**
+         * True once any pointer has touched the pad. Capability detection is
+         * evidence-based — a device is only known NOT to report pressure after
+         * it has reported something without it — so until this flips, "false" in
+         * `capabilities` means "no answer yet", not "unsupported". The UI needs
+         * to tell those two apart or it reports a missing feature to someone who
+         * simply has not played a note.
+         * @type {boolean}
+         */
+        this.hasSeenPointer = false;
+
+        /**
          * Latest raw gesture values (for live feedback display).
          * Updated on every pointer event, even when no voice is active.
          */
@@ -94,6 +105,8 @@ export class PointerHandler {
             Math.max(e.width || 0, e.height || 0) / CONTACT_SIZE_MAX,
             0, 1
         );
+
+        this.hasSeenPointer = true;
 
         // Detect real device capabilities:
         // Pressure: mouse/trackpad always reports exactly 0.5 (or 0 when not pressed).

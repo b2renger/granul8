@@ -163,24 +163,53 @@ const waveform = new WaveformDisplay(canvas);
 // --- iOS / Safari audio unlock overlay ---
 
 const unlockOverlay = document.getElementById('audio-unlock-overlay');
+const unlockBtn = document.getElementById('unlock-btn');
+const appEl = document.getElementById('app');
+
+let unlocked = false;
 
 function dismissUnlockOverlay() {
+    // The button's click and the document-wide pointerdown fallback below both
+    // fire for a single tap, because pointerdown precedes click. Every step here
+    // happens to be idempotent today; the guard means that stays true if one of
+    // them stops being.
+    if (unlocked) return;
+    unlocked = true;
+
     masterBus.resume();
     // Anchor the shared musical grid the first time audio starts. Everything —
     // metronome, every Player's bar alignment — derives from this instant.
     masterBus.clock.ensureEpoch();
+
+    appEl?.removeAttribute('inert');
     if (unlockOverlay) {
         unlockOverlay.style.opacity = '0';
         unlockOverlay.style.pointerEvents = 'none';
         unlockOverlay.style.transition = 'opacity 0.3s';
         setTimeout(() => unlockOverlay.remove(), 400);
     }
+    // Move focus off the disappearing dialog. Deliberately NOT the pad canvas:
+    // it has no tabindex and must not get one — this is a touch instrument with
+    // no keyboard play mode, so a focus ring there would advertise an
+    // interaction that does not exist.
+    appEl?.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')?.focus();
 }
 
 if (masterBus.audioContext.state === 'running') {
+    // No gesture needed, so nothing will call dismissUnlockOverlay(). Anchor the
+    // epoch here so both startup paths anchor at the moment audio becomes
+    // available rather than leaving this one to whatever plays first.
+    unlocked = true;
+    masterBus.clock.ensureEpoch();
     unlockOverlay?.remove();
 } else {
-    unlockOverlay?.addEventListener('pointerdown', dismissUnlockOverlay, { once: true });
+    // `inert` keeps focus out of the controls behind the blurred, click-blocking
+    // overlay — without it Tab walks through sliders the user cannot see.
+    appEl?.setAttribute('inert', '');
+    // 'click', not 'pointerdown', so Enter and Space work for keyboard users.
+    unlockBtn?.addEventListener('click', dismissUnlockOverlay, { once: true });
+    unlockBtn?.focus();
+    // Any pointer anywhere still unlocks, matching the previous behaviour.
     document.addEventListener('pointerdown', function unlock() {
         dismissUnlockOverlay();
         document.removeEventListener('pointerdown', unlock);
@@ -406,7 +435,7 @@ const pointer = new PointerHandler(canvas, {
 
         // If armed, start actual recording on first touch
         if (transport.state === 'armed') {
-            active.recorder.startRecording();
+            active.recorder.startRecording(undefined, takeGeometry(active));
             active.ghostRenderer.recording = true;
             transport.setState('recording');
         }
@@ -566,8 +595,13 @@ async function handleFile(file) {
         console.log(`Loaded: ${file.name} (${buffer.duration.toFixed(2)}s, ${buffer.sampleRate}Hz, ${buffer.numberOfChannels}ch)`);
         if (persistence) persistence.scheduleSave();
     } catch (err) {
+        // console.error is invisible to someone playing an instrument, and the
+        // old sample-name string ("Error loading file") stayed there afterwards
+        // giving no reason and no way back. Say what failed, in the same
+        // notification channel every other failure in this app uses.
         console.error('Failed to decode audio file:', err);
-        sampleNameEl.textContent = 'Error loading file';
+        sampleNameEl.textContent = sampleLabel(active.state);
+        showNotification(`Could not read ${file.name}. It may not be an audio file this browser can decode.`, true);
     }
 }
 
@@ -576,6 +610,10 @@ function handleDroppedFile(file) {
         importSessionFromFile(file);
     } else if (isAudioFile(file)) {
         handleFile(file);
+    } else {
+        // Silently ignoring it is indistinguishable from the app being broken:
+        // the drop overlay accepted the file, then nothing happened.
+        showNotification(`${file.name} is not an audio file or a Granul8 session.`, true);
     }
 }
 
@@ -597,7 +635,8 @@ async function loadSampleFromUrl(url, displayName) {
         if (persistence) persistence.scheduleSave();
     } catch (err) {
         console.error('Failed to load sample:', err);
-        sampleNameEl.textContent = 'Error loading sample';
+        sampleNameEl.textContent = sampleLabel(active.state);
+        showNotification(`Could not load ${displayName}. Check the file is still there.`, true);
     }
 }
 
@@ -787,6 +826,18 @@ importInput.addEventListener('change', async () => {
     importSessionFromFile(file);
 });
 
+/**
+ * True when the workspace holds anything a user would mind losing: a loaded
+ * sample or a recorded take in any tab. A first-run empty workspace should not
+ * make someone dismiss a dialog to open their first session.
+ */
+function workspaceHasContent() {
+    for (const [, entry] of instanceManager.instances) {
+        if (entry.state.sampleName || entry.recorder.getRecording().length > 0) return true;
+    }
+    return false;
+}
+
 async function importSessionFromFile(file) {
     try {
         const json = await readSessionFile(file);
@@ -794,6 +845,22 @@ async function importSessionFromFile(file) {
         if (!validation.valid) {
             showNotification(`Invalid session: ${validation.error}`, true);
             return;
+        }
+
+        // Importing replaces every tab. Ask first when there is work to lose —
+        // dropping a .json onto the pad is one gesture away from a mis-drop, and
+        // there is no undo for it. The check is after validation so a malformed
+        // file is rejected without an interruption.
+        if (workspaceHasContent()) {
+            const ok = window.confirm(
+                [
+                    'Import this session?',
+                    '',
+                    'It replaces every sampler and recording currently open.',
+                    'This cannot be undone.',
+                ].join(String.fromCharCode(10))
+            );
+            if (!ok) return;
         }
 
         // Stop all active pointer voices before import
@@ -902,22 +969,55 @@ const gestureStatusEls = {
     velocity:    document.getElementById('status-velocity'),
 };
 
+/**
+ * Report whether a gesture dimension is real on this device.
+ * Stays at "checking…" until the pad has actually been touched, because until
+ * then neither answer is known; after that it commits either way.
+ * @param {HTMLElement} el
+ * @param {boolean} supported
+ */
+function setGestureStatus(el, supported) {
+    if (!el) return;
+    const touched = pointer.hasSeenPointer || pointer.pointers.size > 0;
+    const text = !touched ? 'checking…' : (supported ? 'supported' : 'not on this device');
+    if (el.textContent !== text) el.textContent = text;
+    el.classList.toggle('active', touched && supported);
+}
+
+/**
+ * Keep the pad legend honest. Y sets pitch only while Randomize (pitch) is off —
+ * with it on, Voice picks each grain's note from a table and the Y axis is
+ * ignored, so a permanent "Pitch +/-2 oct" is a promise the instrument stops
+ * keeping the moment that switch is flipped.
+ */
+function updatePadLegend() {
+    const el = document.getElementById('pad-legend-pitch');
+    if (!el) return;
+    const random = params.getMusicalParams().randomPitch;
+    const text = random ? 'Pitch set by Randomize' : 'Pitch ±2 oct';
+    if (el.textContent !== text) el.textContent = text;
+}
+
 function updateGestureMeters() {
     const live = pointer.liveGesture;
     const caps = pointer.capabilities;
     const hasPointers = pointer.pointers.size > 0;
 
+    // Two states, two words, and BOTH reachable. Previously this only ever wrote
+    // in the supported direction, so on a mouse-only laptop the badge sat on its
+    // initial string for ever — telling the user to run a test whose failure
+    // state was indistinguishable from not having run it. Once the pad has been
+    // touched, absence of the capability is a real answer and gets said.
     gestureMeterEls.pressure.style.width = hasPointers ? `${live.pressure * 100}%` : '0%';
-    if (caps.pressure && !gestureStatusEls.pressure.classList.contains('active')) {
-        gestureStatusEls.pressure.textContent = 'available';
-        gestureStatusEls.pressure.classList.add('active');
-    }
+    setGestureStatus(gestureStatusEls.pressure, caps.pressure);
 
     gestureMeterEls.contactSize.style.width = hasPointers ? `${live.contactSize * 100}%` : '0%';
-    if (caps.contactSize && !gestureStatusEls.contactSize.classList.contains('active')) {
-        gestureStatusEls.contactSize.textContent = 'available';
-        gestureStatusEls.contactSize.classList.add('active');
-    }
+    setGestureStatus(gestureStatusEls.contactSize, caps.contactSize);
+    // Velocity too. Its badge was hardcoded to "supported" in the HTML and its
+    // JS handle never used, so it read as an earned answer in accent while the
+    // two rows above it still said "checking…" — three rows, two epistemic
+    // states, only one of them actually established.
+    setGestureStatus(gestureStatusEls.velocity, caps.velocity);
 
     gestureMeterEls.velocity.style.width = hasPointers ? `${live.velocity * 100}%` : '0%';
 }
@@ -945,7 +1045,7 @@ function beginFixedRecording(atTime) {
     const barCount = stillActive.state.recordBarCount || 4;
     fixedRecordDuration = barCount * masterBus.clock.getBarDuration();
 
-    stillActive.recorder.startRecording(atTime);
+    stillActive.recorder.startRecording(atTime, takeGeometry(stillActive));
     stillActive.ghostRenderer.recording = true;
     transport.setState('recording');
     transport.clearSpecialDisplay();
@@ -1112,8 +1212,14 @@ transport.onLoopToggle = (looping) => {
 transport.onOverdub = () => {
     const active = instanceManager.getActive();
     if (!active) return;
-    // Guard: only allow overdub toggle from playing or overdubbing states
-    if (transport.state !== 'playing' && transport.state !== 'overdubbing') return;
+    // Refuse only the states where overdub genuinely cannot start. The old guard
+    // allowed ONLY 'playing' and 'overdubbing' — but TransportBar enables this
+    // button at idle whenever a recording exists, so pressing it there was a lit,
+    // hover-highlighted, 44px no-op. Starting playback first is what the user
+    // meant, and the branch below already does it.
+    if (transport.state === 'recording' || transport.state === 'count-in'
+        || transport.state === 'armed') return;
+    if (!active.recorder.getRecording().length) return;
 
     if (active.recorder.isOverdubbing) {
         // Stop overdub — merge happens inside stopRecording()
@@ -1137,7 +1243,7 @@ transport.onOverdub = () => {
         }
 
         // Start overdub recording aligned to playback start time
-        active.recorder.startOverdub(active.player._startTime);
+        active.recorder.startOverdub(active.player._startTime, takeGeometry(active));
         active.ghostRenderer.recording = true;
         transport.setState('overdubbing');
 
@@ -1151,6 +1257,89 @@ transport.onOverdub = () => {
 
 // --- Loop snap-to-grid toggle ---
 let loopSnapToGrid = false;
+/**
+ * The loop geometry of the take about to be replaced, so undo can bring it back.
+ * setLoopBars/setTakeBars live on the Player, not the Recorder, so a lane
+ * restored on its own kept the REPLACEMENT take's bar count — a recovered 4-bar
+ * take looping over 2 bars, with bars 3 and 4 never heard.
+ * @param {{ player: import('./automation/Player.js').Player }} entry
+ */
+function takeGeometry(entry) {
+    return { loopBars: entry.player.getLoopBars(), takeBars: entry.player.getTakeBars() };
+}
+
+// --- Undo ---
+// The recorder could already undo, but only from Ctrl+Z — which does not exist
+// on a tablet, the device this instrument is built for. Recording over a
+// multi-pass loop is the most destructive thing the transport does and it had no
+// reachable way back.
+const undoBtn = document.getElementById('btn-undo');
+
+/**
+ * Keep the tabs' playing/recording dots current.
+ *
+ * tabBar.render() only runs on add, remove, rename and switch, so dots rendered
+ * from it would show whatever was true the last time a tab was created — exactly
+ * wrong for a state that changes on every transport press.
+ *
+ * This updates the dots IN PLACE. An earlier version called tabBar.render() when
+ * a signature changed, with a comment claiming it toggled classes in place; it
+ * did not — render() sets innerHTML = '' and rebuilds every button. The signature
+ * kept that off the per-frame path, but it still fired on every transport press,
+ * and rebuilding costs two things the comment did not mention:
+ *   - focus. A .tab-item is a real <button>; destroying the focused one drops
+ *     focus to <body>, so a keyboard user pressing R lost their place.
+ *   - scroll. #tab-bar scrolls horizontally; emptying #tab-list collapses
+ *     scrollWidth and resets scrollLeft, so with enough tabs, pressing Play
+ *     jumped the strip back to tab 1.
+ * (The risk it did name — an in-flight rename — was never one: rename uses
+ * prompt(), which blocks the frame loop outright.)
+ */
+let _tabActivity = '';
+function refreshTabActivity() {
+    const tabs = instanceManager.getTabList();
+    const signature = tabs.map(t => `${t.id}:${t.isRecording ? 'r' : t.isPlaying ? 'p' : '-'}`).join('|');
+    if (signature === _tabActivity) return;
+    _tabActivity = signature;
+    if (!tabBar.updateActivity(tabs)) tabBar.render(tabs);
+}
+
+/**
+ * Enable Undo only when there is something to go back to and it is safe.
+ * Driven from the render loop rather than from each of the six places that can
+ * change the answer (finish a take, stop, overdub, switch tab, restore a
+ * session, undo itself) — enumerating those is how one gets missed and the
+ * button goes stale. The write is guarded so it only touches the DOM on a real
+ * change.
+ */
+function refreshUndoButton() {
+    const active = instanceManager.getActive();
+    const disabled = !active?.recorder.canUndo
+        || active.recorder.isRecording
+        || active.player.isPlaying;
+    if (undoBtn.disabled !== disabled) undoBtn.disabled = disabled;
+}
+
+function performUndo() {
+    const active = instanceManager.getActive();
+    if (!active || !active.recorder.canUndo) return;
+    // Not mid-take and not mid-playback: swapping the lane underneath either one
+    // would leave the Player dispatching from a lane that no longer exists.
+    if (active.recorder.isRecording || active.player.isPlaying) return;
+    const restored = active.recorder.undo();
+    if (!restored) return;
+    // Put the take's own loop geometry back with it.
+    if (restored.loopBars) {
+        active.player.setLoopBars(restored.loopBars.startBars, restored.loopBars.lengthBars);
+    }
+    if (restored.takeBars) active.player.setTakeBars(restored.takeBars);
+    transport.setHasRecording(active.recorder.getRecording().length > 0);
+    refreshUndoButton();
+    showNotification('Undid last take');
+}
+
+undoBtn.addEventListener('click', performUndo);
+
 const snapBtn = document.getElementById('btn-snap-grid');
 snapBtn.addEventListener('click', () => {
     loopSnapToGrid = !loopSnapToGrid;
@@ -1197,19 +1386,33 @@ function applyLoopStationUI(enabled) {
         transport.looping = true;
         transport._updateLoopVisual();
         loopBtn.disabled = true;
-        loopBtn.classList.add('loop-forced');
+        loopBtn.title = 'Looping is on and locked by loop station mode';
 
-        // Force snap locked
+        // Do NOT touch loopSnapToGrid. An earlier version of this block set it
+        // to true, on the stated grounds that loop-station "forces snapping on"
+        // and the button was lying by showing OFF. That was wrong twice over:
+        // main never forced it (it only disabled the button, which reported the
+        // user's real setting), and loopSnapToGrid is a MODULE global while
+        // loopStationMode is per-instance — so merely visiting a tab that had the
+        // mode on turned snapping on for every tab, permanently, with no way back.
+        //
+        // What is actually true: a loop-station loop is bar-aligned by
+        // construction (Player resolves it from _loopBars), so the snap setting
+        // is irrelevant here rather than overridden. The button is disabled
+        // because it cannot change anything, and now says so.
         snapBtn.disabled = true;
-        snapBtn.classList.add('snap-forced');
+        snapBtn.title = 'Loop station loops are always bar-aligned; snap does not apply';
     } else {
         // Unlock loop button
-        loopBtn.classList.remove('loop-forced');
+        loopBtn.title = 'Loop';
         transport._updateButtons(); // re-evaluates disabled state
 
-        // Unlock snap button
+        // The value was never changed, so there is nothing to restore — only the
+        // button to re-enable. The class toggle is kept because it is the honest
+        // way to re-assert the user's setting after the disabled spell.
         snapBtn.disabled = false;
-        snapBtn.classList.remove('snap-forced');
+        snapBtn.classList.toggle('snap-active', loopSnapToGrid);
+        snapBtn.title = 'Snap loop to BPM grid';
     }
 }
 
@@ -1365,14 +1568,11 @@ document.addEventListener('keydown', (e) => {
         e.preventDefault();
         if (transport.onRecord) transport.onRecord();
     }
-    // Ctrl+Z: undo last overdub
-    if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
-        const active = instanceManager.getActive();
-        if (active && active.recorder.canUndo && transport.state === 'idle') {
-            e.preventDefault();
-            active.recorder.undoOverdub();
-            transport.setHasRecording(active.recorder.getRecording().length > 0);
-        }
+    // Ctrl/Cmd+Z: the same path as the button, so the two cannot drift apart.
+    // `e.key === 'z'` missed with CapsLock on, where the key reports as 'Z'.
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        performUndo();
     }
 });
 
@@ -1413,7 +1613,7 @@ instanceManager.onPlayerLoopWrap = (instanceId) => {
     inst.player.setLane(inst.recorder.getRecording());
 
     // 3. Start a fresh overdub pass for continuous layering
-    inst.recorder.startOverdub(inst.player._startTime);
+    inst.recorder.startOverdub(inst.player._startTime, takeGeometry(inst));
 
     // 4. Persist the merged state
     if (persistence) persistence.scheduleSave();
@@ -1436,6 +1636,9 @@ function render() {
     updateGestureMeters();
     params.updateRandomIndicators(params.getMusicalParams());
     params.updateParamRelevance();
+    updatePadLegend();
+    refreshUndoButton();
+    refreshTabActivity();
 
     // Update transport display during recording
     if (active?.recorder.isRecording) {

@@ -39,13 +39,22 @@ const RANGE_PARAMS = [
         name: 'spread',
         minId: 'param-spread-min', minValId: 'val-spread-min',
         maxId: 'param-spread-max', maxValId: 'val-spread-max',
-        display: n => parseFloat(n).toFixed(2),
+        // A fraction of the whole buffer, so a percentage says what it is. Note it
+        // ALSO widens pan by spread * 0.5 (grainFactory.js), which nothing on
+        // screen states; the card name covers only the position half.
+        display: n => `${Math.round(parseFloat(n) * 100)}% of sample`,
     },
     {
         name: 'pan',
         minId: 'param-pan-min', minValId: 'val-pan-min',
         maxId: 'param-pan-max', maxValId: 'val-pan-max',
-        display: n => parseFloat(n).toFixed(2),
+        // "-0.40" says nothing about which side that is. Every other readout in
+        // the panel carries its unit; this one carried a bare signed number.
+        display: (n) => {
+            const v = parseFloat(n);
+            if (Math.abs(v) < 0.005) return 'centre';
+            return `${Math.round(Math.abs(v) * 100)}% ${v < 0 ? 'L' : 'R'}`;
+        },
     },
 ];
 
@@ -271,6 +280,7 @@ export class ParameterPanel {
 
         // --- Pitch range slider (visible when randomize pitch is active) ---
         this._pitchRangeGroup = document.getElementById('pitch-range-group');
+        this._pitchChain = document.getElementById('pitch-chain');
         this._pitchRangeSlider = document.getElementById('param-pitch-range');
         this._pitchRangeDisplay = document.getElementById('val-pitch-range');
         this._pitchRangeSlider.addEventListener('input', () => {
@@ -285,9 +295,33 @@ export class ParameterPanel {
         this._densityMinRow   = this._ranges.density.minSlider.closest('.range-row');
         this._spreadMinRow    = this._ranges.spread.minSlider.closest('.range-row');
         this._panMinRow       = this._ranges.pan.minSlider.closest('.range-row');
+        // Max rows cached too: updateParamRelevance runs from main.js's render
+        // loop, so a closest() per parameter per frame is 240 DOM walks a second
+        // in an app whose whole point is not stalling the audio thread's feeder.
+        this._notes = Object.fromEntries(
+            [...document.querySelectorAll('[data-note]')].map(el => [el.dataset.note, el]));
+        this._maxRows = {
+            grainSize: this._ranges.grainSize.maxSlider.closest('.range-row'),
+            density:   this._ranges.density.maxSlider.closest('.range-row'),
+            spread:    this._ranges.spread.maxSlider.closest('.range-row'),
+            pan:       this._ranges.pan.maxSlider.closest('.range-row'),
+        };
         // Param groups for musical controls
         this._rootNoteGroup = this._rootNoteSelect.closest('.param-group');
         this._scaleGroup    = this._scaleSelect.closest('.param-group');
+    }
+
+    /**
+     * Write (or clear) the one-line reason a card's control is unavailable.
+     * @param {string} key - the data-note value on the target <p>
+     * @param {string|null} text - null clears and hides the line
+     * @private
+     */
+    _setNote(key, text) {
+        const el = this._notes[key];
+        if (!el) return;
+        if (el.textContent !== (text || '')) el.textContent = text || '';
+        el.hidden = !text;
     }
 
     /** Show/hide arp controls based on randomize pitch toggle and arp mode. */
@@ -295,6 +329,11 @@ export class ParameterPanel {
         const showPitch = this._randomPitch.checked;
         const isArpeggiator = this._arpPatternSelect.value === 'arpeggiator';
         const showArpControls = showPitch && isArpeggiator;
+
+        // The wrapper carries the whole chain's visibility. Without this it would
+        // still occupy a grid row when every child inside it is display:none —
+        // an empty band of row-gap between Scale and the Sound Engine heading.
+        if (this._pitchChain) this._pitchChain.hidden = !showPitch;
 
         this._arpModeGroup.style.display = showPitch ? '' : 'none';
         this._pitchRangeGroup.style.display = showPitch ? '' : 'none';
@@ -322,7 +361,7 @@ export class ParameterPanel {
         this._currentPattern = [...perms[idx]];
         this._mutedSteps = new Array(steps).fill(false);
 
-        this._arpStyleDisplay.textContent = `${idx + 1}/${count}`;
+        this._arpStyleDisplay.textContent = `${idx + 1} of ${count}`;
         this._redrawArpSvg();
     }
 
@@ -509,7 +548,7 @@ export class ParameterPanel {
             const steps = parseInt(this._arpStepsSlider.value, 10);
             const count = getPermutations(steps).length;
             const idx = Math.min(this._arpStyleIndex, count - 1);
-            this._arpStyleDisplay.textContent = `${idx + 1}/${count}`;
+            this._arpStyleDisplay.textContent = `${idx + 1} of ${count}`;
         }
     }
 
@@ -781,6 +820,25 @@ export class ParameterPanel {
 
             // Position relative to the slider track within the range-group
             const slider = this._ranges[rp.name].minSlider;
+
+            // The MIN row can be hidden (updateParamRelevance), and every number
+            // below comes out of it: offsetLeft/offsetWidth/offsetTop are all 0
+            // for a display:none element, so trackWidth became 0 - 14 = -14 and
+            // the marker ran BACKWARDS from 7px to -7px, off the card's left
+            // edge, spanning the full card height across the parameter's title.
+            //
+            // Hiding the indicator is the right answer rather than re-deriving
+            // the geometry from the visible row: the only way MIN is hidden while
+            // a gesture is still mapped is `derived` (quantized, not randomized),
+            // and in that state resolveParams overrides the gesture with the
+            // subdivision — so the marker was reporting a gesture that changes
+            // nothing. offsetParent is null exactly when the element is not
+            // rendered, whichever rule did the hiding.
+            if (slider.offsetParent === null) {
+                indicator.style.opacity = '0';
+                continue;
+            }
+
             const thumbHalf = 7; // half of 14px thumb
             const trackStart = slider.offsetLeft + thumbHalf;
             const trackWidth = slider.offsetWidth - thumbHalf * 2;
@@ -826,6 +884,13 @@ export class ParameterPanel {
             // Position the bar between min and max thumb positions on the slider track
             const r = this._ranges[name];
             const slider = r.minSlider;
+            // Same guard as updateGestureIndicators: every measurement below is
+            // 0 for a display:none element, which turns trackWidth negative and
+            // draws the bar backwards across the card. Unreachable today (the bar
+            // only shows when randomize is on, and that is exactly when the MIN
+            // row is visible) — but the two functions share the arithmetic, so
+            // they should not drift apart on the assumption.
+            if (slider.offsetParent === null) { bar.style.opacity = '0'; continue; }
             const thumbHalf = 7; // half of 14px thumb
             const trackStart = slider.offsetLeft + thumbHalf;
             const trackWidth = slider.offsetWidth - thumbHalf * 2;
@@ -870,12 +935,63 @@ export class ParameterPanel {
         const denMinActive = m.randomDensity   || hasMapping('density');
         const sprMinActive = hasMapping('spread');
 
-        const panMinActive = m.randomPan || hasMapping('pan');
+        // Not `|| hasMapping('pan')`: no gesture select offers value="pan" (the
+        // options are grainSize / density / spread / amplitude / pitch), so that
+        // half was unreachable and would read as working code to whoever next
+        // wonders why mapping a gesture to Pan reveals nothing.
+        const panMinActive = m.randomPan;
 
-        this._grainSizeMinRow.classList.toggle('range-row-inactive', !gsMinActive);
-        this._densityMinRow.classList.toggle('range-row-inactive', !denMinActive);
-        this._spreadMinRow.classList.toggle('range-row-inactive', !sprMinActive);
-        this._panMinRow.classList.toggle('range-row-inactive', !panMinActive);
+        // A range needs two ends; a single value does not. With randomize off and
+        // no gesture mapped, MIN is not a control the user can use for anything,
+        // and every Sound Engine card shipped in that state — so the instrument's
+        // PRIMARY sound control was the slider labelled "MAX", sitting under a
+        // greyed twin showing the same number. That reads as a broken card.
+        //
+        // Dimming it was worse than useless: opacity 0.35 over --card-bg puts the
+        // MIN tag at 1.71:1 and its value at 2.15:1, well under the 3:1 floor, so
+        // it was not a dimmed row but a smear. Hide the row instead — the idiom
+        // this panel already uses for a control that means nothing right now —
+        // and drop the MAX tag with it, because with one row there is no min and
+        // max to tell apart: the card's own name is the label.
+        // Quantized means the value is derived from BPM and the subdivision, so
+        // the sliders contribute nothing to it. They were left live and
+        // draggable while BOTH readouts were overwritten with one identical
+        // string (see _refreshGrainSizeDisplay) — two sliders you could drag
+        // across their whole travel while the numbers never moved and never
+        // differed. Nothing on screen said whether the control or the user was
+        // at fault. Disable them and let the subdivision select be the control.
+        // `quantized` alone is NOT the condition. main.js:290 substitutes the
+        // subdivision only when quantize is on AND randomize is off; with both on,
+        // the min/max pair is live — it is the random range, which is then snapped
+        // to the grid. Disabling on `quantized` alone locked the user out (by the
+        // disabled attribute, so keyboard too) of the exact two sliders shaping
+        // what they were hearing, and overwrote both readouts with one static
+        // string that was not what the engine was producing.
+        const setRows = (minRow, key, active, quantized, randomized) => {
+            const r = this._ranges[key];
+            const maxRow = this._maxRows[key];
+            const derived = quantized && !randomized;
+            const showMin = active && !derived;
+            minRow.hidden = !showMin;
+            r.minSlider.disabled = !showMin;
+            maxRow.classList.toggle('range-row-solo', !showMin);
+            r.maxSlider.disabled = derived;
+            maxRow.classList.toggle('range-row-derived', derived);
+            return derived;
+        };
+        const gsDerived = setRows(this._grainSizeMinRow, 'grainSize', gsMinActive,
+            this._quantizeGrainSize.checked, m.randomGrainSize);
+        const denDerived = setRows(this._densityMinRow, 'density', denMinActive,
+            this._quantizeDensity.checked, m.randomDensity);
+        setRows(this._spreadMinRow, 'spread', sprMinActive, false, false);
+        setRows(this._panMinRow, 'pan', panMinActive, false, m.randomPan);
+
+        // Say WHY a control is unavailable, in place of the control. Greying
+        // something out states that it is off and nothing else; the user is left
+        // to discover the switch that wakes it. These are the only dead controls
+        // a musician meets in the first ten seconds.
+        this._setNote('grain-size', gsDerived ? 'Set by Quantize' : null);
+        this._setNote('density', denDerived ? 'Set by Quantize' : null);
 
         // --- Root Note & Scale: active when quantize pitch, or arp pattern ≠ random ---
         const arpPattern = m.arpPattern || 'random';
@@ -883,6 +999,19 @@ export class ParameterPanel {
             || (m.randomPitch && arpPattern !== 'random');
         this._rootNoteGroup.classList.toggle('param-inactive', !noteActive);
         this._scaleGroup.classList.toggle('param-inactive', !noteActive);
+        // Same reasoning as the rows above: dim AND disable. Root Note and Scale
+        // do nothing unless pitch is being snapped to a scale, and a keyboard user
+        // could previously change both while they read as inactive.
+        this._rootNoteSelect.disabled = !noteActive;
+        this._scaleSelect.disabled = !noteActive;
+        // Names only what is on screen right now. The previous wording pointed at
+        // "Pitch Motion", a card that is display:none in exactly the state that
+        // shows this note — so half the instruction referred to a control the
+        // reader could not see. It also used an arrow, which reads as a menu path
+        // in an interface that has no menus.
+        const why = noteActive ? null : 'Turn on Quantize in the Pitch card to use this';
+        this._setNote('root-note', why);
+        this._setNote('scale', why);
     }
 
     /**

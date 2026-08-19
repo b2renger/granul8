@@ -4,3 +4,6 @@
 # OS noise
 .DS_Store
 Thumbs.db
+
+# Agent worktrees (auto-created, auto-removed)
+.claude/worktrees/

@@ -22,8 +22,43 @@ export class TabBar {
 
     /**
      * Re-render all tabs from the provided list.
-     * @param {Array<{ id: string, name: string, isActive: boolean }>} tabs
+     * @param {Array<{ id: string, name: string, isActive: boolean,
+     *                  isPlaying?: boolean, isRecording?: boolean }>} tabs
      */
+    /**
+     * Update the per-tab activity dots without rebuilding the strip.
+     *
+     * render() sets innerHTML = '' and recreates every button, which drops focus
+     * to <body> if the focused tab is destroyed and resets #tab-bar's horizontal
+     * scroll. Activity changes on every transport press, so that is far too often
+     * to pay either cost.
+     *
+     * @param {Array<{id: string, isPlaying?: boolean, isRecording?: boolean}>} tabs
+     * @returns {boolean} false when the strip does not match the list (a tab was
+     *   added or removed), so the caller falls back to a full render.
+     */
+    updateActivity(tabs) {
+        const items = this._listEl.querySelectorAll('.tab-item');
+        if (items.length !== tabs.length) return false;
+        tabs.forEach((tab, i) => {
+            const btn = items[i];
+            if (btn.dataset.tabId !== tab.id) return;
+            const want = tab.isRecording ? 'tab-dot-recording'
+                : tab.isPlaying ? 'tab-dot-playing' : null;
+            let dot = btn.querySelector('.tab-dot');
+            if (!want) { dot?.remove(); return; }
+            if (!dot) {
+                dot = document.createElement('span');
+                dot.className = 'tab-dot';
+                btn.insertBefore(dot, btn.firstChild);
+            }
+            dot.classList.toggle('tab-dot-recording', want === 'tab-dot-recording');
+            dot.classList.toggle('tab-dot-playing', want === 'tab-dot-playing');
+            dot.title = tab.isRecording ? 'Recording' : 'Playing';
+        });
+        return [...items].every((b, i) => b.dataset.tabId === tabs[i].id);
+    }
+
     render(tabs) {
         this._tabCount = tabs.length;
         this._listEl.innerHTML = '';
@@ -35,6 +70,17 @@ export class TabBar {
             btn.dataset.tabId = tab.id;
 
             // Tab label
+            // A dot for a tab that is doing something, so the state of every layer
+            // is visible from the tab strip rather than only from the tab you
+            // happen to be on. Recording wins over playing: it is the state that
+            // is consuming the take.
+            if (tab.isRecording || tab.isPlaying) {
+                const dot = document.createElement('span');
+                dot.className = 'tab-dot ' + (tab.isRecording ? 'tab-dot-recording' : 'tab-dot-playing');
+                dot.title = tab.isRecording ? 'Recording' : 'Playing';
+                btn.appendChild(dot);
+            }
+
             const label = document.createElement('span');
             label.className = 'tab-label';
             label.textContent = tab.name;
