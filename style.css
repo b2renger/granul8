@@ -1919,8 +1919,12 @@ button {
    rather than one sequence.
    grid-auto-flow: column forces a single row: 5 tracks at 1920 (~355px each),
    and 2 when only Pitch Range and Pitch Motion are showing, since display:none
-   items are not grid items at all. Below 1000px five tracks would fall under the
-   190px floor, so it wraps there instead of overflowing. */
+   items are not grid items at all.
+   The wrap breakpoint is derived, not guessed: five 190px tracks plus four 18px
+   gaps need 1022px of content, and .section-content's padding is 48px, so the
+   floor is breached below 1070px. 1100px leaves a little margin. An earlier 1000
+   put iPad landscape (1024px, a stated device) inside the single-row branch at
+   181px per track — under the floor this rule exists to hold. */
 .pitch-chain {
     grid-column: 1 / -1;
     display: grid;
@@ -1930,7 +1934,7 @@ button {
     align-items: start;
 }
 
-@media (max-width: 1000px) {
+@media (max-width: 1100px) {
     .pitch-chain {
         grid-auto-flow: row;
         grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
