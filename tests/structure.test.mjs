@@ -221,17 +221,29 @@ test('no breakpoint shrinks a transport button below the 44px touch floor', () =
     // the viewport — the more likely a phone in one hand — the SMALLER the
     // target. Both broke a rule the stylesheet had already satisfied, in a file
     // that holds 44px everywhere else.
+    // Scans every rule whose SELECTOR mentions #transport-bar, not the literal
+    // substring "#transport-bar button". That literal missed
+    // `#transport-bar .bar-count-btn`, which is (1,1,0) and therefore beat the
+    // 44px base rule at (1,0,1) — so four buttons rendered 36x36 at every
+    // viewport while the commit that added this test asserted the file "holds
+    // 44px everywhere else". A child combinator or a non-px unit walked past it
+    // too.
     const css = cssRaw.replace(/\/\*[\s\S]*?\*\//g, '');
     const offenders = [];
     let from = 0;
     for (;;) {
-        const at = css.indexOf('#transport-bar button', from);
+        const at = css.indexOf('#transport-bar', from);
         if (at === -1) break;
         from = at + 1;
         const open = css.indexOf('{', at);
+        if (open === -1) break;
+        const selector = css.slice(css.lastIndexOf('}', at) + 1, open);
+        // The bar itself, and anything that is not a control, are not targets.
+        if (!/button|\.bar-count-btn|\.snap-btn|\.loop-station-btn/.test(selector)) continue;
         const rule = css.slice(open, css.indexOf('}', open));
-        for (const m of rule.matchAll(/(width|height):\s*(\d+)px/g)) {
-            if (Number(m[2]) < 44) offenders.push(`${m[1]}: ${m[2]}px`);
+        for (const m of rule.matchAll(/(?:^|[;{])\s*(width|height):\s*([\d.]+)(px|rem|em)/g)) {
+            const px = m[3] === 'px' ? Number(m[2]) : Number(m[2]) * 16;
+            if (px < 44) offenders.push(`${selector.trim()} { ${m[1]}: ${m[2]}${m[3]} }`);
         }
     }
     assert.deepEqual(offenders, [],
@@ -263,4 +275,71 @@ test('the loop handles have a real touch target', () => {
     const height = Number(hh[1]) + 2 * Math.abs(y);
     assert.ok(width >= 44 && height >= 44,
         `the handle's touch target is ${width}x${height}, under the 44x44 floor`);
+});
+
+test('a focus ring inside a scroll container is inset, not clipped', () => {
+    // Setting one overflow axis to a non-visible value computes the OTHER to
+    // auto, so #tab-bar (overflow-x) clips vertically and #parameter-panel
+    // (overflow-y) clips horizontally. Outlines are not scrollable overflow, so
+    // an outset ring is cut off rather than reachable. The tabs stretch to the
+    // container's full content height — 0px of slack against the 4px a ring
+    // needs — so keyboard focus showed two vertical ticks and no top or bottom.
+    const css = cssRaw.replace(/\/\*[\s\S]*?\*\//g, '');
+    for (const sel of ['.tab-item:focus-visible', '#tab-add:focus-visible',
+                       'summary:focus-visible']) {
+        const at = css.indexOf(sel);
+        assert.notEqual(at, -1, `${sel} has no rule, so it inherits the outset global ring`);
+        const rule = css.slice(css.indexOf('{', at), css.indexOf('}', at));
+        assert.match(rule, /outline-offset:\s*-/,
+            `${sel} uses an outset ring inside a container that clips it`);
+    }
+});
+
+test('no at-rule is nested inside another at-rule', () => {
+    // The brace-balance test above counts DEPTH, so it cannot see a MISPLACED
+    // brace. Delete the `}` closing one @media and append one at EOF: the count
+    // still balances, the suite stays green, and every rule in the following
+    // @media is now gated on the previous one's condition as well. Verified —
+    // moving the brace that closes @media (max-width: 380px) silently nested
+    // @media (max-height: 420px) inside it, putting every landscape-phone rule
+    // behind "and width <= 380px", with nothing reporting it.
+    const css = cssRaw.replace(/\/\*[\s\S]*?\*\//g, '');
+    const stack = [];
+    const bad = [];
+    const re = /@media[^{]*\{|\{|\}/g;
+    let m;
+    while ((m = re.exec(css)) !== null) {
+        if (m[0].startsWith('@media')) {
+            if (stack.some(x => x.at)) {
+                bad.push(`${m[0].trim().slice(0, 40)} at index ${m.index}`);
+            }
+            stack.push({ at: true });
+        } else if (m[0] === '{') {
+            stack.push({ at: false });
+        } else {
+            stack.pop();
+        }
+    }
+    assert.deepEqual(bad, [],
+        'these @media blocks are nested inside another one, so their rules carry ' +
+        'both conditions — almost always a brace in the wrong place rather than intent');
+});
+
+test('no media query condition is declared twice', () => {
+    // Two @media (max-width: 600px) blocks between them re-declared #top-bar,
+    // #parameter-panel, #level-meter and #transport-bar. Same specificity, so the
+    // later silently won — and a 24-line comment justified a 38vh panel cap that
+    // never rendered because the other block set 44vh. Duplicated at-rule blocks
+    // are how equal-specificity overrides hide in plain sight: nothing in either
+    // block looks wrong on its own.
+    const css = cssRaw.replace(/\/\*[\s\S]*?\*\//g, '');
+    const seen = new Map();
+    for (const m of css.matchAll(/@media([^{]+)\{/g)) {
+        const cond = m[1].replace(/\s+/g, ' ').trim();
+        seen.set(cond, (seen.get(cond) || 0) + 1);
+    }
+    const dupes = [...seen].filter(([, n]) => n > 1).map(([c, n]) => `${c} x${n}`);
+    assert.deepEqual(dupes, [],
+        'merge these — a second block with the same condition overrides the first ' +
+        'wherever they touch the same selector, invisibly');
 });

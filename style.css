@@ -461,6 +461,10 @@ html, body {
 /* === Transport Bar === */
 #transport-bar {
     display: flex;
+    /* Wraps at every width, not only under 600px: with the buttons pinned at 44px
+       the bar can no longer absorb a narrow viewport by shrinking them. */
+    flex-wrap: wrap;
+    row-gap: 8px;
     align-items: center;
     gap: 8px;
     padding: 8px 16px;
@@ -472,6 +476,13 @@ html, body {
 #transport-bar button {
     width: 44px;
     height: 44px;
+    /* Never shrink. flex-shrink defaults to 1 and min-width: auto floors these at
+       their icon's min-content width — a few pixels. The remedy existed only
+       inside @media (max-width: 600px), so from ~601px to ~790px (to ~980px with
+       the bar-count buttons showing) they were still under the floor. 768px is
+       iPad portrait, which another comment in this file calls the width where it
+       mattered most. */
+    flex: 0 0 auto;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -666,12 +677,14 @@ html, body {
 }
 
 #transport-bar .bar-count-btn {
-    /* Specificity, not preference: `#transport-bar button` is 1-0-1 and beat the
-       bare .bar-count-btn at 0-1-0, so these rendered at 44x44 rather than the
-       intended size and pushed the whole transport right when loop-station mode
-       turned them on. 36px keeps a comfortable target without that shove. */
-    width: 36px;
-    height: 36px;
+    /* Inherits 44x44 from `#transport-bar button`. An earlier version set 36x36
+       here to stop four extra buttons shoving the transport right when
+       loop-station mode reveals them — but 36 is under the WCAG 2.5.5 floor, and
+       this selector is (1,1,0) against that rule's (1,0,1), so it won on the
+       class column and 36px was the used size at EVERY viewport. Shrinking the
+       target that picks how many bars you are about to record is the wrong answer
+       to a layout shove; the bar wraps instead. */
+    min-width: 44px;
     font-size: 11px;
     font-weight: 600;
     background: var(--bg-surface);
@@ -724,6 +737,7 @@ html, body {
 
 .time-sig-control select {
     width: 36px;
+    min-height: 44px;   /* narrow is fine; short is not — the target is the height */
     padding: 1px 2px;
     background: var(--bg-surface);
     color: var(--text-primary);
@@ -1490,8 +1504,8 @@ html, body {
 
 /* === Theme Toggle === */
 #theme-toggle {
-    width: 36px;
-    height: 36px;
+    width: 44px;
+    height: 44px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1985,6 +1999,23 @@ button {
     50% { opacity: 0.35; }
 }
 
+/* Inset rings where the container clips.
+   Per CSS Overflow 3, setting one axis to a non-visible value computes the other
+   to `auto` — so `#tab-bar { overflow-x: auto }` clips VERTICALLY too, and
+   `#parameter-panel { overflow-y: auto }` clips horizontally. Outlines are not
+   part of scrollable overflow, so they are cut off rather than scrolled to.
+   The tabs stretch to the container's full content height, leaving exactly 0px
+   for a ring that needs 4px (2px offset + 2px stroke): keyboard focus showed two
+   short vertical ticks with the top and bottom edges gone. The section headers
+   are full-width blocks flush with the panel's content edges, losing their left
+   and right segments the same way.
+   An inset ring needs no space outside the element, so it survives both. */
+#tab-list .tab-item:focus-visible,
+#tab-add:focus-visible,
+.panel-section > summary:focus-visible {
+    outline-offset: -2px;
+}
+
 /* === Focus visibility ===
    There was no focus styling anywhere in 1551 lines, so a keyboard user had no
    way to tell where they were. :focus-visible leaves pointer interaction alone. */
@@ -2043,28 +2074,33 @@ button {
 }
 
 /* === Responsive: phone === */
+/* ONE block. There were two @media (max-width: 600px) blocks that between them
+   re-declared #top-bar, #top-bar h1, #parameter-panel, #level-meter and
+   #transport-bar — same specificity, so the later silently won, and a 24-line
+   comment justified a 38vh panel cap that never rendered because a 44vh in the
+   other block overrode it. Duplicated at-rule blocks are how equal-specificity
+   overrides hide in plain sight. */
 @media (max-width: 600px) {
     /* At 400x800 the used height came to 609px in a 532px #main-area — 77px
        overflowing under body { overflow: hidden }, with no way to scroll to it.
        The top bar was 239px of that, wrapped into five rows above a waveform
        pinned at its 150px floor: 30% of the screen given to chrome above the
-       instrument. Compact the bar, and let the PANEL yield rather than the pad. */
+       instrument. Compact the bar, and let the PANEL yield rather than the pad.
+       44vh, not the 38vh that used to sit here: with flex-shrink: 1 and
+       min-height: 0 below, this is only a CAP — the panel yields before the pad
+       either way, so the tighter number bought nothing and cost a row of cards. */
     #top-bar { padding: 6px 10px; gap: 6px 10px; }
     #top-bar h1 { font-size: 13px; }
-    #parameter-panel { flex-shrink: 1; min-height: 0; max-height: 38vh; }
+    #parameter-panel { flex-shrink: 1; min-height: 0; max-height: 44vh; }
     #waveform-container { min-height: 120px; }
-}
 
-@media (max-width: 600px) {
     /* The level meter is decoration; the transport buttons are the instrument.
        At 400px the meter's flex-shrink: 0 plus a nowrap time display forced the
        seven buttons down to ~19px each, on a device whose only input is a
-       fingertip and in a file that holds a 44px floor everywhere else. */
+       fingertip. (#transport-bar now wraps and its buttons are flex: 0 0 auto at
+       EVERY width — see the base rules — so those two are no longer needed here.) */
     #level-meter { display: none; }
-    #transport-bar { flex-wrap: wrap; }
-    #transport-bar button { flex: 0 0 auto; }
     #tempo-control { flex-wrap: wrap; row-gap: 6px; }
-    #parameter-panel { max-height: 44vh; }
 
     #top-bar {
         gap: 6px;
