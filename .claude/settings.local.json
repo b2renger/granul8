@@ -6,7 +6,15 @@
       "WebFetch(domain:codepen.io)",
       "WebFetch(domain:cdpn.io)",
       "Bash(git ls-tree:*)",
-      "Bash(dd:*)"
+      "Bash(dd:*)",
+      "Read(//c/Users/b.recoules/Documents/_git/Aframe_8thwall_binary/**)",
+      "WebFetch(domain:www.8thwall.com)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "Bash(ls -la \"c:/Users/b.recoules/Documents/_git/Aframe_8thwall_binary/assets/\"*.sog \"c:/Users/b.recoules/Documents/_git/Aframe_8thwall_binary/assets/\"*.splat)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:medium.com)",
+      "WebFetch(domain:gist.github.com)"
     ]
   }
 }

@@ -257,6 +257,89 @@ export function selectArpNotes(noteTable, steps) {
 }
 
 /**
+ * The arpeggiator play modes, in menu order.
+ *
+ * These replaced a picker that offered every permutation of N steps — "Pattern
+ * 1 of 24" — which is exhaustive but unnameable: nothing in "17 of 24" tells a
+ * player what they are about to hear, and 17 is not musically related to 16.
+ * These five are the orderings that have names because they are the ones people
+ * reach for.
+ * @type {ReadonlyArray<{value: string, label: string}>}
+ */
+export const ARP_MODES = Object.freeze([
+    { value: 'up',        label: 'Up' },
+    { value: 'down',      label: 'Down' },
+    { value: 'outsideIn', label: 'Outside in' },
+    { value: 'insideOut', label: 'Inside out' },
+    { value: 'random',    label: 'Random' },
+]);
+
+/**
+ * The order in which an arpeggiator visits its notes.
+ *
+ * Every mode except `random` is a PERMUTATION of 0..steps-1: an ordering, not a
+ * selection, so each note sounds exactly once per cycle. `random` returns null
+ * because it is a per-grain choice — baking a shuffle into an array here would
+ * fix one order for the life of the take, which is not what the mode means.
+ *
+ * @param {number} steps - How many notes are in the chord.
+ * @param {string} mode - One of ARP_MODES' values.
+ * @returns {number[]|null} Index order, or null for per-step random.
+ */
+export function buildArpSequence(steps, mode) {
+    const n = Math.max(1, Math.floor(steps));
+    const up = [...Array(n).keys()];
+
+    switch (mode) {
+        case 'random':
+            return null;
+
+        case 'down':
+            return up.reverse();
+
+        case 'outsideIn': {
+            // Alternate the extremes and close on the middle: 0, n-1, 1, n-2...
+            const out = [];
+            let lo = 0, hi = n - 1;
+            while (lo <= hi) {
+                out.push(lo);
+                if (lo !== hi) out.push(hi);   // an odd count has a true centre
+                lo++; hi--;                     // and must not sound it twice
+            }
+            return out;
+        }
+
+        case 'insideOut':
+            // The mirror of outside-in, so the pair is exactly reciprocal rather
+            // than two independently-invented orderings that nearly match.
+            return buildArpSequence(n, 'outsideIn').reverse();
+
+        case 'up':
+        default:
+            // Unknown modes fall back to up. An empty sequence would silence the
+            // arpeggiator outright — a far worse failure for a bad value than
+            // simply playing in order.
+            return up;
+    }
+}
+
+/**
+ * Turn a one-way sequence into a there-and-back cycle.
+ *
+ * The endpoints are not repeated: [0,1,2,3] becomes [0,1,2,3,2,1], so 3 does not
+ * sound twice at the turnaround and 0 does not sound twice across the cycle
+ * boundary. Sequences of one or two are returned untouched — there is nothing to
+ * bounce between, and [0,1,0] would double the first note every cycle.
+ *
+ * @param {number[]} sequence
+ * @returns {number[]}
+ */
+export function applyPingPong(sequence) {
+    if (sequence.length <= 2) return [...sequence];
+    return [...sequence, ...sequence.slice(1, -1).reverse()];
+}
+
+/**
  * Apply arp type to a permutation pattern.
  * 'straight' returns the pattern as-is (repeating cycle).
  * 'looped' returns a palindrome minus the endpoints (bounce).

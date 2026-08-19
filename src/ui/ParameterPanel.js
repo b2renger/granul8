@@ -4,7 +4,7 @@
 import { ADSRWidget } from './ADSRWidget.js';
 import { expMap } from '../utils/math.js';
 import {
-    SUBDIVISIONS, getSubdivisionSeconds, getPermutations,
+    SUBDIVISIONS, getSubdivisionSeconds, ARP_MODES, buildArpSequence, applyPingPong,
     buildNoteTable, selectArpNotes, semitonesToNoteName, SCALES,
 } from '../utils/musicalQuantizer.js';
 
@@ -233,7 +233,8 @@ export class ParameterPanel {
         this._arpStepsSlider.addEventListener('input', () => {
             this._arpStepsDisplay.textContent = this._arpStepsSlider.value;
             // Reset style to 0 when steps change (permutation count changes)
-            this._arpStyleIndex = 0;
+            this._currentPattern = null;
+            this._mutedSteps = null;
             this._updateArpStyleDisplay();
             this.callbacks.onChange(this.getParams());
         });
@@ -242,6 +243,10 @@ export class ParameterPanel {
         this._arpTypeGroup = document.getElementById('arp-type-group');
         this._arpTypeSelect = document.getElementById('param-arp-type');
         this._arpTypeSelect.addEventListener('change', () => {
+            // Drop any edit: the player just asked for a different named order,
+            // so keeping their old drawing would make the select look inert.
+            this._currentPattern = null;
+            this._mutedSteps = null;
             this._updateArpStyleDisplay();
             this.callbacks.onChange(this.getParams());
         });
@@ -250,27 +255,40 @@ export class ParameterPanel {
         this._arpStyleGroup = document.getElementById('arp-style-group');
         this._arpStyleSvg = document.getElementById('arp-style-svg');
         this._arpStyleDisplay = document.getElementById('val-arp-style');
-        this._arpStyleIndex = 0;
         this._currentPattern = null;  // mutable values array for editing
         this._mutedSteps = null;      // boolean array — true = step is muted
         this._dragStepIdx = null;     // which step index is being dragged
         this._dragMoved = false;      // did pointer move during drag? (for tap vs drag detection)
 
-        document.getElementById('arp-style-prev').addEventListener('click', () => {
-            const steps = parseInt(this._arpStepsSlider.value, 10);
-            const count = getPermutations(steps).length;
-            this._arpStyleIndex = (this._arpStyleIndex - 1 + count) % count;
+        // --- Loop back down ---
+        this._arpPingPong = document.getElementById('arp-pingpong');
+        this._arpPingPong.addEventListener('change', () => {
             this._updateArpStyleDisplay();
             this.callbacks.onChange(this.getParams());
         });
 
-        document.getElementById('arp-style-next').addEventListener('click', () => {
-            const steps = parseInt(this._arpStepsSlider.value, 10);
-            const count = getPermutations(steps).length;
-            this._arpStyleIndex = (this._arpStyleIndex + 1) % count;
+        // --- Note chance (the probability gate) ---
+        this._arpChanceGroup = document.getElementById('arp-chance-group');
+        this._arpChanceSlider = document.getElementById('param-arp-chance');
+        this._arpChanceDisplay = document.getElementById('val-arp-chance');
+        this._arpChanceSlider.addEventListener('input', () => {
+            this._refreshArpChanceDisplay();
+            this.callbacks.onChange(this.getParams());
+        });
+
+        // --- Reset a hand-edited shape back to the play mode's own ---
+        // The prev/next buttons that used to live here stepped through every
+        // permutation of N steps ("Pattern 17 of 24"), which is exhaustive but
+        // unnameable. The named play modes replaced them; this is the way back
+        // from an edit, which those buttons used to provide by accident.
+        document.getElementById('arp-style-reset').addEventListener('click', () => {
+            this._currentPattern = null;
+            this._mutedSteps = null;
             this._updateArpStyleDisplay();
             this.callbacks.onChange(this.getParams());
         });
+
+        this._refreshArpChanceDisplay();
 
         // --- SVG drag interaction for pattern editing ---
         this._arpStyleSvg.addEventListener('pointerdown', (e) => this._onArpSvgPointerDown(e));
@@ -324,6 +342,16 @@ export class ParameterPanel {
         el.hidden = !text;
     }
 
+    /**
+     * The gate reads as a percentage. "0.35" states a number without saying what
+     * it does; "35%" says how often a step sounds.
+     * @private
+     */
+    _refreshArpChanceDisplay() {
+        const pct = Math.round(parseFloat(this._arpChanceSlider.value) * 100);
+        this._arpChanceDisplay.textContent = `${pct}%`;
+    }
+
     /** Show/hide arp controls based on randomize pitch toggle and arp mode. */
     _updateArpVisibility() {
         const showPitch = this._randomPitch.checked;
@@ -339,7 +367,16 @@ export class ParameterPanel {
         this._pitchRangeGroup.style.display = showPitch ? '' : 'none';
         this._arpStepsGroup.style.display = showArpControls ? '' : 'none';
         this._arpTypeGroup.style.display = showArpControls ? '' : 'none';
+        this._arpChanceGroup.style.display = showArpControls ? '' : 'none';
         this._arpStyleGroup.style.display = showArpControls ? '' : 'none';
+
+        // "Loop back down" is meaningless in Random: there is no order to come
+        // back along, because the choice is made per grain. Hidden rather than
+        // disabled — the panel's rule is that a control which cannot mean
+        // anything in the current mode goes away, and one that needs a
+        // prerequisite is disabled.
+        const isRandom = this._arpTypeSelect.value === 'random';
+        this._arpPingPong.closest('.param-modifiers').hidden = isRandom;
 
         if (showArpControls) {
             // If custom pattern already loaded (e.g. from setFullState), just redraw
@@ -352,27 +389,43 @@ export class ParameterPanel {
         }
     }
 
-    /** Load pattern from permutation index, reset mutes, redraw SVG. */
+    /**
+     * Rebuild the previewed shape from the current play mode, unless the player
+     * has edited it — an edit is more specific than a named ordering, so it wins
+     * until Reset is pressed.
+     * @private
+     */
     _updateArpStyleDisplay() {
         const steps = parseInt(this._arpStepsSlider.value, 10);
-        const perms = getPermutations(steps);
-        const count = perms.length;
-        const idx = Math.min(this._arpStyleIndex, count - 1);
-        this._currentPattern = [...perms[idx]];
-        this._mutedSteps = new Array(steps).fill(false);
+        const mode = this._arpTypeSelect.value;
+        const label = (ARP_MODES.find(m => m.value === mode) || ARP_MODES[0]).label;
 
-        this._arpStyleDisplay.textContent = `${idx + 1} of ${count}`;
+        if (!this._currentPattern) {
+            // `random` has no fixed order to draw, so preview the notes in pitch
+            // order and let the label carry the fact that playback is shuffled.
+            const base = buildArpSequence(steps, mode) || buildArpSequence(steps, 'up');
+            this._currentPattern = this._arpPingPong.checked ? applyPingPong(base) : [...base];
+            this._mutedSteps = new Array(this._currentPattern.length).fill(false);
+        }
+
+        const edited = this._isCustomPattern();
+        this._arpStyleDisplay.textContent = edited ? 'Edited' : label;
         this._redrawArpSvg();
     }
 
-    /** Check if the current pattern/mutes differ from the stored permutation. */
+    /**
+     * True when the drawn shape no longer matches what the play mode would give.
+     * @private
+     */
     _isCustomPattern() {
         if (!this._currentPattern) return false;
-        if (this._mutedSteps.some(m => m)) return true;
-        const steps = this._currentPattern.length;
-        const perms = getPermutations(steps);
-        const idx = Math.min(this._arpStyleIndex, perms.length - 1);
-        return !perms[idx].every((v, i) => v === this._currentPattern[i]);
+        if (this._mutedSteps && this._mutedSteps.some(m => m)) return true;
+        const steps = parseInt(this._arpStepsSlider.value, 10);
+        const base = buildArpSequence(steps, this._arpTypeSelect.value)
+            || buildArpSequence(steps, 'up');
+        const expected = this._arpPingPong.checked ? applyPingPong(base) : base;
+        if (expected.length !== this._currentPattern.length) return true;
+        return !expected.every((v, i) => v === this._currentPattern[i]);
     }
 
     /** Compute the arp note names for current musical params (for Y-axis labels). */
@@ -540,16 +593,15 @@ export class ParameterPanel {
         this.callbacks.onChange(this.getParams());
     }
 
-    /** Update the arp shape counter label. */
+    /**
+     * Name the shape currently drawn: the play mode, or "Edited" once the player
+     * has changed it. ("custom" / "17 of 24" was the old permutation vocabulary.)
+     * @private
+     */
     _updateArpCounter() {
-        if (this._isCustomPattern()) {
-            this._arpStyleDisplay.textContent = 'custom';
-        } else {
-            const steps = parseInt(this._arpStepsSlider.value, 10);
-            const count = getPermutations(steps).length;
-            const idx = Math.min(this._arpStyleIndex, count - 1);
-            this._arpStyleDisplay.textContent = `${idx + 1} of ${count}`;
-        }
+        const mode = this._arpTypeSelect.value;
+        const label = (ARP_MODES.find(m => m.value === mode) || ARP_MODES[0]).label;
+        this._arpStyleDisplay.textContent = this._isCustomPattern() ? 'Edited' : label;
     }
 
     /** Show/hide the ADSR canvas editor based on envelope selection. */
@@ -613,8 +665,11 @@ export class ParameterPanel {
             randomPan: this._randomPan.checked,
             arpPattern: this._arpPatternSelect.value,
             arpSteps: parseInt(this._arpStepsSlider.value, 10),
-            arpType: this._arpTypeSelect.value,
-            arpStyle: this._arpStyleIndex,
+            // arpMode replaces the old arpType ('straight'/'looped') and arpStyle
+            // (a permutation index). The bounce it used to encode is arpPingPong.
+            arpMode: this._arpTypeSelect.value,
+            arpPingPong: this._arpPingPong.checked,
+            arpProbability: parseFloat(this._arpChanceSlider.value),
             arpCustomPattern: this._isCustomPattern() && this._currentPattern
                 ? { values: [...this._currentPattern], muted: [...this._mutedSteps] }
                 : null,
@@ -694,9 +749,19 @@ export class ParameterPanel {
         }
         this._arpStepsSlider.value = state.arpSteps || 4;
         this._arpStepsDisplay.textContent = state.arpSteps || 4;
-        this._arpTypeSelect.value = state.arpType || 'straight';
-        this._arpStyleIndex = state.arpStyle || 0;
-        // Restore custom pattern (if any) after loading base permutation
+        // Sessions saved before the play modes carry arpType 'straight'/'looped'
+        // and an arpStyle permutation index. Neither survives translation — a
+        // permutation is not one of the five named orders — so those load as Up,
+        // with the bounce preserved because it maps exactly onto ping-pong.
+        this._arpTypeSelect.value = ARP_MODES.some(m => m.value === state.arpMode)
+            ? state.arpMode : 'up';
+        this._arpPingPong.checked = state.arpPingPong !== undefined
+            ? !!state.arpPingPong
+            : state.arpType === 'looped';
+        this._arpChanceSlider.value = state.arpProbability === undefined
+            ? 1 : state.arpProbability;
+        this._refreshArpChanceDisplay();
+        // Restore custom pattern (if any) after loading the base shape
         if (state.arpCustomPattern) {
             this._currentPattern = [...state.arpCustomPattern.values];
             this._mutedSteps = [...state.arpCustomPattern.muted];

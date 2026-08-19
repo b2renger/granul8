@@ -4,4 +4,7 @@
 - we should have a master volume per layer
 - we need to review the bpm sync accross layers.
 - we should also review the loop points and the quantization so that everything stays in rythm over time.
-- there
+
+- record audio input for sample
+- generate ia audio ? 
+- export audio ?

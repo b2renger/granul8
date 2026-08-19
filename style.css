@@ -1697,8 +1697,15 @@ html, body {
 }
 
 .arp-style-nav button {
-    width: 44px;
-    height: 44px;
+    /* One Reset button now, not the two ‹ › that stepped through permutations —
+       so it is labelled with a word and sized to it, with the 44px floor kept as
+       a minimum rather than a fixed square. */
+    min-width: 56px;
+    min-height: 44px;
+    padding: 0 10px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
     flex: 0 0 auto;
     display: flex;
     align-items: center;

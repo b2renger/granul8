@@ -242,18 +242,31 @@
                                 <input type="range" id="param-arp-steps" min="3" max="6" value="4" step="1">
                             </div>
                             <div class="param-group" id="arp-type-group" style="display: none;">
-                                <label for="param-arp-type">Pattern Playback</label>
+                                <label for="param-arp-type">Play Mode</label>
                                 <select id="param-arp-type">
-                                    <option value="straight" selected>Play once per step</option>
-                                    <option value="looped">Repeat the pattern</option>
+                                    <option value="up" selected>Up</option>
+                                    <option value="down">Down</option>
+                                    <option value="outsideIn">Outside in</option>
+                                    <option value="insideOut">Inside out</option>
+                                    <option value="random">Random</option>
                                 </select>
+                                <div class="param-modifiers">
+                                    <label class="toggle-label">
+                                        <input type="checkbox" id="arp-pingpong">
+                                        <span class="toggle-switch"></span>
+                                        Loop back down
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="param-group" id="arp-chance-group" style="display: none;">
+                                <label for="param-arp-chance">Note Chance <span class="param-value" id="val-arp-chance">100%</span></label>
+                                <input type="range" id="param-arp-chance" aria-label="Note chance" aria-describedby="val-arp-chance" min="0" max="1" value="1" step="0.01">
                             </div>
                             <div class="param-group arp-style-group" id="arp-style-group" style="display: none;">
-                                <h3 class="param-name">Pattern <span class="param-value" id="val-arp-style">1 of 24</span></h3>
+                                <h3 class="param-name">Shape <span class="param-value" id="val-arp-style">Up</span></h3>
                                 <div class="arp-style-nav">
-                                    <button type="button" id="arp-style-prev" title="Previous pattern">&lsaquo;</button>
                                     <svg id="arp-style-svg" class="arp-style-preview" viewBox="0 0 100 50"></svg>
-                                    <button type="button" id="arp-style-next" title="Next pattern">&rsaquo;</button>
+                                    <button type="button" id="arp-style-reset" title="Discard edits and go back to the play mode's own shape" aria-label="Reset shape to the play mode">Reset</button>
                                 </div>
                             </div>
                         </div>
