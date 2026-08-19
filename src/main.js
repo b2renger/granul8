@@ -1174,8 +1174,14 @@ transport.onLoopToggle = (looping) => {
 transport.onOverdub = () => {
     const active = instanceManager.getActive();
     if (!active) return;
-    // Guard: only allow overdub toggle from playing or overdubbing states
-    if (transport.state !== 'playing' && transport.state !== 'overdubbing') return;
+    // Refuse only the states where overdub genuinely cannot start. The old guard
+    // allowed ONLY 'playing' and 'overdubbing' — but TransportBar enables this
+    // button at idle whenever a recording exists, so pressing it there was a lit,
+    // hover-highlighted, 44px no-op. Starting playback first is what the user
+    // meant, and the branch below already does it.
+    if (transport.state === 'recording' || transport.state === 'count-in'
+        || transport.state === 'armed') return;
+    if (!active.recorder.getRecording().length) return;
 
     if (active.recorder.isOverdubbing) {
         // Stop overdub — merge happens inside stopRecording()
@@ -1219,6 +1225,25 @@ let loopSnapToGrid = false;
 // multi-pass loop is the most destructive thing the transport does and it had no
 // reachable way back.
 const undoBtn = document.getElementById('btn-undo');
+
+/**
+ * Keep the tabs' playing/recording dots current.
+ *
+ * tabBar.render() only runs on add, remove, rename and switch, so dots rendered
+ * from it would show whatever was true the last time a tab was created — exactly
+ * wrong for a state that changes on every transport press. Rather than re-render
+ * the strip every frame (it rebuilds every button, which would fight focus and
+ * any in-flight rename), this toggles the two classes in place and only when the
+ * answer has changed.
+ */
+let _tabActivity = '';
+function refreshTabActivity() {
+    const tabs = instanceManager.getTabList();
+    const signature = tabs.map(t => `${t.id}:${t.isRecording ? 'r' : t.isPlaying ? 'p' : '-'}`).join('|');
+    if (signature === _tabActivity) return;
+    _tabActivity = signature;
+    tabBar.render(tabs);
+}
 
 /**
  * Enable Undo only when there is something to go back to and it is safe.
@@ -1296,19 +1321,27 @@ function applyLoopStationUI(enabled) {
         transport.looping = true;
         transport._updateLoopVisual();
         loopBtn.disabled = true;
-        loopBtn.classList.add('loop-forced');
+        loopBtn.title = 'Looping is on and locked by loop station mode';
 
-        // Force snap locked
+        // Force snap on AND say so. The button was disabled and left showing its
+        // OFF state while snapping was in force — the control lying about the
+        // thing it exists to report. (.snap-forced was also dead: main.js sets
+        // the real disabled attribute, and #transport-bar button:disabled
+        // outranks a bare class.)
+        loopSnapToGrid = true;
         snapBtn.disabled = true;
-        snapBtn.classList.add('snap-forced');
+        snapBtn.classList.add('snap-active');
+        snapBtn.title = 'Snap is on and locked by loop station mode';
     } else {
         // Unlock loop button
-        loopBtn.classList.remove('loop-forced');
+        loopBtn.title = 'Loop';
         transport._updateButtons(); // re-evaluates disabled state
 
-        // Unlock snap button
+        // Unlock snap, and restore the visual to whatever the user last chose
+        // rather than leaving it stuck on from the forced state.
         snapBtn.disabled = false;
-        snapBtn.classList.remove('snap-forced');
+        snapBtn.classList.toggle('snap-active', loopSnapToGrid);
+        snapBtn.title = 'Snap loop to BPM grid';
     }
 }
 
@@ -1534,6 +1567,7 @@ function render() {
     params.updateParamRelevance();
     updatePadLegend();
     refreshUndoButton();
+    refreshTabActivity();
 
     // Update transport display during recording
     if (active?.recorder.isRecording) {

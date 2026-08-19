@@ -1961,6 +1961,30 @@ button {
     color: var(--text-primary);
 }
 
+/* Per-tab activity. The transport reports only the ACTIVE instance, but every
+   instance can play or record at once — which is the entire point of the tabs.
+   Colour alone would not carry it, so recording also pulses. */
+.tab-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    margin-right: 2px;
+}
+
+.tab-dot-playing {
+    background: var(--play-green);
+}
+
+.tab-dot-recording {
+    background: var(--record-red);
+    animation: tab-dot-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes tab-dot-pulse {
+    50% { opacity: 0.35; }
+}
+
 /* === Focus visibility ===
    There was no focus styling anywhere in 1551 lines, so a keyboard user had no
    way to tell where they were. :focus-visible leaves pointer interaction alone. */

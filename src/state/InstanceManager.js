@@ -220,6 +220,12 @@ export class InstanceManager {
                 id,
                 name: entry.state.name,
                 isActive: id === this.activeId,
+                // Only the ACTIVE instance's state shows in the transport, but
+                // every instance can be playing or recording at once — that is
+                // what the tabs are for. Without these the player has no way to
+                // see which layers are running except by visiting each tab.
+                isPlaying: entry.player.isPlaying,
+                isRecording: entry.recorder.isRecording,
             });
         }
         return tabs;

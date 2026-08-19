@@ -22,7 +22,8 @@ export class TabBar {
 
     /**
      * Re-render all tabs from the provided list.
-     * @param {Array<{ id: string, name: string, isActive: boolean }>} tabs
+     * @param {Array<{ id: string, name: string, isActive: boolean,
+     *                  isPlaying?: boolean, isRecording?: boolean }>} tabs
      */
     render(tabs) {
         this._tabCount = tabs.length;
@@ -35,6 +36,17 @@ export class TabBar {
             btn.dataset.tabId = tab.id;
 
             // Tab label
+            // A dot for a tab that is doing something, so the state of every layer
+            // is visible from the tab strip rather than only from the tab you
+            // happen to be on. Recording wins over playing: it is the state that
+            // is consuming the take.
+            if (tab.isRecording || tab.isPlaying) {
+                const dot = document.createElement('span');
+                dot.className = 'tab-dot ' + (tab.isRecording ? 'tab-dot-recording' : 'tab-dot-playing');
+                dot.title = tab.isRecording ? 'Recording' : 'Playing';
+                btn.appendChild(dot);
+            }
+
             const label = document.createElement('span');
             label.className = 'tab-label';
             label.textContent = tab.name;
